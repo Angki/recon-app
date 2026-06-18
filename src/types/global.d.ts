@@ -20,6 +20,9 @@ declare global {
       updateTools: () => Promise<void>;
       onUpdateOutput: (callback: (event: any, msg: string) => void) => () => void;
       onUpdateStatus: (callback: (event: any, status: string) => void) => () => void;
+      checkDependencies: () => Promise<any[]>;
+      installDependencies: () => Promise<void>;
+      onInstallProgress: (callback: (event: any, msg: string) => void) => () => void;
       openExternal: (url: string) => Promise<void>;
     }
   }

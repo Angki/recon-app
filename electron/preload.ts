@@ -41,6 +41,14 @@ contextBridge.exposeInMainWorld('api', {
     return () => { ipcRenderer.removeListener('ai:progress', callback); };
   },
 
+  // Dependencies
+  checkDependencies: () => ipcRenderer.invoke('dependency:check'),
+  installDependencies: () => ipcRenderer.invoke('dependency:installAll'),
+  onInstallProgress: (callback: (event: any, msg: string) => void) => {
+    ipcRenderer.on('dependency:installProgress', callback);
+    return () => { ipcRenderer.removeListener('dependency:installProgress', callback); };
+  },
+
   // Updater
   updateTools: () => ipcRenderer.invoke('tools:update'),
   onUpdateOutput: (callback: (event: any, msg: string) => void) => {
@@ -70,6 +78,9 @@ declare global {
       openReportFolder: (scanId: string) => Promise<any>;
       getSettings: () => Promise<any>;
       saveSettings: (settings: any) => Promise<any>;
+      checkDependencies: () => Promise<{name: string, isInstalled: boolean, requiresManual: boolean}[]>;
+      installDependencies: () => Promise<{success: boolean, error?: string}>;
+      onInstallProgress: (callback: (event: any, msg: string) => void) => () => void;
       updateTools: () => Promise<void>;
       onUpdateOutput: (callback: (event: any, msg: string) => void) => () => void;
       onUpdateStatus: (callback: (event: any, status: string) => void) => () => void;

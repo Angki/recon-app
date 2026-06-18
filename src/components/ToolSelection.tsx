@@ -1,7 +1,7 @@
 interface ToolSelectionProps {
   allTools: string[];
   selectedTools: string[];
-  setSelectedTools: React.Dispatch<React.SetStateAction<string[]>>;
+  setSelectedTools: (tools: string[] | ((prev: string[]) => string[])) => void;
   status: string;
 }
 

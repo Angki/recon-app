@@ -2,6 +2,8 @@ import { spawn, ChildProcess, execSync } from 'child_process';
 import { logger } from './logger';
 import { storage } from './storage';
 import { settingsStore } from './settings';
+import { dependencyService } from './dependencyManager';
+import { dbService } from './database';
 import path from 'path';
 const { XMLParser } = require('fast-xml-parser');
 
@@ -113,14 +115,17 @@ export class ScannerService {
 
       // Mapping of tool names to their configured binaries
       const toolBinaries: Record<string, string> = {
-        nuclei: settings.nucleiPath || 'nuclei',
-        wapiti: settings.wapitiPath || 'wapiti',
-        subfinder: settings.subfinderPath || 'subfinder',
-        httpx: settings.httpxPath || 'httpx',
-        nmap: settings.nmapPath || 'nmap',
-        zap: settings.zapPath || 'zap.bat',
-        katana: settings.katanaPath || 'katana',
-        ffuf: settings.ffufPath || 'ffuf',
+        nuclei: settings.nucleiPath || dependencyService.getBinPath('nuclei'),
+        wapiti: settings.wapitiPath || dependencyService.getBinPath('wapiti'),
+        subfinder: settings.subfinderPath || dependencyService.getBinPath('subfinder'),
+        httpx: settings.httpxPath || dependencyService.getBinPath('httpx'),
+        nmap: settings.nmapPath || dependencyService.getBinPath('nmap'),
+        zap: settings.zapPath || dependencyService.getBinPath('zap'),
+        katana: settings.katanaPath || dependencyService.getBinPath('katana'),
+        ffuf: settings.ffufPath || dependencyService.getBinPath('ffuf'),
+        alterx: settings.alterxPath || dependencyService.getBinPath('alterx'),
+        dnsx: settings.dnsxPath || dependencyService.getBinPath('dnsx'),
+        naabu: settings.naabuPath || dependencyService.getBinPath('naabu'),
         appscan: settings.appscanPath || 'C:\\Program Files (x86)\\HCL\\AppScan Standard\\AppScanCMD.exe',
         netsparker: settings.netsparkerPath || path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Invicti Professional Edition', 'Netsparker.exe'),
         acunetix: process.execPath, // We use bundled Electron Node to run the API runner script
@@ -348,6 +353,13 @@ export class ScannerService {
       try {
         const findings = adapter.parseFindings(context);
         if (findings && findings.length > 0) {
+          findings.forEach((finding: any) => {
+            try {
+              dbService.insertFinding(context.scanId, context.scannerName, finding);
+            } catch(e) {
+              logger.error(`Error inserting finding to DB for ${context.scannerName}`, e);
+            }
+          });
           safeSend(context.sender, 'scan:findings', { scanId: context.scanId, scanner: context.scannerName, findings });
         }
       } catch (e: any) {

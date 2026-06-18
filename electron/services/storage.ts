@@ -4,6 +4,7 @@ import os from 'os';
 import { logger } from './logger';
 import { format } from 'date-fns';
 import { shell } from 'electron';
+import { dbService } from './database';
 
 class Mutex {
   private queue: Promise<any> = Promise.resolve();
@@ -34,6 +35,51 @@ export class StorageService {
     if (!fs.existsSync(this.reportsDir)) {
       fs.mkdirSync(this.reportsDir, { recursive: true });
     }
+    this.migrateOldData();
+  }
+
+  private migrateOldData() {
+    if (!fs.existsSync(this.reportsDir)) return;
+    
+    // Check if migration has already been run (by checking if any data exists in DB)
+    const history = dbService.getHistory();
+    if (history.length > 0) return;
+
+    logger.info('Migrating old JSON scan history to SQLite...');
+    const scans = fs.readdirSync(this.reportsDir);
+    
+    for (const scanId of scans) {
+      const metaPath = path.join(this.reportsDir, scanId, 'scan_metadata.json');
+      if (fs.existsSync(metaPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+          dbService.insertScan(
+            meta.scanId || scanId, 
+            meta.target || '', 
+            meta.status || 'UNKNOWN', 
+            meta.startTime || new Date().toISOString(), 
+            meta.config || {}
+          );
+          
+          if (meta.endTime) {
+            dbService.updateScanStatus(meta.scanId || scanId, meta.status, meta.endTime);
+          }
+
+          // Insert scanner statuses
+          for (const key of Object.keys(meta)) {
+            if (key.endsWith('Status')) {
+              const scanner = key.replace('Status', '');
+              if (scanner) {
+                dbService.updateScannerStatus(meta.scanId || scanId, scanner, meta[key]);
+              }
+            }
+          }
+        } catch (e) {
+          logger.error(`Failed to migrate metadata for ${scanId}`, e);
+        }
+      }
+    }
+    logger.info('Migration complete.');
   }
 
   createScanDirectory(domain: string): { scanId: string, scanDir: string, nucleiDir: string, wapitiDir: string } {
@@ -56,6 +102,10 @@ export class StorageService {
   }
 
   async saveMetadata(scanId: string, data: any) {
+    // Save to SQLite
+    dbService.insertScan(scanId, data.target, data.status || 'RUNNING', data.startTime || new Date().toISOString(), data.config || {});
+
+    // Save to JSON for backwards compatibility or output folder completeness
     const filePath = path.join(this.reportsDir, scanId, 'scan_metadata.json');
     return this.getLock(scanId).run(async () => {
       await fsPromises.writeFile(filePath, JSON.stringify(data, null, 2));
@@ -63,24 +113,7 @@ export class StorageService {
   }
 
   getHistory(): any[] {
-    if (!fs.existsSync(this.reportsDir)) return [];
-    
-    const scans = fs.readdirSync(this.reportsDir);
-    const history: any[] = [];
-    
-    for (const scanId of scans) {
-      const metaPath = path.join(this.reportsDir, scanId, 'scan_metadata.json');
-      if (fs.existsSync(metaPath)) {
-        try {
-          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
-          history.push(meta);
-        } catch (e) {
-          logger.error(`Failed to parse metadata for ${scanId}`, e);
-        }
-      }
-    }
-    
-    return history.sort((a, b) => new Date(b.startTime).getTime() - new Date(a.startTime).getTime());
+    return dbService.getHistory();
   }
 
   openFolder(scanId: string) {
@@ -90,10 +123,39 @@ export class StorageService {
     }
   }
 
-  /** Update the status in the persisted metadata file.
+  /** Update the status in the persisted metadata file and SQLite.
    *  If `scanner` is provided, sets e.g. nucleiStatus / wapitiStatus.
    *  Always re-evaluates the overall `status` field. */
   async updateStatus(scanId: string, scanner: string | null, status: string) {
+    // 1. Update SQLite
+    if (scanner) {
+      dbService.updateScannerStatus(scanId, scanner, status);
+    } else {
+      dbService.updateScanStatus(scanId, status, status === 'STOPPED' || status === 'COMPLETED' || status === 'FAILED' ? new Date().toISOString() : undefined);
+    }
+    
+    // Update overall status in SQLite
+    const scan = dbService.getScanById(scanId);
+    if (scan) {
+      const tools: string[] = scan.config?.tools || [];
+      const terminal = ['COMPLETED', 'FAILED', 'STOPPED'];
+      let allTerminal = true;
+      let anyFailed = false;
+
+      for (const t of tools) {
+        const tStatus = (scan as any)[`${t}Status`] || 'RUNNING';
+        if (!terminal.includes(tStatus)) allTerminal = false;
+        if (tStatus === 'FAILED') anyFailed = true;
+      }
+
+      if (status === 'STOPPED') {
+        dbService.updateScanStatus(scanId, 'STOPPED', new Date().toISOString());
+      } else if (allTerminal && tools.length > 0) {
+        dbService.updateScanStatus(scanId, anyFailed ? 'FAILED' : 'COMPLETED', new Date().toISOString());
+      }
+    }
+
+    // 2. Update JSON for output folder completeness
     const metaPath = path.join(this.reportsDir, scanId, 'scan_metadata.json');
     if (!fs.existsSync(metaPath)) return;
 
@@ -105,7 +167,6 @@ export class StorageService {
           meta[`${scanner}Status`] = status;
         }
 
-        // Derive overall status from individual scanner statuses dynamically
         const tools: string[] = meta.config?.tools || [];
         const terminal = ['COMPLETED', 'FAILED', 'STOPPED'];
         let allTerminal = true;
@@ -113,12 +174,8 @@ export class StorageService {
 
         for (const t of tools) {
           const tStatus = meta[`${t}Status`] || 'RUNNING';
-          if (!terminal.includes(tStatus)) {
-            allTerminal = false;
-          }
-          if (tStatus === 'FAILED') {
-            anyFailed = true;
-          }
+          if (!terminal.includes(tStatus)) allTerminal = false;
+          if (tStatus === 'FAILED') anyFailed = true;
         }
 
         if (status === 'STOPPED') {

@@ -5,10 +5,25 @@ import { storage } from './services/storage';
 import { settingsStore } from './services/settings';
 import { aiService } from './services/aiService';
 
+import { dependencyService, DEPENDENCIES } from './services/dependencyManager';
+
 export const scannerService = new ScannerService();
 
 ipcMain.handle('tools:update', async (event) => {
   return await updaterService.updateTools(event.sender);
+});
+
+ipcMain.handle('dependency:check', async () => {
+  return DEPENDENCIES.map(tool => ({
+    name: tool.name,
+    isInstalled: dependencyService.isInstalled(tool.name),
+    requiresManual: !!tool.requiresManual
+  }));
+});
+
+ipcMain.handle('dependency:installAll', async (event) => {
+  await dependencyService.checkAndInstallAll(event.sender);
+  return { success: true };
 });
 
 ipcMain.handle('scan:start', async (event, targetUrl, config) => {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { RefreshCw, X, ShieldAlert, Loader2 } from 'lucide-react';
 import TerminalPane from '../components/TerminalPane';
 import VulnerabilityTable from '../components/VulnerabilityTable';
@@ -6,72 +6,45 @@ import ScannerControls from '../components/ScannerControls';
 import ToolSelection from '../components/ToolSelection';
 import FindingsSummary from '../components/FindingsSummary';
 import type { Vulnerability } from '../types/vulnerability';
-
-interface FindingsCount {
-  info: number;
-  low: number;
-  medium: number;
-  high: number;
-  critical: number;
-}
+import { useScanStore } from '../stores/useScanStore';
+import type { ScannerType, ScannerStatus } from '../stores/useScanStore';
+import { useConfigStore } from '../stores/useConfigStore';
+import { useLogStore } from '../stores/useLogStore';
 
 export default function Dashboard() {
-  const [targetUrl, setTargetUrl] = useState('https://makassarkota.go.id');
-  const [scanId, setScanId] = useState<string | null>(null);
-  type ScannerType = 'nuclei' | 'wapiti' | 'subfinder' | 'httpx' | 'nmap' | 'zap' | 'katana' | 'ffuf' | 'alterx' | 'dnsx' | 'naabu' | 'tlsx' | 'appscan' | 'netsparker' | 'acunetix' | 'pdiscovery' | 'wpscan';
-  type ScannerStatus = 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'STOPPED';
-  const tabs: (ScannerType | 'findings' | 'ai')[] = ['findings', 'ai', 'nuclei', 'wapiti', 'wpscan', 'pdiscovery', 'nmap', 'zap', 'ffuf', 'appscan', 'netsparker', 'acunetix'];
-  const [activeTab, setActiveTab] = useState<ScannerType | 'findings' | 'ai'>('nuclei');
-  const [isWordpressScan, setIsWordpressScan] = useState(false);
-  
-  const allTools = ['nuclei', 'wapiti', 'wpscan', 'subfinder', 'alterx', 'dnsx', 'naabu', 'tlsx', 'httpx', 'nmap', 'zap', 'katana', 'ffuf', 'appscan', 'netsparker', 'acunetix'];
-  const [selectedTools, setSelectedTools] = useState<string[]>(allTools);
+  const {
+    targetUrl, setTargetUrl,
+    scanId, setScanId,
+    activeTab, setActiveTab,
+    isWordpressScan, setIsWordpressScan,
+    selectedTools, setSelectedTools,
+    status, setStatus,
+    scannerStatus, setScannerStatus,
+    allFindings, setAllFindings,
+    nucleiFindings, setNucleiFindings,
+    wapitiVulns, setWapitiVulns,
+    wapitiPages, setWapitiPages,
+  } = useScanStore();
 
-  // Statuses
-  const [status, setStatus] = useState('IDLE');
-  const [scannerStatus, setScannerStatus] = useState<Record<ScannerType, string>>({
-    nuclei: 'IDLE',
-    wapiti: 'IDLE',
-    subfinder: 'IDLE',
-    alterx: 'IDLE',
-    dnsx: 'IDLE',
-    naabu: 'IDLE',
-    tlsx: 'IDLE',
-    httpx: 'IDLE',
-    nmap: 'IDLE',
-    zap: 'IDLE',
-    katana: 'IDLE',
-    ffuf: 'IDLE',
-    appscan: 'IDLE',
-    netsparker: 'IDLE',
-    acunetix: 'IDLE',
-    wpscan: 'IDLE',
-    pdiscovery: 'IDLE',
-  });
+  const {
+    dependencies, setDependencies,
+    showDependencyModal, setShowDependencyModal,
+    isInstallingDependencies, setIsInstallingDependencies,
+    dependencyLogs, setDependencyLogs,
+    isUpdating, setIsUpdating,
+    updateLogs, setUpdateLogs,
+    showUpdateModal, setShowUpdateModal,
+  } = useConfigStore();
 
-  const [nucleiFindings, setNucleiFindings] = useState<FindingsCount>({ info: 0, low: 0, medium: 0, high: 0, critical: 0 });
-  const [wapitiVulns, setWapitiVulns] = useState(0);
-  const [wapitiPages, setWapitiPages] = useState(0);
+  const {
+    appendRawLogs, clearRawLogs,
+    aiResponse, setAiResponse,
+    isAnalyzing, setIsAnalyzing,
+    aiProgressMsg, setAiProgressMsg,
+  } = useLogStore();
 
-  // Updater states
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [updateLogs, setUpdateLogs] = useState<string[]>([]);
-  const [showUpdateModal, setShowUpdateModal] = useState(false);
-
-  // Unified Findings
-  const [allFindings, setAllFindings] = useState<Vulnerability[]>([]);
-
-  // Raw logs for AI copy
-  const rawLogsRef = useRef<string>('');
-
-  // AI State
-  const [aiResponse, setAiResponse] = useState<string>('');
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [aiProgressMsg, setAiProgressMsg] = useState<string>('Analyzing logs with AI... This might take a minute depending on the log size.');
-
-  // Use refs to track scanner statuses without re-subscribing the listener
-  const statusRef = useRef(scannerStatus);
-  statusRef.current = scannerStatus;
+  const allToolsArray = ['nuclei', 'wapiti', 'wpscan', 'subfinder', 'alterx', 'dnsx', 'naabu', 'tlsx', 'httpx', 'nmap', 'zap', 'katana', 'ffuf', 'appscan', 'netsparker', 'acunetix'];
+  const tabs = ['findings', 'ai', 'nuclei', 'wapiti', 'wpscan', 'pdiscovery', 'nmap', 'zap', 'ffuf', 'appscan', 'netsparker', 'acunetix'];
 
   // Scan output and stats listeners
   useEffect(() => {
@@ -79,19 +52,19 @@ export default function Dashboard() {
 
     const handleOutput = (_event: any, data: { scanId: string; scanner: string; type: string; message: string }) => {
       if (data.scanId !== scanId) return;
-      rawLogsRef.current += `[${data.scanner.toUpperCase()}] ${data.message}\n`;
+      useLogStore.getState().appendRawLogs(`[${data.scanner.toUpperCase()}] ${data.message}\n`);
     };
 
     const handleStats = (_event: any, data: { scanId: string; stats: any }) => {
       if (data.scanId !== scanId) return;
-      setNucleiFindings(data.stats.nuclei);
-      setWapitiVulns(data.stats.wapiti.vulns);
-      setWapitiPages(data.stats.wapiti.pages);
+      useScanStore.getState().setNucleiFindings(data.stats.nuclei);
+      useScanStore.getState().setWapitiVulns(data.stats.wapiti.vulns);
+      useScanStore.getState().setWapitiPages(data.stats.wapiti.pages);
     };
 
     const removeOutputListener = window.api.onScanOutput(handleOutput);
     const removeStatsListener = window.api.onScanStats(handleStats);
-    const removeAiProgress = window.api.onAiProgress((_e, msg) => setAiProgressMsg(msg));
+    const removeAiProgress = window.api.onAiProgress((_e, msg) => useLogStore.getState().setAiProgressMsg(msg));
     
     return () => {
       removeOutputListener();
@@ -100,7 +73,7 @@ export default function Dashboard() {
     };
   }, [scanId]);
 
-  // Scan status listener — stable reference, uses refs for status
+  // Scan status listener
   useEffect(() => {
     if (!scanId || !window.api) return;
 
@@ -108,7 +81,7 @@ export default function Dashboard() {
       if (data.scanId !== scanId) return;
       const scanner = data.scanner as ScannerType;
 
-      setScannerStatus(prev => {
+      useScanStore.getState().setScannerStatus(prev => {
         const next = { ...prev, [scanner]: data.status };
         // Aggregate pdiscovery status
         const pdTools = ['subfinder', 'httpx', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'];
@@ -118,29 +91,24 @@ export default function Dashboard() {
           else if (pdStatuses.some(s => s === 'RUNNING')) next.pdiscovery = 'RUNNING';
           else if (pdStatuses.every(s => ['COMPLETED', 'IDLE', 'STOPPED'].includes(s))) next.pdiscovery = 'COMPLETED';
         }
-        statusRef.current = next; // Update ref immediately to be used globally below
+        
+        // Check if all requested tools are done
+        const terminal = ['COMPLETED', 'FAILED', 'STOPPED', 'IDLE'];
+        const allDone = Object.values(next).every(s => terminal.includes(s as string));
+        const anyFailed = Object.values(next).some(s => s === 'FAILED');
+
+        const currentStatus = useScanStore.getState().status;
+        if (allDone && currentStatus !== 'IDLE') {
+          useScanStore.getState().setStatus(anyFailed ? 'FAILED' : 'COMPLETED');
+        }
+
         return next;
       });
-
-      // Check if all requested tools are done
-      // For simplicity, we assume we're running all 5 by default or those requested.
-      // If any is FAILED, we might fail overall, or just when all are terminal.
-      const terminal = ['COMPLETED', 'FAILED', 'STOPPED', 'IDLE']; // IDLE if not requested
-
-      const allDone = Object.values(statusRef.current).every(s => terminal.includes(s));
-      const anyFailed = Object.values(statusRef.current).some(s => s === 'FAILED');
-
-      // Only transition to COMPLETED if previously RUNNING or similar
-      if (allDone && status !== 'IDLE') {
-        setStatus(anyFailed ? 'FAILED' : 'COMPLETED');
-      }
     };
 
     const handleFindings = (_event: any, data: { scanId: string; scanner: string; findings: Vulnerability[] }) => {
       if (data.scanId !== scanId) return;
-      setAllFindings(prev => [...prev, ...data.findings]);
-
-      // We can also auto-switch to findings tab if criticals are found, but let's keep it manual
+      useScanStore.getState().setAllFindings(prev => [...prev, ...data.findings]);
     };
 
     const removeStatusListener = window.api.onScanStatus(handleStatus);
@@ -150,19 +118,19 @@ export default function Dashboard() {
       removeStatusListener();
       removeFindingsListener();
     };
-  }, [scanId, status]);
+  }, [scanId]);
 
   // Updater listeners
   useEffect(() => {
     if (!window.api) return;
 
     const handleUpdateOutput = (_event: any, msg: string) => {
-      setUpdateLogs(prev => [...prev, msg]);
+      useConfigStore.getState().setUpdateLogs(prev => [...prev, msg]);
     };
 
     const handleUpdateStatus = (_event: any, newStatus: string) => {
       if (newStatus === 'DONE' || newStatus === 'ERROR') {
-        setIsUpdating(false);
+        useConfigStore.getState().setIsUpdating(false);
       }
     };
 
@@ -174,6 +142,47 @@ export default function Dashboard() {
       removeStatus();
     };
   }, []);
+
+  // Dependency checkers
+  useEffect(() => {
+    if (!window.api) return;
+    
+    // Initial check
+    window.api.checkDependencies().then(deps => {
+      useConfigStore.getState().setDependencies(deps);
+      const missing = deps.filter(d => !d.isInstalled);
+      if (missing.length > 0) {
+        useConfigStore.getState().setShowDependencyModal(true);
+      }
+    });
+
+    // Listen to progress
+    const removeInstallProgress = window.api.onInstallProgress((_e, msg) => {
+      useConfigStore.getState().setDependencyLogs(prev => [...prev, msg]);
+    });
+
+    return () => {
+      removeInstallProgress();
+    };
+  }, []);
+
+  const handleInstallDependencies = async () => {
+    setIsInstallingDependencies(true);
+    setDependencyLogs([]);
+    try {
+      await window.api.installDependencies();
+      // Re-check
+      const deps = await window.api.checkDependencies();
+      setDependencies(deps);
+      // Wait for 1.5s to show completion before possibly allowing close
+      setTimeout(() => {
+        setIsInstallingDependencies(false);
+      }, 1500);
+    } catch (err: any) {
+      setDependencyLogs(prev => [...prev, `Error: ${err.message}`]);
+      setIsInstallingDependencies(false);
+    }
+  };
 
   const validateUrl = (url: string) => {
     try {
@@ -204,7 +213,8 @@ export default function Dashboard() {
     setWapitiVulns(0);
     setWapitiPages(0);
     setAllFindings([]);
-    rawLogsRef.current = `Scan started against ${finalUrl} at ${new Date().toISOString()}\n\n`;
+    clearRawLogs();
+    appendRawLogs(`Scan started against ${finalUrl} at ${new Date().toISOString()}\n\n`);
 
     setStatus('STARTING');
     const initialStatus: Record<ScannerType, ScannerStatus> = {
@@ -234,23 +244,9 @@ export default function Dashboard() {
         alert('Failed to start scan: ' + res.error);
         setStatus('FAILED');
         setScannerStatus({
-          nuclei: 'IDLE',
-          wapiti: 'IDLE',
-          subfinder: 'IDLE',
-          alterx: 'IDLE',
-          dnsx: 'IDLE',
-          naabu: 'IDLE',
-          tlsx: 'IDLE',
-          httpx: 'IDLE',
-          nmap: 'IDLE',
-          zap: 'IDLE',
-          katana: 'IDLE',
-          ffuf: 'IDLE',
-          appscan: 'IDLE',
-          netsparker: 'IDLE',
-          acunetix: 'IDLE',
-          wpscan: 'IDLE',
-          pdiscovery: 'IDLE',
+          nuclei: 'IDLE', wapiti: 'IDLE', subfinder: 'IDLE', alterx: 'IDLE', dnsx: 'IDLE', naabu: 'IDLE',
+          tlsx: 'IDLE', httpx: 'IDLE', nmap: 'IDLE', zap: 'IDLE', katana: 'IDLE', ffuf: 'IDLE',
+          appscan: 'IDLE', netsparker: 'IDLE', acunetix: 'IDLE', wpscan: 'IDLE', pdiscovery: 'IDLE',
         });
       }
     } catch (e: any) {
@@ -280,17 +276,19 @@ export default function Dashboard() {
   };
 
   const handleCopyLogsForAI = () => {
-    if (!rawLogsRef.current) {
+    const logs = useLogStore.getState().rawLogs;
+    if (!logs) {
       alert('No logs available yet.');
       return;
     }
-    const contextText = `# SecOps Recon Scan Logs\n\nTarget: ${targetUrl}\nStatus: ${status}\n\n## Terminal Output\n\`\`\`\n${rawLogsRef.current}\n\`\`\`\n`;
+    const contextText = `# SecOps Recon Scan Logs\n\nTarget: ${targetUrl}\nStatus: ${status}\n\n## Terminal Output\n\`\`\`\n${logs}\n\`\`\`\n`;
     navigator.clipboard.writeText(contextText);
     alert('Full scan logs copied! You can now paste this to your AI agent.');
   };
 
   const handleAnalyzeAI = async () => {
-    if (!rawLogsRef.current) {
+    const logs = useLogStore.getState().rawLogs;
+    if (!logs) {
       alert('No logs available to analyze.');
       return;
     }
@@ -301,7 +299,7 @@ export default function Dashboard() {
 
     try {
       const prompt = `You are a cybersecurity expert. Analyze these automated scan logs for ${targetUrl}. Summarize the vulnerabilities, state the most critical risks, and suggest remediation steps. Provide a clear, actionable executive summary.`;
-      const response = await window.api.analyzeLogs(rawLogsRef.current, prompt);
+      const response = await window.api.analyzeLogs(logs, prompt);
       setAiResponse(response);
     } catch (err: any) {
       let msg = err.message;
@@ -328,7 +326,6 @@ export default function Dashboard() {
     }
   };
 
-
   return (
     <div className="flex flex-col h-full space-y-4">
       {/* Header Controls */}
@@ -344,7 +341,7 @@ export default function Dashboard() {
 
       {/* Tool Selection */}
       <ToolSelection
-        allTools={allTools} selectedTools={selectedTools}
+        allTools={allToolsArray} selectedTools={selectedTools}
         setSelectedTools={setSelectedTools} status={status}
       />
 
@@ -432,7 +429,7 @@ export default function Dashboard() {
             <div className="p-4 bg-slate-950 flex-1 overflow-y-auto font-mono text-sm space-y-1">
               {updateLogs.length === 0 && <div className="text-slate-500">Initializing update...</div>}
               {updateLogs.map((log, idx) => (
-                <div key={idx} className="text-slate-300 break-words">{log}</div>
+               <div key={idx} className="text-slate-300 break-words">{log}</div>
               ))}
             </div>
 
@@ -443,6 +440,101 @@ export default function Dashboard() {
               >
                 {isUpdating ? 'Hide' : 'Close'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dependency Tools Modal */}
+      {showDependencyModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
+          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="p-4 border-b border-slate-700 flex items-center justify-between bg-slate-900">
+              <h2 className="text-lg font-semibold text-slate-200 flex items-center space-x-2">
+                <ShieldAlert className="w-5 h-5 text-amber-500" />
+                <span>Missing Dependencies</span>
+              </h2>
+              {(!isInstallingDependencies) && (
+                <button
+                  onClick={() => setShowDependencyModal(false)}
+                  className="text-slate-400 hover:text-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              )}
+            </div>
+
+            <div className="p-6 bg-slate-900 overflow-y-auto">
+              <p className="text-slate-300 mb-4">
+                Some security tools required for the scan are missing.
+              </p>
+
+              {/* Automatic Tools */}
+              {dependencies.filter(d => !d.isInstalled && !d.requiresManual).length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-sm font-semibold text-emerald-400 uppercase tracking-wider mb-2">Can be installed automatically</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {dependencies.filter(d => !d.isInstalled && !d.requiresManual).map(d => (
+                      <span key={d.name} className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-sm">
+                        {d.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Manual Tools */}
+              {dependencies.filter(d => !d.isInstalled && d.requiresManual).length > 0 && (
+                <div className="mb-6">
+                  <h3 className="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-2">Requires manual installation</h3>
+                  <div className="flex flex-wrap gap-2">
+                    {dependencies.filter(d => !d.isInstalled && d.requiresManual).map(d => (
+                      <span key={d.name} className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full text-sm">
+                        {d.name}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-xs text-slate-500 mt-2">
+                    Tools like Nmap (requires Npcap), ZAP (requires Java), and Wapiti (requires Python) must be installed manually.
+                  </p>
+                </div>
+              )}
+
+              {/* Installation Logs */}
+              {dependencyLogs.length > 0 && (
+                <div className="mt-4 bg-slate-950 p-4 rounded-lg font-mono text-xs text-slate-300 h-32 overflow-y-auto border border-slate-800 space-y-1">
+                  {dependencyLogs.map((log, idx) => (
+                    <div key={idx} className="break-words">{log}</div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-700 bg-slate-900 flex justify-end space-x-3">
+              <button
+                onClick={() => setShowDependencyModal(false)}
+                disabled={isInstallingDependencies}
+                className="px-6 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+              >
+                Skip for now
+              </button>
+              
+              {dependencies.some(d => !d.isInstalled && !d.requiresManual) && (
+                <button
+                  onClick={handleInstallDependencies}
+                  disabled={isInstallingDependencies}
+                  className="flex items-center space-x-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors shadow-lg shadow-blue-900/20"
+                >
+                  {isInstallingDependencies ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Installing...</span>
+                    </>
+                  ) : (
+                    <span>Install Automatic Tools</span>
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

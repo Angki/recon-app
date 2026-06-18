@@ -16,6 +16,8 @@
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.60.0",
     "@tailwindcss/vite": "^4.3.0",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/extract-zip": "^2.0.0",
     "@types/node": "^24.13.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -66,7 +68,9 @@
       {
         "from": "electron/scripts",
         "to": "scripts",
-        "filter": ["**/*"]
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "win": {
@@ -75,5 +79,11 @@
         "portable"
       ]
     }
+  },
+  "dependencies": {
+    "axios": "^1.18.0",
+    "better-sqlite3": "^12.11.1",
+    "extract-zip": "^2.0.1",
+    "zustand": "^5.0.14"
   }
 }
