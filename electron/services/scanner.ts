@@ -198,155 +198,53 @@ export class ScannerService {
     const jsonFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.json`);
     const xmlFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.xml`);
 
-    let args: string[] = [];
-    
-    // Check if wordpress scan is requested
-    const isWordpress = config?.isWordpress;
-    
-    // Configure arguments based on the tool
-    switch(scannerName) {
-      case 'nuclei':
-        // -je outputs JSON export to a file, keeping stdout human-readable
-        let nucleiArgs = ['-u', targetUrl, '-severity', 'info,low,medium,high,critical', '-stats', '-duc', '-ni', '-v', '-o', outputFile, '-je', jsonFile];
-        if (isWordpress) {
-          nucleiArgs.splice(2, 0, '-tags', 'wordpress,wp-plugin,wp-theme');
-        }
-        if (settingsStore.get().nucleiTemplatesPath) {
-          nucleiArgs.push('-t', settingsStore.get().nucleiTemplatesPath as string);
-        }
-        args = nucleiArgs;
-        break;
-      case 'wapiti':
-        args = ['-u', targetUrl, '-l', '2', '-v', '2', '-f', 'json', '-dr', '2', '-o', jsonFile];
-        break;
-      case 'subfinder':
-        args = ['-d', domain, '-json', '-o', jsonFile];
-        break;
-      case 'alterx':
-        args = ['-o', outputFile]; // Domain will be sent via stdin
-        break;
-      case 'dnsx':
-        args = ['-json', '-o', jsonFile]; // Domain will be sent via stdin
-        break;
-      case 'naabu':
-        args = ['-host', domain, '-top-ports', '100', '-json', '-o', jsonFile];
-        break;
-      case 'tlsx':
-        args = ['-u', domain, '-json', '-o', jsonFile];
-        break;
-      case 'httpx':
-        args = ['-u', targetUrl, '-title', '-tech-detect', '-status-code', '-json', '-o', jsonFile];
-        break;
-      case 'nmap':
-        args = ['-sV', '-sC', domain, '-oN', outputFile];
-        break;
-      case 'zap':
-        const zapHome = path.join(outDir, `zap_home_${timestamp}`);
-        if (!fs.existsSync(zapHome)) fs.mkdirSync(zapHome, { recursive: true });
-        args = ['-cmd', '-quickurl', targetUrl, '-quickout', jsonFile, '-quickprogress', '-dir', zapHome];
-        break;
-      case 'wpscan':
-        // Docker volume mapping for output
-        args = [
-          'run', '--rm', 
-          '-v', `${outDir}:/mnt`, 
-          'wpscanteam/wpscan', 
-          '--url', targetUrl, 
-          '-f', 'cli-no-color',
-          '-f', 'json', 
-          '-o', `/mnt/${path.basename(jsonFile)}`,
-          '--random-user-agent',
-          '--force',
-          '--disable-tls-checks'
-        ];
-        if (settingsStore.get().wpscanApiToken) {
-          args.push('--api-token', settingsStore.get().wpscanApiToken as string);
-        }
-        break;
-      case 'katana':
-        args = ['-u', targetUrl, '-j', '-o', jsonFile];
-        break;
-      case 'ffuf':
-        const wordlist = settingsStore.get().wordlistPath ? path.resolve(process.cwd(), settingsStore.get().wordlistPath as string) : 'C:\\wordlists\\common.txt';
-        if (!fs.existsSync(wordlist)) {
-          setTimeout(() => {
-            safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stderr', message: `[ERROR] Wordlist not found at ${wordlist}. Please configure Wordlist Path in Settings.` });
-            storage.updateStatus(scanId, scannerName, 'FAILED');
-            safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'FAILED' });
-          }, 500);
-          return;
-        }
-        args = ['-u', `${targetUrl}/FUZZ`, '-w', wordlist, '-v', '-o', jsonFile, '-of', 'json'];
-        break;
-      case 'appscan':
-        args = ['exec', '/su', targetUrl, '/dest', path.join(outDir, `appscan_${timestamp}.scan`), '/rf', xmlFile, '/rt', 'xml', '/v'];
-        break;
-      case 'netsparker':
-        args = ['/a', '/url', targetUrl, '/r', xmlFile, '/silent'];
-        break;
-      case 'acunetix':
-        const isPackaged = require('electron').app.isPackaged;
-        const runnerPath = isPackaged
-          ? path.join(process.resourcesPath, 'scripts', 'acunetix_runner.js')
-          : path.join(process.cwd(), 'electron', 'scripts', 'acunetix_runner.js');
-        const s = settingsStore.get();
-        const acunetixUrl = s.acunetixUrl || 'https://127.0.0.1:13443';
-        const acunetixProfileId = s.acunetixProfileId || '11111111-1111-1111-1111-111111111111';
-        args = [runnerPath, targetUrl, jsonFile, xmlFile, acunetixUrl, '', acunetixProfileId];
-        break;
-      default:
-        args = [targetUrl];
-    }
+    const adapter = require('./scanners/registry').getAdapter(scannerName);
+    const context = {
+      scanId, targetUrl, domain, scannerName, bin, outDir, config,
+      timestamp, outputFile, jsonFile, xmlFile, sender,
+      settings: settingsStore.get()
+    };
 
+    const args = adapter.getCommandArgs(context);
+    
     let env = { ...process.env };
-    if (scannerName === 'wapiti') {
-      env.PYTHONIOENCODING = 'utf-8';
-    } else if (scannerName === 'acunetix') {
-      env.ELECTRON_RUN_AS_NODE = '1';
-      const s = settingsStore.get();
-      if (s.acunetixApiKey) env.ACUNETIX_API_KEY = s.acunetixApiKey;
-      if (s.acunetixEmail) env.ACUNETIX_EMAIL = s.acunetixEmail;
-      if (s.acunetixPassword) env.ACUNETIX_PASSWORD = s.acunetixPassword;
+    if (adapter.getEnv) {
+      env = adapter.getEnv(context, env);
     }
-    const isBat = bin.toLowerCase().endsWith('.bat') || bin.toLowerCase().endsWith('.cmd');
     
-    // ZAP needs to run in its own directory on Windows to find its JAR file
-    const cwd = scannerName === 'zap' ? path.dirname(bin) : process.cwd();
-    
-    // To avoid cmd.exe parsing issues with spaces in absolute paths (e.g. C:\Program Files\...)
-    // we just use the filename since we are already in that directory for ZAP.
-    const executable = (scannerName === 'zap' && isBat) ? path.basename(bin) : bin;
-    
-    let spawnExecutable = executable;
-    let spawnArgs = args;
+    let executable = bin;
     let useShell = false;
+    let cwd = process.cwd();
+    let spawnArgs = args;
 
-    if (scannerName === 'netsparker') {
-      spawnExecutable = 'powershell.exe';
-      const script = `Start-Process -Wait -NoNewWindow -FilePath '${executable}' -ArgumentList ${args.map(a => `'${a.replace(/'/g, "''")}'`).join(', ')}`;
-      const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
-      spawnArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedScript];
-    } else if (isBat && process.platform === 'win32') {
-      spawnExecutable = process.env.comspec || 'cmd.exe';
-      spawnArgs = ['/c', executable, ...args];
-      useShell = false;
+    const isBat = bin.toLowerCase().endsWith('.bat') || bin.toLowerCase().endsWith('.cmd');
+    if (isBat && process.platform === 'win32') {
+      executable = process.env.comspec || 'cmd.exe';
+      spawnArgs = ['/c', path.basename(bin), ...args];
+      cwd = path.dirname(bin);
     } else if (isBat) {
-      // Fallback for non-Windows executing .bat (rare, usually via Wine/mono but just in case)
       useShell = true;
     }
-    
-    // Disable shell execution entirely on Windows unless strictly necessary
-    const processInstance = spawn(spawnExecutable, spawnArgs, { 
+
+    if (adapter.getProcessOptions) {
+      const opts = adapter.getProcessOptions(context, { executable, args: spawnArgs, useShell, cwd });
+      executable = opts.executable;
+      spawnArgs = opts.args;
+      useShell = opts.useShell;
+      if (opts.cwd) cwd = opts.cwd;
+    }
+
+    const processInstance = spawn(executable, spawnArgs, { 
       env, 
       cwd, 
       shell: useShell,
       windowsVerbatimArguments: false 
     });
     
-    if (processInstance.stdin) {
-      if (['alterx', 'dnsx'].includes(scannerName)) {
-        processInstance.stdin.write(domain + '\n');
-      }
+    if (processInstance.stdin && adapter.handleStdin) {
+      adapter.handleStdin(context, processInstance);
+    }
+    if (processInstance.stdin && !processInstance.stdin.writableEnded) {
       processInstance.stdin.end();
     }
 
@@ -358,35 +256,8 @@ export class ScannerService {
       stdoutBatcher.send(sender, scanId, scannerName, 'stdout', msg);
       
       const stats = this.scanStats.get(scanId);
-      if (stats) {
-        if (scannerName === 'nuclei') {
-          const cleanMsg = msg.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
-          const lines = cleanMsg.split('\n');
-          for (const line of lines) {
-            const sev = line.match(/\[(info|low|medium|high|critical)\]/i);
-            if (sev && !line.includes('[WRN]') && !line.includes('[DBG]') && !line.includes('[VER]')) {
-              const key = sev[1].toLowerCase() as keyof typeof stats.nuclei;
-              stats.nuclei[key]++;
-            }
-          }
-        } else if (scannerName === 'wapiti') {
-          const cleanMsg = msg.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
-          const urlsMatch = cleanMsg.match(/found (\d+) URLs/);
-          if (urlsMatch) {
-            stats.wapiti.pages = parseInt(urlsMatch[1]);
-          }
-          if (cleanMsg.includes('vulnerability found in')) {
-            stats.wapiti.vulns++;
-          } else {
-            const vulnPatterns = [/\[\+\] .*vulnerability found/, /\[!!\]/];
-            for (const pat of vulnPatterns) {
-              if (pat.test(cleanMsg) && !cleanMsg.includes('vulnerability found in')) {
-                stats.wapiti.vulns++;
-                break;
-              }
-            }
-          }
-        }
+      if (stats && adapter.processStdout) {
+        adapter.processStdout(context, msg, stats);
       }
     });
 
@@ -428,7 +299,7 @@ export class ScannerService {
       }
 
       // Attempt to parse findings if they exist
-      this.parseAndSendFindings(sender, scanId, scannerName, jsonFile, outputFile, xmlFile);
+      this.parseAndSendFindings(context, adapter);
 
       // Clean up interval if this was the last active process for the scan
       const scanSession = this.activeScans.get(scanId);
@@ -472,349 +343,16 @@ export class ScannerService {
     return { success: false, error: 'Scan not found' };
   }
 
-  private parseAndSendFindings(sender: Electron.WebContents, scanId: string, scannerName: string, jsonFile: string, outputFile: string, xmlFile?: string) {
-    if (!fs.existsSync(jsonFile) && !fs.existsSync(outputFile) && (!xmlFile || !fs.existsSync(xmlFile))) return;
-    try {
-      if (scannerName === 'appscan' && xmlFile && fs.existsSync(xmlFile)) {
-        const content = fs.readFileSync(xmlFile, 'utf-8');
-        const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
-        const data = parser.parse(content);
-        const findings: any[] = [];
-        
-        // AppScan XML structure usually has XmlReport -> AppScanInfo -> Issues -> Issue
-        const issues = data?.XmlReport?.Issues?.Issue || data?.Issues?.Issue || [];
-        const issuesArray = Array.isArray(issues) ? issues : [issues];
-        
-        for (const issue of issuesArray) {
-          if (!issue) continue;
-          findings.push({
-            id: issue['@_IssueTypeID'] || 'appscan-finding',
-            name: issue.IssueType?.name || issue['@_IssueType'] || 'AppScan Finding',
-            severity: issue['@_Severity']?.toLowerCase() || 'medium',
-            scanner: 'appscan',
-            url: issue.Entity?.name || issue['@_Url'] || '',
-            description: issue.Variant?.[0]?.Difference || issue.Difference || '',
-            timestamp: new Date().toISOString(),
-          });
+  private parseAndSendFindings(context: any, adapter: any) {
+    if (adapter.parseFindings) {
+      try {
+        const findings = adapter.parseFindings(context);
+        if (findings && findings.length > 0) {
+          safeSend(context.sender, 'scan:findings', { scanId: context.scanId, scanner: context.scannerName, findings });
         }
-        safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (scannerName === 'netsparker' && xmlFile && fs.existsSync(xmlFile)) {
-        const content = fs.readFileSync(xmlFile, 'utf-8');
-        const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
-        const data = parser.parse(content);
-        const findings: any[] = [];
-        
-        // Netsparker XML structure usually has vulnerabilities -> vulnerability
-        const vulns = data?.netsparker?.vulnerabilities?.vulnerability || data?.vulnerabilities?.vulnerability || [];
-        const vulnsArray = Array.isArray(vulns) ? vulns : [vulns];
-        
-        for (const vuln of vulnsArray) {
-          if (!vuln) continue;
-          findings.push({
-            id: vuln.type || 'netsparker-finding',
-            name: vuln.name || 'Netsparker Finding',
-            severity: vuln.severity?.toLowerCase() || 'medium',
-            scanner: 'netsparker',
-            url: vuln.url || '',
-            description: vuln.description || '',
-            timestamp: new Date().toISOString(),
-          });
-        }
-        safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (scannerName === 'acunetix') {
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        const vulns = JSON.parse(content);
-        const findings: any[] = [];
-        for (const vuln of vulns) {
-          if (!vuln) continue;
-          let severity = 'info';
-          if (vuln.severity === 3) severity = 'high';
-          else if (vuln.severity === 2) severity = 'medium';
-          else if (vuln.severity === 1) severity = 'low';
-
-          findings.push({
-            id: vuln.vt_id || vuln.vuln_id || 'acunetix-finding',
-            name: vuln.vt_name || 'Acunetix Finding',
-            severity: severity,
-            scanner: 'acunetix',
-            url: vuln.affects_url || vuln.affects_detail || '',
-            description: vuln.tags ? vuln.tags.join(', ') : '',
-            timestamp: new Date().toISOString(),
-          });
-        }
-        safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (scannerName === 'nuclei') {
-        // Nuclei output is line-delimited JSON
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        const findings: any[] = [];
-        const lines = content.split('\n').filter(l => l.trim() !== '');
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            findings.push({
-              id: data['template-id'] || 'nuclei-finding',
-              name: data.info?.name || 'Unknown',
-              severity: data.info?.severity || 'info',
-              scanner: 'nuclei',
-              url: data['matched-at'] || data.host || '',
-              description: data.info?.description || '',
-              timestamp: data.timestamp || new Date().toISOString(),
-            });
-          } catch (e) { /* ignore parse error for a single line */ }
-        }
-        safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (scannerName === 'wapiti') {
-        // Wapiti output is a single JSON object
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        const data = JSON.parse(content);
-        const findings: any[] = [];
-        
-        if (data.vulnerabilities) {
-          for (const [vulnType, vulns] of Object.entries(data.vulnerabilities)) {
-            const vulnArray = vulns as any[];
-            for (const v of vulnArray) {
-              findings.push({
-                id: vulnType,
-                name: vulnType,
-                severity: v.level === 1 ? 'low' : v.level === 2 ? 'medium' : 'high', // Wapiti levels: 1, 2, 3
-                scanner: 'wapiti',
-                url: v.path || '',
-                description: v.info || '',
-                timestamp: new Date().toISOString(),
-              });
-            }
-          }
-        }
-        safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (['naabu', 'dnsx', 'tlsx', 'subfinder', 'httpx'].includes(scannerName)) {
-        if (!fs.existsSync(jsonFile)) return;
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        const findings: any[] = [];
-        const lines = content.split('\n').filter(l => l.trim() !== '');
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            findings.push({
-              id: `${scannerName}-finding`,
-              name: data.host || data.url || data.title || 'Discovered Item',
-              severity: 'info',
-              scanner: scannerName,
-              url: data.url || data.host || '',
-              description: JSON.stringify(data),
-              timestamp: data.timestamp || new Date().toISOString(),
-            });
-          } catch (e) {}
-        }
-        if (findings.length > 0) safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (scannerName === 'nmap' && fs.existsSync(outputFile)) {
-        const content = fs.readFileSync(outputFile, 'utf-8');
-        const openPorts = content.split('\n').filter(l => l.includes(' open '));
-        if (openPorts.length > 0) {
-          safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings: [{
-            id: 'nmap-open-ports',
-            name: 'Nmap Open Ports',
-            severity: 'medium',
-            scanner: 'nmap',
-            url: '',
-            description: openPorts.join('\n'),
-            timestamp: new Date().toISOString(),
-          }] });
-        }
-      } else if (scannerName === 'alterx' && fs.existsSync(outputFile)) {
-        const content = fs.readFileSync(outputFile, 'utf-8');
-        const lines = content.split('\n').filter(l => l.trim() !== '');
-        if (lines.length > 0) {
-          safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings: [{
-            id: 'alterx-findings',
-            name: 'Alterx Permutations',
-            severity: 'info',
-            scanner: 'alterx',
-            url: '',
-            description: `Generated ${lines.length} domain permutations.`,
-            timestamp: new Date().toISOString(),
-          }] });
-        }
-      } else if (scannerName === 'wpscan' && fs.existsSync(jsonFile)) {
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        try {
-          const data = JSON.parse(content);
-          const findings: any[] = [];
-          
-          if (data.interesting_findings) {
-            data.interesting_findings.forEach((f: any) => {
-              findings.push({
-                id: f.type || 'wpscan-interesting',
-                name: f.to_s || 'Interesting Finding',
-                severity: 'info',
-                scanner: 'wpscan',
-                url: f.url || '',
-                description: f.interesting_entries?.join('\n') || '',
-                timestamp: new Date().toISOString(),
-              });
-            });
-          }
-          if (data.vulns) {
-            data.vulns.forEach((v: any) => {
-              findings.push({
-                id: v.title || 'wpscan-vuln',
-                name: v.title || 'WPScan Vulnerability',
-                severity: 'high',
-                scanner: 'wpscan',
-                url: '',
-                description: v.references?.url?.join('\n') || '',
-                timestamp: new Date().toISOString(),
-              });
-            });
-          }
-          if (findings.length > 0) safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-        } catch (e) {
-          logger.error('Failed to parse WPScan JSON:', e);
-        }
-      } else if (scannerName === 'zap') {
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        const data = JSON.parse(content);
-        const findings: any[] = [];
-        const site = data?.site?.[0];
-        if (site && site.alerts) {
-          for (const alert of site.alerts) {
-            findings.push({
-              id: alert.pluginid || 'zap-alert',
-              name: alert.name || 'ZAP Finding',
-              severity: alert.riskdesc?.toLowerCase().includes('high') ? 'high' : 
-                        alert.riskdesc?.toLowerCase().includes('medium') ? 'medium' :
-                        alert.riskdesc?.toLowerCase().includes('low') ? 'low' : 'info',
-              scanner: 'zap',
-              url: alert.instances?.[0]?.uri || site['@name'] || '',
-              description: alert.desc || '',
-              timestamp: new Date().toISOString(),
-            });
-          }
-        }
-        safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (scannerName === 'katana') {
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        const findings: any[] = [];
-        const lines = content.split('\n').filter(l => l.trim() !== '');
-        for (const line of lines) {
-          try {
-            const data = JSON.parse(line);
-            findings.push({
-              id: 'katana-endpoint',
-              name: 'Endpoint Discovered',
-              severity: 'info',
-              scanner: 'katana',
-              url: data.request?.endpoint || data.url || '',
-              description: `Method: ${data.request?.method || 'GET'}`,
-              timestamp: data.timestamp || new Date().toISOString(),
-            });
-          } catch (e) {}
-        }
-        safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (scannerName === 'ffuf') {
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        const data = JSON.parse(content);
-        const findings: any[] = [];
-        if (data.results) {
-          for (const res of data.results) {
-            findings.push({
-              id: 'ffuf-directory',
-              name: 'Hidden Path Discovered',
-              severity: 'info',
-              scanner: 'ffuf',
-              url: res.url || '',
-              description: `Status: ${res.status}, Length: ${res.length}, Words: ${res.words}`,
-              timestamp: new Date().toISOString(),
-            });
-          }
-        }
-        safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-      } else if (scannerName === 'wpscan' && fs.existsSync(jsonFile)) {
-        const content = fs.readFileSync(jsonFile, 'utf-8');
-        const data = JSON.parse(content);
-        const findings: any[] = [];
-        
-        if (data.scan_aborted) {
-          findings.push({
-            id: 'wpscan-aborted',
-            name: 'Scan Aborted',
-            severity: 'info',
-            scanner: 'wpscan',
-            url: data.target_url || '',
-            description: data.scan_aborted,
-            timestamp: new Date().toISOString()
-          });
-        }
-        
-        if (data.interesting_findings) {
-          data.interesting_findings.forEach((finding: any) => {
-            findings.push({
-              id: 'wpscan-finding',
-              name: finding.type || finding.to_s || 'Interesting Finding',
-              severity: 'info',
-              scanner: 'wpscan',
-              url: finding.url || '',
-              description: finding.to_s || '',
-              timestamp: new Date().toISOString()
-            });
-          });
-        }
-        
-        if (data.version && data.version.vulnerabilities) {
-          data.version.vulnerabilities.forEach((v: any) => {
-            findings.push({
-              id: v.id || 'wpscan-vuln',
-              name: v.title || 'WP Core Vulnerability',
-              severity: 'high',
-              scanner: 'wpscan',
-              url: '',
-              description: v.title || '',
-              timestamp: new Date().toISOString()
-            });
-          });
-        }
-        
-        if (data.plugins) {
-          for (const [pluginName, pluginData] of Object.entries(data.plugins) as any) {
-            if (pluginData.vulnerabilities) {
-              pluginData.vulnerabilities.forEach((v: any) => {
-                findings.push({
-                  id: v.id || `wpscan-plugin-${pluginName}`,
-                  name: `Plugin Vuln: ${pluginName}`,
-                  severity: 'medium',
-                  scanner: 'wpscan',
-                  url: pluginData.location || '',
-                  description: v.title || '',
-                  timestamp: new Date().toISOString()
-                });
-              });
-            }
-          }
-        }
-        
-        if (data.themes) {
-          for (const [themeName, themeData] of Object.entries(data.themes) as any) {
-            if (themeData.vulnerabilities) {
-              themeData.vulnerabilities.forEach((v: any) => {
-                findings.push({
-                  id: v.id || `wpscan-theme-${themeName}`,
-                  name: `Theme Vuln: ${themeName}`,
-                  severity: 'medium',
-                  scanner: 'wpscan',
-                  url: themeData.location || '',
-                  description: v.title || '',
-                  timestamp: new Date().toISOString()
-                });
-              });
-            }
-          }
-        }
-
-        if (findings.length > 0) {
-          safeSend(sender, 'scan:findings', { scanId, scanner: scannerName, findings });
-        }
+      } catch (e: any) {
+        logger.error(`Error parsing findings for ${context.scannerName}: ${e.message}`, e);
       }
-    } catch (e: any) {
-      logger.error(`Error parsing findings for ${scannerName}: ${e.message}`, e);
     }
   }
 
