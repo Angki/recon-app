@@ -1,7 +1,6 @@
 import { logger } from './logger';
 import { settingsStore } from './settings';
 import { exec } from 'child_process';
-import { promisify } from 'util';
 import type * as Electron from 'electron';
 
 export class AIService {
@@ -26,9 +25,10 @@ export class AIService {
       } else {
         throw new Error('Unknown AI Provider');
       }
-    } catch (err: any) {
-      logger.error(`AI Analysis failed: ${err.message}`, err);
-      throw new Error(`AI Analysis failed: ${err.message}`);
+    } catch (err: unknown) {
+      const error = err as Error;
+      logger.error(`AI Analysis failed: ${error.message}`, error);
+      throw new Error(`AI Analysis failed: ${error.message}`, { cause: err });
     }
   }
 
@@ -115,7 +115,7 @@ export class AIService {
   private async callOllama(sender: Electron.WebContents, apiKey: string, logs: string, prompt: string): Promise<string> {
     // Treat API Key as "url,model" or just "model" or leave empty for defaults
     let baseUrl = 'http://127.0.0.1:11434';
-    let model = 'qwen2.5:7b'; // Default Ollama model
+    let model = 'minimax-m3:cloud'; // Default Ollama model
     
     if (apiKey) {
       if (apiKey.includes(',')) {
@@ -156,11 +156,12 @@ export class AIService {
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(15000)
       });
-    } catch (e: any) {
-      if (e.name === 'TimeoutError') {
-         throw new Error(`Connection to Ollama at ${baseUrl} timed out after 15s. Is the IP correct and firewall open?`);
+    } catch (e: unknown) {
+      const err = e as Error & { code?: string };
+      if (err.name === 'TimeoutError') {
+         throw new Error(`Connection to Ollama at ${baseUrl} timed out after 15s. Is the IP correct and firewall open?`, { cause: e });
       }
-      if (e.message?.includes('fetch failed') || e.code === 'ECONNREFUSED') {
+      if (err.message?.includes('fetch failed') || err.code === 'ECONNREFUSED') {
         if (baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost')) {
           // Attempt to start local Ollama daemon
           try {
@@ -174,22 +175,19 @@ export class AIService {
               body: JSON.stringify(payload),
               signal: AbortSignal.timeout(15000)
             });
-          } catch (startErr) {
+          } catch {
             throw new Error(`Ollama is not running locally and could not be started. Please install it from https://ollama.com`);
           }
         } else {
-          throw new Error(`Could not connect to Ollama at ${baseUrl}. (Internal: ${e.message || e.code})`);
+          throw new Error(`Could not connect to Ollama at ${baseUrl}. (Internal: ${err.message || err.code})`, { cause: e });
         }
       } else {
-        throw new Error(`Ollama Request Failed: ${e.message || e.code || e}`);
+        throw new Error(`Ollama Request Failed: ${err.message || err.code || err}`, { cause: e });
       }
     }
 
     if (!response || !response.ok) {
       const status = response ? response.status : 500;
-      let errText = '';
-      try { errText = await response?.text() || ''; } catch {}
-      
       if (status === 404) {
         // Auto pull model
         sender.send('ai:progress', `Model "${model}" not found locally. Downloading automatically (this may take a few minutes depending on your internet speed)...`);
@@ -223,7 +221,9 @@ export class AIService {
                     }
                     sender.send('ai:progress', progressText);
                   }
-                } catch (e) {}
+                } catch {
+                  // ignore
+                }
               }
             }
           }
@@ -239,11 +239,12 @@ export class AIService {
           if (!response.ok) {
             throw new Error(`Analysis failed after pulling model. Error: ${await response.text()}`);
           }
-        } catch (pullError: any) {
-          throw new Error(`Failed to automatically download model "${model}". Error: ${pullError.message}`);
+        } catch (pullError: unknown) {
+          throw new Error(`Failed to automatically download model "${model}". Error: ${(pullError as Error).message}`, { cause: pullError });
         }
       } else {
-        throw new Error(`Ollama API Error (${status}): ${errText}`);
+        // errText extraction replaced because it had empty block
+        throw new Error(`Ollama API Error (${status})`);
       }
     }
 
@@ -266,7 +267,9 @@ export class AIService {
           try {
             const parsed = JSON.parse(line);
             if (parsed.response) fullText += parsed.response;
-          } catch (e) {}
+          } catch {
+            // ignore
+          }
         }
       }
     } else {

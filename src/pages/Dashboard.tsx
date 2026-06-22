@@ -50,14 +50,14 @@ export default function Dashboard() {
   useEffect(() => {
     if (!scanId || !window.api) return;
 
-    const handleOutput = (_event: any, data: { scanId: string; scanner: string; type: string; message: string }) => {
+    const handleOutput = (_event: unknown, data: { scanId: string; scanner: string; type: string; message: string }) => {
       if (data.scanId !== scanId) return;
       useLogStore.getState().appendRawLogs(`[${data.scanner.toUpperCase()}] ${data.message}\n`);
     };
 
-    const handleStats = (_event: any, data: { scanId: string; stats: any }) => {
+    const handleStats = (_event: unknown, data: { scanId: string; stats: { nuclei: Record<string, number>, wapiti: { vulns: number, pages: number } } }) => {
       if (data.scanId !== scanId) return;
-      useScanStore.getState().setNucleiFindings(data.stats.nuclei);
+      useScanStore.getState().setNucleiFindings(data.stats.nuclei as any);
       useScanStore.getState().setWapitiVulns(data.stats.wapiti.vulns);
       useScanStore.getState().setWapitiPages(data.stats.wapiti.pages);
     };
@@ -77,7 +77,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!scanId || !window.api) return;
 
-    const handleStatus = (_event: any, data: { scanId: string; scanner: string; status: string }) => {
+    const handleStatus = (_event: unknown, data: { scanId: string; scanner: string; status: string }) => {
       if (data.scanId !== scanId) return;
       const scanner = data.scanner as ScannerType;
 
@@ -106,7 +106,7 @@ export default function Dashboard() {
       });
     };
 
-    const handleFindings = (_event: any, data: { scanId: string; scanner: string; findings: Vulnerability[] }) => {
+    const handleFindings = (_event: unknown, data: { scanId: string; scanner: string; findings: Vulnerability[] }) => {
       if (data.scanId !== scanId) return;
       useScanStore.getState().setAllFindings(prev => [...prev, ...data.findings]);
     };
@@ -124,11 +124,11 @@ export default function Dashboard() {
   useEffect(() => {
     if (!window.api) return;
 
-    const handleUpdateOutput = (_event: any, msg: string) => {
+    const handleUpdateOutput = (_event: unknown, msg: string) => {
       useConfigStore.getState().setUpdateLogs(prev => [...prev, msg]);
     };
 
-    const handleUpdateStatus = (_event: any, newStatus: string) => {
+    const handleUpdateStatus = (_event: unknown, newStatus: string) => {
       if (newStatus === 'DONE' || newStatus === 'ERROR') {
         useConfigStore.getState().setIsUpdating(false);
       }
@@ -178,8 +178,9 @@ export default function Dashboard() {
       setTimeout(() => {
         setIsInstallingDependencies(false);
       }, 1500);
-    } catch (err: any) {
-      setDependencyLogs(prev => [...prev, `Error: ${err.message}`]);
+    } catch (err: unknown) {
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      setDependencyLogs(prev => [...prev, `Error: ${errorMessage}`]);
       setIsInstallingDependencies(false);
     }
   };
@@ -238,7 +239,7 @@ export default function Dashboard() {
         isWordpress: isWordpressScan
       });
       if (res.success) {
-        setScanId(res.scanId);
+        setScanId(res.scanId || null);
         setStatus('RUNNING');
       } else {
         alert('Failed to start scan: ' + res.error);
@@ -249,8 +250,9 @@ export default function Dashboard() {
           appscan: 'IDLE', netsparker: 'IDLE', acunetix: 'IDLE', wpscan: 'IDLE', pdiscovery: 'IDLE',
         });
       }
-    } catch (e: any) {
-      alert('Error: ' + e.message);
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      alert('Error: ' + errorMessage);
       setStatus('FAILED');
     }
   };
@@ -301,12 +303,12 @@ export default function Dashboard() {
       const prompt = `You are a cybersecurity expert. Analyze these automated scan logs for ${targetUrl}. Summarize the vulnerabilities, state the most critical risks, and suggest remediation steps. Provide a clear, actionable executive summary.`;
       const response = await window.api.analyzeLogs(logs, prompt);
       setAiResponse(response);
-    } catch (err: any) {
-      let msg = err.message;
+    } catch (err: unknown) {
+      let msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('Is Ollama running?')) {
-        msg = `Could not connect to Ollama. Please ensure the Ollama app is running locally, or change the AI Provider in Settings.\n\nTechnical details: ${err.message}`;
+        msg = `Could not connect to Ollama. Please ensure the Ollama app is running locally, or change the AI Provider in Settings.\n\nTechnical details: ${(err as Error).message}`;
       } else {
-        msg = `Error during AI Analysis:\n\n${err.message}\n\nPlease check your configuration in Settings.`;
+        msg = `Error during AI Analysis:\n\n${(err as Error).message}\n\nPlease check your configuration in Settings.`;
       }
       setAiResponse(`[ERROR]\n${msg}`);
     } finally {
@@ -320,8 +322,9 @@ export default function Dashboard() {
     setShowUpdateModal(true);
     try {
       await window.api.updateTools();
-    } catch (e: any) {
-      setUpdateLogs(prev => [...prev, `Error: ${e.message}`]);
+    } catch (e: unknown) {
+      const errorMessage = e instanceof Error ? e.message : String(e);
+      setUpdateLogs(prev => [...prev, `Error: ${errorMessage}`]);
       setIsUpdating(false);
     }
   };
@@ -350,7 +353,7 @@ export default function Dashboard() {
         {tabs.map(tab => (
           <button
             key={tab}
-            onClick={() => setActiveTab(tab as any)}
+            onClick={() => setActiveTab(tab as 'findings' | 'ai' | ScannerType)}
             className={`px-4 py-2 font-medium text-sm transition-colors border-b-2 capitalize whitespace-nowrap flex items-center space-x-2 ${activeTab === tab ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
           >
             {tab === 'findings' && <ShieldAlert className="w-4 h-4" />}
@@ -370,7 +373,7 @@ export default function Dashboard() {
       {/* Scanners Tab View */}
       <div className="flex-1 min-h-0 relative">
         <div className={`absolute inset-0 ${activeTab === 'findings' ? 'block z-10' : 'hidden'}`}>
-          <VulnerabilityTable findings={allFindings} />
+          <VulnerabilityTable scanId={scanId} refreshTrigger={allFindings.length} />
         </div>
         <div className={`absolute inset-0 bg-slate-900 p-6 overflow-y-auto ${activeTab === 'ai' ? 'block z-10' : 'hidden'}`}>
           <div className="max-w-4xl mx-auto space-y-4">
