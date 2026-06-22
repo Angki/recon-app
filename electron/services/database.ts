@@ -50,7 +50,7 @@ export class DatabaseService {
   }
 
   // Scans
-  insertScan(scanId: string, target: string, status: string, startTime: string, config: any) {
+  insertScan(scanId: string, target: string, status: string, startTime: string, config: Record<string, unknown>) {
     const stmt = this.db.prepare('INSERT INTO scans (scanId, target, status, startTime, config) VALUES (?, ?, ?, ?, ?)');
     stmt.run(scanId, target, status, startTime, JSON.stringify(config));
   }
@@ -75,10 +75,12 @@ export class DatabaseService {
     const scanStatuses = this.db.prepare('SELECT * FROM scan_status').all();
 
     // Map statuses back to scan metadata shape for backward compatibility
-    return scans.map((scan: any) => {
-      const parsedConfig = JSON.parse(scan.config || '{}');
-      const statuses = scanStatuses.filter((s: any) => s.scanId === scan.scanId);
-      const scannerStatuses = statuses.reduce((acc: any, curr: any) => {
+    return scans.map((scanRaw: unknown) => {
+      const scan = scanRaw as Record<string, unknown>;
+      const parsedConfig = JSON.parse((scan.config as string) || '{}');
+      const statuses = scanStatuses.filter((sRaw: unknown) => (sRaw as Record<string, unknown>).scanId === scan.scanId);
+      const scannerStatuses = statuses.reduce((acc: Record<string, unknown>, currRaw: unknown) => {
+        const curr = currRaw as Record<string, unknown>;
         acc[`${curr.scanner}Status`] = curr.status;
         return acc;
       }, {});
@@ -99,42 +101,101 @@ export class DatabaseService {
     const scan = this.db.prepare('SELECT * FROM scans WHERE scanId = ?').get(scanId);
     if (!scan) return null;
     const scanStatuses = this.db.prepare('SELECT * FROM scan_status WHERE scanId = ?').all(scanId);
-    const parsedConfig = JSON.parse((scan as any).config || '{}');
-    const scannerStatuses = scanStatuses.reduce((acc: any, curr: any) => {
+    const scanRecord = scan as Record<string, unknown>;
+    const parsedConfig = JSON.parse((scanRecord.config as string) || '{}');
+    const scannerStatuses = scanStatuses.reduce((acc: Record<string, unknown>, currRaw: unknown) => {
+      const curr = currRaw as Record<string, unknown>;
       acc[`${curr.scanner}Status`] = curr.status;
       return acc;
     }, {});
     
     return {
-      scanId: (scan as any).scanId,
-      target: (scan as any).target,
-      status: (scan as any).status,
-      startTime: (scan as any).startTime,
-      endTime: (scan as any).endTime,
+      scanId: scanRecord.scanId,
+      target: scanRecord.target,
+      status: scanRecord.status,
+      startTime: scanRecord.startTime,
+      endTime: scanRecord.endTime,
       config: parsedConfig,
       ...scannerStatuses
     };
   }
 
   // Findings
-  insertFinding(scanId: string, scanner: string, finding: any) {
+  insertFinding(scanId: string, scanner: string, finding: Record<string, unknown>) {
     const stmt = this.db.prepare(`
       INSERT INTO findings (scanId, scanner, type, name, severity, url, description, rawJson)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
     
-    // Normalize data slightly based on what tools output
-    const type = finding.type || finding['template-id'] || finding.plugin || 'unknown';
-    const name = finding.name || finding.info?.name || finding.alert || 'Unknown Finding';
-    const severity = finding.severity || finding.info?.severity || finding.risk || 'info';
-    const url = finding.url || finding['matched-at'] || finding.path || finding.url || '';
-    const description = finding.description || finding.info?.description || finding.desc || '';
+    // Data is mostly normalized by registry.ts
+    const type = finding.id || 'unknown';
+    const name = finding.name || 'Unknown Finding';
+    const severity = finding.severity || 'info';
+    const url = finding.url || '';
+    const description = finding.description || '';
     
     stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding));
   }
 
+  getFindingsPaginated(scanId: string, options: { page?: number, limit?: number, severity?: string, scanner?: string, search?: string }) {
+    const page = options.page || 1;
+    const limit = options.limit || 100;
+    const offset = (page - 1) * limit;
+
+    let query = 'SELECT * FROM findings WHERE scanId = ?';
+    let countQuery = 'SELECT COUNT(*) as total FROM findings WHERE scanId = ?';
+    const params: unknown[] = [scanId];
+
+    if (options.severity && options.severity !== 'all') {
+      query += ' AND severity = ?';
+      countQuery += ' AND severity = ?';
+      params.push(options.severity);
+    }
+    if (options.scanner && options.scanner !== 'all') {
+      query += ' AND scanner = ?';
+      countQuery += ' AND scanner = ?';
+      params.push(options.scanner);
+    }
+    if (options.search) {
+      query += ' AND (name LIKE ? OR url LIKE ? OR type LIKE ?)';
+      countQuery += ' AND (name LIKE ? OR url LIKE ? OR type LIKE ?)';
+      const searchParam = `%${options.search}%`;
+      params.push(searchParam, searchParam, searchParam);
+    }
+
+    query += ` ORDER BY 
+      CASE severity 
+        WHEN 'critical' THEN 1 
+        WHEN 'high' THEN 2 
+        WHEN 'medium' THEN 3 
+        WHEN 'low' THEN 4 
+        WHEN 'info' THEN 5 
+        ELSE 6 
+      END, id DESC`;
+
+    query += ' LIMIT ? OFFSET ?';
+    
+    const items = this.db.prepare(query).all(...params, limit, offset);
+    const countRow = this.db.prepare(countQuery).get(...params) as Record<string, unknown>;
+
+    return {
+      findings: items.map((rowRaw: unknown) => {
+        const row = rowRaw as Record<string, unknown>;
+        const parsed = JSON.parse(row.rawJson as string);
+        parsed._dbId = row.id;
+        return parsed;
+      }),
+      total: countRow.total,
+      page,
+      limit
+    };
+  }
+
   getFindings(scanId: string) {
-    return this.db.prepare('SELECT * FROM findings WHERE scanId = ?').all(scanId).map((row: any) => JSON.parse(row.rawJson));
+    return this.db.prepare('SELECT * FROM findings WHERE scanId = ?').all(scanId).map((rowRaw: unknown) => {
+      const row = rowRaw as Record<string, unknown>;
+      return JSON.parse(row.rawJson as string);
+    });
   }
 }
 

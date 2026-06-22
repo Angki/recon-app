@@ -8,25 +8,25 @@ export interface ScannerContext {
   scannerName: string;
   bin: string;
   outDir: string;
-  config?: any;
+  config?: Record<string, unknown>;
   timestamp: string;
   outputFile: string;
   jsonFile: string;
   xmlFile: string;
   sender: Electron.WebContents;
-  settings: any;
+  settings: Record<string, unknown>;
 }
 
 export interface IScannerAdapter {
   getCommandArgs(context: ScannerContext): string[];
   
-  getEnv?(context: ScannerContext, env: any): any;
+  getEnv?(context: ScannerContext, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
   
   getProcessOptions?(context: ScannerContext, defaultOptions: { executable: string, args: string[], useShell: boolean, cwd: string }): { executable: string, args: string[], useShell: boolean, cwd: string };
 
   handleStdin?(context: ScannerContext, processInstance: ChildProcess): void;
 
-  processStdout?(context: ScannerContext, msg: string, stats: any): void;
+  processStdout?(context: ScannerContext, msg: string, stats: Record<string, Record<string, number>>): void;
 
-  parseFindings?(context: ScannerContext): any[];
+  parseFindings?(context: ScannerContext): unknown[];
 }

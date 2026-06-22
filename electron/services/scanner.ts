@@ -5,13 +5,13 @@ import { settingsStore } from './settings';
 import { dependencyService } from './dependencyManager';
 import { dbService } from './database';
 import path from 'path';
-const { XMLParser } = require('fast-xml-parser');
-
+import { getAdapter } from './scanners/registry';
+import { ScannerContext, IScannerAdapter } from './scanners/types';
 import fs from 'fs';
 import os from 'os';
 
 /** Safely send IPC to renderer — no-op if the window was already closed */
-function safeSend(sender: Electron.WebContents, channel: string, data: any) {
+function safeSend(sender: Electron.WebContents, channel: string, data: unknown) {
   if (!sender.isDestroyed()) {
     sender.send(channel, data);
   }
@@ -55,7 +55,7 @@ const stderrBatcher = new IpcBatcher();
 
 export class ScannerService {
   private activeScans: Map<string, { [scanner: string]: ChildProcess }> = new Map();
-  private scanStats: Map<string, { nuclei: any, wapiti: any }> = new Map();
+  private scanStats: Map<string, Record<string, Record<string, number>>> = new Map();
   private statEmitIntervals: Map<string, NodeJS.Timeout> = new Map();
 
   /** Check if a CLI tool is available on PATH */
@@ -92,7 +92,7 @@ export class ScannerService {
     }
   }
 
-  async startScan(sender: Electron.WebContents, targetUrl: string, config: any) {
+  async startScan(sender: Electron.WebContents, targetUrl: string, config: Record<string, unknown>) {
     try {
       let finalUrl = targetUrl.trim();
       if (!finalUrl.startsWith('http')) finalUrl = `https://${finalUrl}`;
@@ -182,9 +182,10 @@ export class ScannerService {
       }
 
       return { success: true, scanId };
-    } catch (error: any) {
-      logger.error('Failed to start scan', error);
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error('Failed to start scan', errorMessage);
+      return { success: false, error: errorMessage };
     }
   }
 
@@ -196,15 +197,15 @@ export class ScannerService {
     scannerName: string,
     bin: string,
     outDir: string,
-    config?: any
+    config?: Record<string, unknown>
   ) {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '');
     const outputFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.txt`);
     const jsonFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.json`);
     const xmlFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.xml`);
 
-    const adapter = require('./scanners/registry').getAdapter(scannerName);
-    const context = {
+    const adapter = getAdapter(scannerName);
+    const context: ScannerContext = {
       scanId, targetUrl, domain, scannerName, bin, outDir, config,
       timestamp, outputFile, jsonFile, xmlFile, sender,
       settings: settingsStore.get()
@@ -348,12 +349,12 @@ export class ScannerService {
     return { success: false, error: 'Scan not found' };
   }
 
-  private parseAndSendFindings(context: any, adapter: any) {
+  private parseAndSendFindings(context: ScannerContext, adapter: IScannerAdapter) {
     if (adapter.parseFindings) {
       try {
         const findings = adapter.parseFindings(context);
         if (findings && findings.length > 0) {
-          findings.forEach((finding: any) => {
+          findings.forEach((finding: Record<string, unknown>) => {
             try {
               dbService.insertFinding(context.scanId, context.scannerName, finding);
             } catch(e) {
@@ -362,8 +363,9 @@ export class ScannerService {
           });
           safeSend(context.sender, 'scan:findings', { scanId: context.scanId, scanner: context.scannerName, findings });
         }
-      } catch (e: any) {
-        logger.error(`Error parsing findings for ${context.scannerName}: ${e.message}`, e);
+      } catch (e: unknown) {
+        const errMsg = e instanceof Error ? e.message : String(e);
+        logger.error(`Error parsing findings for ${context.scannerName}: ${errMsg}`, e);
       }
     }
   }

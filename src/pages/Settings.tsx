@@ -1,6 +1,32 @@
 import { useState, useEffect } from 'react';
 import { Settings as SettingsIcon, Save, ShieldAlert, Cpu, Network, Database, Wrench, Globe, TerminalSquare, Key, Sparkles } from 'lucide-react';
 
+interface InputFieldProps {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  hint?: string;
+  icon?: React.ElementType;
+}
+
+const InputField = ({ label, value, onChange, placeholder, hint, icon: Icon }: InputFieldProps) => (
+  <div className="flex flex-col space-y-1.5">
+    <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
+      {Icon && <Icon className="w-4 h-4 text-slate-500" />}
+      {label}
+    </label>
+    <input 
+      type="text" 
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      placeholder={placeholder}
+      className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 font-mono text-sm transition-all placeholder:text-slate-600 shadow-inner"
+    />
+    {hint && <p className="text-xs text-slate-500">{hint}</p>}
+  </div>
+);
+
 export default function SettingsPage() {
   const [nucleiPath, setNucleiPath] = useState('nuclei');
   const [nucleiTemplatesPath, setNucleiTemplatesPath] = useState('');
@@ -73,22 +99,6 @@ export default function SettingsPage() {
     setTimeout(() => setSaving(false), 500);
   };
 
-  const InputField = ({ label, value, onChange, placeholder, hint, icon: Icon }: any) => (
-    <div className="flex flex-col space-y-1.5">
-      <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
-        {Icon && <Icon className="w-4 h-4 text-slate-500" />}
-        {label}
-      </label>
-      <input 
-        type="text" 
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 font-mono text-sm transition-all placeholder:text-slate-600 shadow-inner"
-      />
-      {hint && <p className="text-xs text-slate-500">{hint}</p>}
-    </div>
-  );
 
   return (
     <div className="flex flex-col h-full max-w-4xl mx-auto space-y-8 pb-10">
@@ -252,7 +262,7 @@ export default function SettingsPage() {
                   type={aiProvider === 'ollama' ? 'text' : 'password'}
                   value={aiApiKey}
                   onChange={(e) => setAiApiKey(e.target.value)}
-                  placeholder={aiProvider === 'ollama' ? 'llama3.1' : 'sk-...'}
+                  placeholder={aiProvider === 'ollama' ? 'minimax-m3:cloud' : 'sk-...'}
                   className="bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:border-indigo-500/50 font-mono text-sm shadow-inner"
                 />
                 {aiProvider === 'ollama' ? (
@@ -260,7 +270,7 @@ export default function SettingsPage() {
                     <p>Format: <code className="text-indigo-300 bg-indigo-900/30 px-1 rounded">URL,model</code> or just <code className="text-indigo-300 bg-indigo-900/30 px-1 rounded">model</code></p>
                     <p>Examples:</p>
                     <ul className="list-disc pl-4 space-y-0.5 text-slate-500">
-                      <li><code>llama3.1</code> (defaults to localhost:11434, fast)</li>
+                      <li><code>minimax-m3:cloud</code> (defaults to localhost:11434, fast)</li>
                       <li><code>qwen3:14b</code> (higher quality, slower)</li>
                       <li><code>http://10.0.0.5:11434,llama3</code></li>
                     </ul>

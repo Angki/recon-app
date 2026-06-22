@@ -29,8 +29,12 @@ export class LoggerService {
     console.log(log.trim());
   }
 
-  error(message: string, err?: any) {
-    const log = this.formatMessage('error', message + (err ? ` - ${err.message}` : ''));
+  error(message: string, err?: unknown) {
+    let errMsg = '';
+    if (err) {
+      errMsg = err instanceof Error ? ` - ${err.message}` : ` - ${String(err)}`;
+    }
+    const log = this.formatMessage('error', message + errMsg);
     fs.appendFileSync(this.logFile, log);
     console.error(log.trim());
   }

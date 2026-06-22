@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, shell } from 'electron';
 import path from 'path';
 
 let mainWindow: BrowserWindow | null = null;
@@ -53,9 +53,9 @@ app.on('window-all-closed', () => {
 });
 
 // Kill all child processes before the app quits to prevent orphans
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   try {
-    const { scannerService } = require('./ipc');
+    const { scannerService } = await import('./ipc');
     scannerService.killAll();
   } catch {
     // ipc module may not be loaded yet

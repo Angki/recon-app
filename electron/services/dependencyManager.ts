@@ -63,7 +63,7 @@ export class DependencyService {
     return fs.existsSync(path.join(this.binDir, tool.exeName));
   }
 
-  async installTool(tool: ToolDependency, sender: any): Promise<boolean> {
+  async installTool(tool: ToolDependency, sender: Electron.WebContents): Promise<boolean> {
     if (tool.requiresManual) return true;
 
     try {
@@ -74,7 +74,7 @@ export class DependencyService {
       const version = response.data.tag_name.replace('v', '');
       const assetName = `${tool.assetPrefix}${version}${tool.assetSuffix}`;
       
-      const asset = response.data.assets.find((a: any) => a.name === assetName);
+      const asset = response.data.assets.find((a: { name: string }) => a.name === assetName);
       if (!asset) {
         throw new Error(`Asset ${assetName} not found in latest release.`);
       }
@@ -97,14 +97,15 @@ export class DependencyService {
       this.sendProgress(sender, tool.name, 'Installed successfully.');
       return true;
 
-    } catch (error: any) {
-      logger.error(`Failed to install ${tool.name}`, error);
-      this.sendProgress(sender, tool.name, `Error: ${error.message}`, true);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      logger.error(`Failed to install ${tool.name}`, errorMessage);
+      this.sendProgress(sender, tool.name, `Error: ${errorMessage}`, true);
       return false;
     }
   }
 
-  async checkAndInstallAll(sender: any): Promise<void> {
+  async checkAndInstallAll(sender: Electron.WebContents): Promise<void> {
     for (const tool of DEPENDENCIES) {
       if (!tool.requiresManual && !this.isInstalled(tool.name)) {
         await this.installTool(tool, sender);
@@ -113,7 +114,7 @@ export class DependencyService {
     safeSend(sender, 'dependencies:ready', { status: 'all_installed' });
   }
 
-  private sendProgress(sender: any, tool: string, message: string, isError = false) {
+  private sendProgress(sender: Electron.WebContents, tool: string, message: string, isError = false) {
     logger.info(`[Install ${tool}] ${message}`);
     safeSend(sender, 'dependency:progress', { tool, message, isError });
   }
@@ -146,7 +147,7 @@ export class DependencyService {
 export const dependencyService = new DependencyService();
 
 // Helper to safely send IPC messages
-function safeSend(sender: any, channel: string, data: any) {
+function safeSend(sender: Electron.WebContents, channel: string, data: unknown) {
   if (sender && !sender.isDestroyed()) {
     sender.send(channel, data);
   }

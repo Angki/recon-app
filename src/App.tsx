@@ -50,7 +50,7 @@ function App() {
       {/* Main Content */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* Title bar drag area */}
-        <div className="h-8 w-full drag-region" style={{ WebkitAppRegion: 'drag' } as any}></div>
+        <div className="h-8 w-full drag-region" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}></div>
         <div className="flex-1 overflow-auto p-6 relative">
           {/* We keep Dashboard always mounted to preserve its state and xterm.js DOM instances. 
               We just hide it using CSS when we are not on the root path. */}

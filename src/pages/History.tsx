@@ -2,20 +2,30 @@ import { useEffect, useState } from 'react';
 import { History as HistoryIcon, Search, FolderOpen } from 'lucide-react';
 import { format } from 'date-fns';
 
+type HistoryScan = {
+  scanId: string;
+  target: string;
+  domain?: string;
+  status: string;
+  startTime: string;
+};
+
 export default function HistoryPage() {
-  const [history, setHistory] = useState<any[]>([]);
+  const [history, setHistory] = useState<HistoryScan[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
 
-  useEffect(() => {
-    loadHistory();
-  }, []);
 
-  const loadHistory = async () => {
-    if (window.api) {
-      const hist = await window.api.getHistory();
-      setHistory(hist);
-    }
-  };
+  useEffect(() => {
+    let mounted = true;
+    const fetchHistory = async () => {
+      if (window.api) {
+        const hist = await window.api.getHistory() as HistoryScan[];
+        if (mounted) setHistory(hist);
+      }
+    };
+    fetchHistory();
+    return () => { mounted = false; };
+  }, []);
 
   const handleOpenFolder = (scanId: string) => {
     if (window.api) {

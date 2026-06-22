@@ -39,6 +39,11 @@ ipcMain.handle('storage:getHistory', async () => {
   return storage.getHistory();
 });
 
+ipcMain.handle('storage:getFindingsPaginated', async (event, scanId, options) => {
+  const { dbService } = await import('./services/database');
+  return dbService.getFindingsPaginated(scanId, options);
+});
+
 ipcMain.handle('storage:openFolder', async (event, scanId) => {
   storage.openFolder(scanId);
 });

@@ -87,7 +87,7 @@ class SettingsStore {
         if (value.length % 4 === 0 && /^[A-Za-z0-9+/]+={0,2}$/.test(value)) {
            return safeStorage.decryptString(Buffer.from(value, 'base64'));
         }
-      } catch (e) {
+      } catch {
         // If it fails, it might be plaintext from an old config
         return value;
       }
@@ -133,7 +133,7 @@ class SettingsStore {
       }
       
       // Clone merged to avoid mutating the cache when encrypting
-      const toSave: any = { ...merged };
+      const toSave: Record<string, unknown> = { ...merged } as unknown as Record<string, unknown>;
       
       // Encrypt sensitive fields before saving
       SENSITIVE_FIELDS.forEach(field => {

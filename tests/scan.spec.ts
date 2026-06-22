@@ -1,5 +1,4 @@
 import { _electron as electron, test, expect } from '@playwright/test';
-import path from 'path';
 
 test('App starts, runs scan, and preserves UI state across tabs', async () => {
   // Wait for the electron app to build and start

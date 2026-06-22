@@ -1,6 +1,6 @@
 import { spawn } from 'child_process';
-import { ipcMain } from 'electron';
 import { logger } from './logger';
+import { settingsStore } from './settings';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -15,7 +15,7 @@ export class UpdaterService {
     sendOutput('[*] Starting tools update process...');
 
     try {
-      const settings = require('./settings').settingsStore.get();
+      const settings = settingsStore.get();
       
       const resolveTool = (name: string, settingPath: string | undefined) => {
         if (settingPath) return settingPath;
@@ -27,7 +27,7 @@ export class UpdaterService {
       };
 
       const nucleiBin = resolveTool('nuclei', settings.nucleiPath);
-      const wapitiBin = settings.wapitiPath || 'wapiti';
+
       const subfinderBin = resolveTool('subfinder', settings.subfinderPath);
       const httpxBin = resolveTool('httpx', settings.httpxPath);
 
@@ -53,8 +53,8 @@ export class UpdaterService {
 
       sendOutput('[*] Tools update completed successfully.');
       sender.send('update:status', 'DONE');
-    } catch (err: any) {
-      sendOutput(`[-] Error during update: ${err.message}`);
+    } catch (err: unknown) {
+      sendOutput(`[-] Error during update: ${(err as Error).message}`);
       sender.send('update:status', 'ERROR');
     }
   }

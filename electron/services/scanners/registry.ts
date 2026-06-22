@@ -1,7 +1,8 @@
 import fs from 'fs';
 import path from 'path';
+import { app } from 'electron';
 import { IScannerAdapter, ScannerContext } from './types';
-const { XMLParser } = require('fast-xml-parser');
+import { XMLParser } from 'fast-xml-parser';
 import { logger } from '../logger';
 
 export const ScannerAdapters: Record<string, IScannerAdapter> = {
@@ -17,6 +18,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       return args;
     },
     processStdout(ctx, msg, stats) {
+      // eslint-disable-next-line no-control-regex
       const cleanMsg = msg.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
       const lines = cleanMsg.split('\n');
       for (const line of lines) {
@@ -30,7 +32,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
-      const findings: any[] = [];
+      const findings: Record<string, unknown>[] = [];
       const lines = content.split('\n').filter(l => l.trim() !== '');
       for (const line of lines) {
         try {
@@ -44,7 +46,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
             description: data.info?.description || '',
             timestamp: data.timestamp || new Date().toISOString(),
           });
-        } catch (e) { /* ignore parse error for a single line */ }
+        } catch { /* ignore parse error for a single line */ }
       }
       return findings;
     }
@@ -58,6 +60,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       return { ...env, PYTHONIOENCODING: 'utf-8' };
     },
     processStdout(ctx, msg, stats) {
+      // eslint-disable-next-line no-control-regex
       const cleanMsg = msg.replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
       const urlsMatch = cleanMsg.match(/found (\d+) URLs/);
       if (urlsMatch) {
@@ -79,10 +82,10 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
       const data = JSON.parse(content);
-      const findings: any[] = [];
+      const findings: Record<string, unknown>[] = [];
       if (data.vulnerabilities) {
         for (const [vulnType, vulns] of Object.entries(data.vulnerabilities)) {
-          const vulnArray = vulns as any[];
+          const vulnArray = vulns as Array<{ level?: number, path?: string, info?: string }>;
           for (const v of vulnArray) {
             findings.push({
               id: vulnType,
@@ -192,7 +195,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
       const data = JSON.parse(content);
-      const findings: any[] = [];
+      const findings: Record<string, unknown>[] = [];
       const site = data?.site?.[0];
       if (site && site.alerts) {
         for (const alert of site.alerts) {
@@ -236,7 +239,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
       try {
         const data = JSON.parse(content);
-        const findings: any[] = [];
+        const findings: Record<string, unknown>[] = [];
         
         if (data.scan_aborted) {
           findings.push({
@@ -250,7 +253,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
           });
         }
         if (data.interesting_findings) {
-          data.interesting_findings.forEach((finding: any) => {
+          data.interesting_findings.forEach((finding: { type?: string, to_s?: string, url?: string, interesting_entries?: string[] }) => {
             findings.push({
               id: finding.type || finding.to_s || 'Interesting Finding',
               name: finding.type || finding.to_s || 'Interesting Finding',
@@ -264,7 +267,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         }
         if (data.vulns || (data.version && data.version.vulnerabilities)) {
           const vList = data.vulns || data.version.vulnerabilities;
-          vList.forEach((v: any) => {
+          vList.forEach((v: { title?: string, id?: string, references?: { url?: string[] } }) => {
             findings.push({
               id: v.title || v.id || 'wpscan-vuln',
               name: v.title || 'WP Core Vulnerability',
@@ -277,9 +280,9 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
           });
         }
         if (data.plugins) {
-          for (const [pluginName, pluginData] of Object.entries(data.plugins) as any) {
+          for (const [pluginName, pluginData] of Object.entries(data.plugins) as Iterable<[string, { vulnerabilities?: { id?: string, title?: string }[], location?: string }]>) {
             if (pluginData.vulnerabilities) {
-              pluginData.vulnerabilities.forEach((v: any) => {
+              pluginData.vulnerabilities.forEach((v: { id?: string, title?: string }) => {
                 findings.push({
                   id: v.id || `wpscan-plugin-${pluginName}`,
                   name: `Plugin Vuln: ${pluginName}`,
@@ -294,9 +297,9 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
           }
         }
         if (data.themes) {
-          for (const [themeName, themeData] of Object.entries(data.themes) as any) {
+          for (const [themeName, themeData] of Object.entries(data.themes) as Iterable<[string, { vulnerabilities?: { id?: string, title?: string }[], location?: string }]>) {
             if (themeData.vulnerabilities) {
-              themeData.vulnerabilities.forEach((v: any) => {
+              themeData.vulnerabilities.forEach((v: { id?: string, title?: string }) => {
                 findings.push({
                   id: v.id || `wpscan-theme-${themeName}`,
                   name: `Theme Vuln: ${themeName}`,
@@ -322,7 +325,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
-      const findings: any[] = [];
+      const findings: Record<string, unknown>[] = [];
       const lines = content.split('\n').filter(l => l.trim() !== '');
       for (const line of lines) {
         try {
@@ -336,7 +339,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
             description: `Method: ${data.request?.method || 'GET'}`,
             timestamp: data.timestamp || new Date().toISOString(),
           });
-        } catch (e) {}
+        } catch { /* ignore parse error */ }
       }
       return findings;
     }
@@ -351,7 +354,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
       const data = JSON.parse(content);
-      const findings: any[] = [];
+      const findings: Record<string, unknown>[] = [];
       if (data.results) {
         for (const res of data.results) {
           findings.push({
@@ -377,7 +380,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       const content = fs.readFileSync(ctx.xmlFile, 'utf-8');
       const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
       const data = parser.parse(content);
-      const findings: any[] = [];
+      const findings: Record<string, unknown>[] = [];
       
       const issues = data?.XmlReport?.Issues?.Issue || data?.Issues?.Issue || [];
       const issuesArray = Array.isArray(issues) ? issues : [issues];
@@ -412,7 +415,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       const content = fs.readFileSync(ctx.xmlFile, 'utf-8');
       const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
       const data = parser.parse(content);
-      const findings: any[] = [];
+      const findings: Record<string, unknown>[] = [];
       
       const vulns = data?.netsparker?.vulnerabilities?.vulnerability || data?.vulnerabilities?.vulnerability || [];
       const vulnsArray = Array.isArray(vulns) ? vulns : [vulns];
@@ -434,7 +437,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
   },
   acunetix: {
     getCommandArgs(ctx) {
-      const isPackaged = require('electron').app.isPackaged;
+      const isPackaged = app.isPackaged;
       const runnerPath = isPackaged
         ? path.join(process.resourcesPath, 'scripts', 'acunetix_runner.js')
         : path.join(process.cwd(), 'electron', 'scripts', 'acunetix_runner.js');
@@ -453,7 +456,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
       const vulns = JSON.parse(content);
-      const findings: any[] = [];
+      const findings: Record<string, unknown>[] = [];
       for (const vuln of vulns) {
         if (!vuln) continue;
         let severity = 'info';
@@ -479,7 +482,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
 function genericJsonLinesParser(ctx: ScannerContext) {
   if (!fs.existsSync(ctx.jsonFile)) return [];
   const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
-  const findings: any[] = [];
+  const findings: Record<string, unknown>[] = [];
   const lines = content.split('\n').filter(l => l.trim() !== '');
   for (const line of lines) {
     try {
@@ -493,7 +496,7 @@ function genericJsonLinesParser(ctx: ScannerContext) {
         description: JSON.stringify(data),
         timestamp: data.timestamp || new Date().toISOString(),
       });
-    } catch (e) {}
+    } catch { /* ignore parse error */ }
   }
   return findings;
 }

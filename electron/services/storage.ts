@@ -7,7 +7,7 @@ import { shell } from 'electron';
 import { dbService } from './database';
 
 class Mutex {
-  private queue: Promise<any> = Promise.resolve();
+  private queue: Promise<unknown> = Promise.resolve();
   async run<T>(task: () => Promise<T>): Promise<T> {
     const p = this.queue.then(task, task);
     this.queue = p.catch(() => {});
@@ -101,9 +101,9 @@ export class StorageService {
     return { scanId, scanDir, nucleiDir, wapitiDir };
   }
 
-  async saveMetadata(scanId: string, data: any) {
+  async saveMetadata(scanId: string, data: Record<string, unknown>) {
     // Save to SQLite
-    dbService.insertScan(scanId, data.target, data.status || 'RUNNING', data.startTime || new Date().toISOString(), data.config || {});
+    dbService.insertScan(scanId, (data.target as string) || '', (data.status as string) || 'RUNNING', (data.startTime as string) || new Date().toISOString(), (data.config as Record<string, unknown>) || {});
 
     // Save to JSON for backwards compatibility or output folder completeness
     const filePath = path.join(this.reportsDir, scanId, 'scan_metadata.json');
@@ -112,7 +112,7 @@ export class StorageService {
     });
   }
 
-  getHistory(): any[] {
+  getHistory(): Record<string, unknown>[] {
     return dbService.getHistory();
   }
 
@@ -143,7 +143,7 @@ export class StorageService {
       let anyFailed = false;
 
       for (const t of tools) {
-        const tStatus = (scan as any)[`${t}Status`] || 'RUNNING';
+        const tStatus = (scan as Record<string, unknown>)[`${t}Status`] as string || 'RUNNING';
         if (!terminal.includes(tStatus)) allTerminal = false;
         if (tStatus === 'FAILED') anyFailed = true;
       }

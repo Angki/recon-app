@@ -1,8 +1,8 @@
-import { _electron as electron, test, expect } from '@playwright/test';
+import { _electron as electron, test, expect, type ElectronApplication, type Page } from '@playwright/test';
 
 test.describe('Comprehensive E2E QA', () => {
-  let electronApp: any;
-  let window: any;
+  let electronApp: ElectronApplication;
+  let window: Page;
 
   test.beforeAll(async () => {
     electronApp = await electron.launch({ args: ['.'] });
