@@ -36,16 +36,19 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
       let frameId: number;
       const attemptFit = () => {
         try {
-          if (xtermRef.current?.element?.clientWidth && xtermRef.current?.element?.clientWidth > 0) {
-            const core = (xtermRef.current as any)._core;
-            if (core && core._renderService && core._renderService.dimensions && core._renderService.dimensions.actualCellWidth && core._renderService.dimensions.actualCellHeight) {
+          const el = xtermRef.current?.element;
+          if (el && el.clientWidth > 0 && el.clientHeight > 0) {
+            const dims = fitAddonRef.current?.proposeDimensions();
+            if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
               fitAddonRef.current?.fit();
               return; // Success
             }
           }
           // Retry next frame if not ready
           frameId = requestAnimationFrame(attemptFit);
-        } catch(e) {}
+        } catch {
+          frameId = requestAnimationFrame(attemptFit);
+        }
       };
       
       frameId = requestAnimationFrame(attemptFit);
@@ -77,15 +80,15 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
     term.open(terminalRef.current);
     
     // Initial fit needs a small delay to ensure container is sized
-    setTimeout(() => {
+    const initialFitTimeout = setTimeout(() => {
       try {
-        if (term.element && term.element.clientWidth > 0) {
-          const core = (term as any)._core;
-          if (core && core._renderService && core._renderService.dimensions) {
+        if (term.element && term.element.clientWidth > 0 && term.element.clientHeight > 0) {
+          const dims = fitAddon.proposeDimensions();
+          if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
             fitAddon.fit();
           }
         }
-      } catch (e) {
+      } catch {
         // dimensions might not be ready
       }
     }, 100);
@@ -96,14 +99,13 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
 
     const handleResize = () => {
       try {
-        if (term.element && term.element.clientWidth > 0 && isVisible) {
-          // Double check _core?._renderService?.dimensions before calling fit()
-          const core = (term as any)._core;
-          if (core && core._renderService && core._renderService.dimensions) {
+        if (term.element && term.element.clientWidth > 0 && term.element.clientHeight > 0) {
+          const dims = fitAddon.proposeDimensions();
+          if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
             fitAddon.fit();
           }
         }
-      } catch (e) {
+      } catch {
         // dimensions might not be ready
       }
     };
@@ -119,15 +121,18 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
       window.addEventListener('resize', handleResize);
     }
 
+    const currentTerminalRef = terminalRef.current;
+
     return () => {
-      if (resizeObserver && terminalRef.current) {
+      clearTimeout(initialFitTimeout);
+      if (resizeObserver && currentTerminalRef) {
         resizeObserver.disconnect();
       } else {
         window.removeEventListener('resize', handleResize);
       }
       try {
         term.dispose();
-      } catch (e) {
+      } catch {
         // ignore dispose errors
       }
     };
@@ -145,12 +150,9 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
 
     const removeListener = window.api.onScanOutput((_event, data) => {
       if (data.scanId === scanId && xtermRef.current) {
-        let shouldWrite = false;
-        if (scanner === 'pdiscovery') {
-          shouldWrite = ['subfinder', 'httpx', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].includes(data.scanner);
-        } else {
-          shouldWrite = data.scanner === scanner;
-        }
+        const shouldWrite = scanner === 'pdiscovery' 
+          ? ['subfinder', 'httpx', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].includes(data.scanner)
+          : data.scanner === scanner;
 
         if (shouldWrite) {
           try {
@@ -193,7 +195,7 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
         if (autoScrollRef.current) {
           xtermRef.current.scrollToBottom();
         }
-      } catch (e) { }
+      } catch { /* ignore */ }
     }
   }, [isVisible]);
 
