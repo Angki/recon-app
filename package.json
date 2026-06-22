@@ -10,7 +10,8 @@
     "build": "tsc -b && vite build",
     "dist": "tsc -b && vite build && electron-builder",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "postinstall": "electron-builder install-app-deps"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
