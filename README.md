@@ -15,6 +15,7 @@
 ### 🚀 Unified Scanning Ecosystem
 Run and monitor the most powerful open-source security tools from a single dashboard:
 - **ProjectDiscovery Ecosystem:** Nuclei, Subfinder, HTTPX, Naabu, DNSX, AlterX, TLSX, Katana
+  *(Includes granular JSON parsing for structured technical findings)*
 - **Vulnerability Scanners:** Wapiti, Nmap, WPScan, ZAP
 - **Commercial/Enterprise (Via Interface):** AppScan, Netsparker, Acunetix
 
