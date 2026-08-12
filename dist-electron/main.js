@@ -2350,16 +2350,23 @@ var DatabaseService = class {
 		};
 	}
 	insertFinding(scanId, scanner, finding) {
+		this.insertFindings(scanId, scanner, [finding]);
+	}
+	insertFindings(scanId, scanner, findings) {
 		const stmt = this.db.prepare(`
       INSERT INTO findings (scanId, scanner, type, name, severity, url, description, rawJson)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-		const type = finding.id || "unknown";
-		const name = finding.name || "Unknown Finding";
-		const severity = finding.severity || "info";
-		const url = finding.url || "";
-		const description = finding.description || "";
-		stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding));
+		this.db.transaction((items) => {
+			for (const finding of items) {
+				const type = finding.id || "unknown";
+				const name = finding.name || "Unknown Finding";
+				const severity = finding.severity || "info";
+				const url = finding.url || "";
+				const description = finding.description || "";
+				stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding));
+			}
+		})(findings);
 	}
 	getFindingsPaginated(scanId, options) {
 		const page = options.page || 1;
@@ -23190,9 +23197,9 @@ var ScannerAdapters = {
 					url: data["matched-at"] || data.host || "",
 					description: data.info?.description || "",
 					timestamp: data.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
-					extractedResults: data["extracted-results"] || [],
+					extractedResults: Array.isArray(data["extracted-results"]) ? data["extracted-results"] : data["extracted-results"] ? [data["extracted-results"]] : [],
 					curlCommand: data["curl-command"] || "",
-					references: data.info?.reference || []
+					references: Array.isArray(data.info?.reference) ? data.info.reference : data.info?.reference ? [data.info.reference] : []
 				});
 			} catch {}
 			return findings;
@@ -24189,18 +24196,20 @@ var ScannerService = class {
 		if (adapter.parseFindings) try {
 			const findings = adapter.parseFindings(context);
 			if (findings && findings.length > 0) {
-				findings.forEach((finding) => {
-					try {
-						dbService.insertFinding(context.scanId, context.scannerName, finding);
-					} catch (e) {
-						logger.error(`Error inserting finding to DB for ${context.scannerName}`, e);
-					}
-				});
-				safeSend(context.sender, "scan:findings", {
-					scanId: context.scanId,
-					scanner: context.scannerName,
-					findings
-				});
+				try {
+					dbService.insertFindings(context.scanId, context.scannerName, findings);
+				} catch (e) {
+					logger.error(`Error inserting findings to DB for ${context.scannerName}`, e);
+				}
+				const CHUNK_SIZE = 50;
+				for (let i = 0; i < findings.length; i += CHUNK_SIZE) {
+					const chunk = findings.slice(i, i + CHUNK_SIZE);
+					safeSend(context.sender, "scan:findings", {
+						scanId: context.scanId,
+						scanner: context.scannerName,
+						findings: chunk
+					});
+				}
 			}
 		} catch (e) {
 			const errMsg = e instanceof Error ? e.message : String(e);

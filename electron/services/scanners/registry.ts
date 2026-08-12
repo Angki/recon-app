@@ -45,9 +45,9 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
             url: data['matched-at'] || data.host || '',
             description: data.info?.description || '',
             timestamp: data.timestamp || new Date().toISOString(),
-            extractedResults: data['extracted-results'] || [],
+            extractedResults: Array.isArray(data['extracted-results']) ? data['extracted-results'] : (data['extracted-results'] ? [data['extracted-results']] : []),
             curlCommand: data['curl-command'] || '',
-            references: data.info?.reference || []
+            references: Array.isArray(data.info?.reference) ? data.info.reference : (data.info?.reference ? [data.info.reference] : [])
           });
         } catch { /* ignore parse error for a single line */ }
       }

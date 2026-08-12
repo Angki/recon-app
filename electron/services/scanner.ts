@@ -354,14 +354,18 @@ export class ScannerService {
       try {
         const findings = adapter.parseFindings(context);
         if (findings && findings.length > 0) {
-          findings.forEach((finding: Record<string, unknown>) => {
-            try {
-              dbService.insertFinding(context.scanId, context.scannerName, finding);
-            } catch(e) {
-              logger.error(`Error inserting finding to DB for ${context.scannerName}`, e);
-            }
-          });
-          safeSend(context.sender, 'scan:findings', { scanId: context.scanId, scanner: context.scannerName, findings });
+          try {
+            dbService.insertFindings(context.scanId, context.scannerName, findings);
+          } catch(e) {
+            logger.error(`Error inserting findings to DB for ${context.scannerName}`, e);
+          }
+          
+          // Chunk IPC sends to prevent renderer UI freezing
+          const CHUNK_SIZE = 50;
+          for (let i = 0; i < findings.length; i += CHUNK_SIZE) {
+            const chunk = findings.slice(i, i + CHUNK_SIZE);
+            safeSend(context.sender, 'scan:findings', { scanId: context.scanId, scanner: context.scannerName, findings: chunk });
+          }
         }
       } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : String(e);

@@ -34,10 +34,15 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
   useEffect(() => {
     if (isVisible && fitAddonRef.current && terminalRef.current && xtermRef.current?.element) {
       let frameId: number;
+      let retries = 0;
       const attemptFit = () => {
+        if (retries > 10) return; // Stop after 10 attempts to avoid infinite loops
+        retries++;
         try {
           const el = xtermRef.current?.element;
-          if (el && el.clientWidth > 0 && el.clientHeight > 0) {
+          const core = (xtermRef.current as any)._core;
+          // Only attempt fit if element has size and xterm core has initialized its renderer
+          if (el && el.clientWidth > 0 && el.clientHeight > 0 && core && core._renderService) {
             const dims = fitAddonRef.current?.proposeDimensions();
             if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
               fitAddonRef.current?.fit();
@@ -82,7 +87,8 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
     // Initial fit needs a small delay to ensure container is sized
     const initialFitTimeout = setTimeout(() => {
       try {
-        if (term.element && term.element.clientWidth > 0 && term.element.clientHeight > 0) {
+        const core = (term as any)._core;
+        if (term.element && term.element.clientWidth > 0 && term.element.clientHeight > 0 && core && core._renderService) {
           const dims = fitAddon.proposeDimensions();
           if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
             fitAddon.fit();
@@ -99,7 +105,8 @@ export default function TerminalPane({ title, scanner, scanId, status, isVisible
 
     const handleResize = () => {
       try {
-        if (term.element && term.element.clientWidth > 0 && term.element.clientHeight > 0) {
+        const core = (term as any)._core;
+        if (term.element && term.element.clientWidth > 0 && term.element.clientHeight > 0 && core && core._renderService) {
           const dims = fitAddon.proposeDimensions();
           if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
             fitAddon.fit();

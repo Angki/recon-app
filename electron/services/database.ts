@@ -122,19 +122,27 @@ export class DatabaseService {
 
   // Findings
   insertFinding(scanId: string, scanner: string, finding: Record<string, unknown>) {
+    this.insertFindings(scanId, scanner, [finding]);
+  }
+
+  insertFindings(scanId: string, scanner: string, findings: Record<string, unknown>[]) {
     const stmt = this.db.prepare(`
       INSERT INTO findings (scanId, scanner, type, name, severity, url, description, rawJson)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    
-    // Data is mostly normalized by registry.ts
-    const type = finding.id || 'unknown';
-    const name = finding.name || 'Unknown Finding';
-    const severity = finding.severity || 'info';
-    const url = finding.url || '';
-    const description = finding.description || '';
-    
-    stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding));
+
+    const insertMany = this.db.transaction((items: Record<string, unknown>[]) => {
+      for (const finding of items) {
+        const type = finding.id || 'unknown';
+        const name = finding.name || 'Unknown Finding';
+        const severity = finding.severity || 'info';
+        const url = finding.url || '';
+        const description = finding.description || '';
+        stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding));
+      }
+    });
+
+    insertMany(findings);
   }
 
   getFindingsPaginated(scanId: string, options: { page?: number, limit?: number, severity?: string, scanner?: string, search?: string }) {
