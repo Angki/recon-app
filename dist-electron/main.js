@@ -1,35 +1,103 @@
-const require_database = require("./database-zeAxfY2L.js");
+//#region \0rolldown/runtime.js
+var __create = Object.create;
+var __defProp = Object.defineProperty;
+var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
+var __getOwnPropNames = Object.getOwnPropertyNames;
+var __getProtoOf = Object.getPrototypeOf;
+var __hasOwnProp = Object.prototype.hasOwnProperty;
+var __esmMin = (fn, res) => () => (fn && (res = fn(fn = 0)), res);
+var __commonJSMin = (cb, mod) => () => (mod || (cb((mod = { exports: {} }).exports, mod), cb = null), mod.exports);
+var __exportAll = (all, no_symbols) => {
+	let target = {};
+	for (var name in all) __defProp(target, name, {
+		get: all[name],
+		enumerable: true
+	});
+	if (!no_symbols) __defProp(target, Symbol.toStringTag, { value: "Module" });
+	return target;
+};
+var __copyProps = (to, from, except, desc) => {
+	if (from && typeof from === "object" || typeof from === "function") for (var keys = __getOwnPropNames(from), i = 0, n = keys.length, key; i < n; i++) {
+		key = keys[i];
+		if (!__hasOwnProp.call(to, key) && key !== except) __defProp(to, key, {
+			get: ((k) => from[k]).bind(null, key),
+			enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable
+		});
+	}
+	return to;
+};
+var __toESM = (mod, isNodeMode, target) => (target = mod != null ? __create(__getProtoOf(mod)) : {}, __copyProps(isNodeMode || !mod || !mod.__esModule ? __defProp(target, "default", {
+	value: mod,
+	enumerable: true
+}) : target, mod));
+var __toCommonJS = (mod) => __hasOwnProp.call(mod, "module.exports") ? mod["module.exports"] : __copyProps(__defProp({}, "__esModule", { value: true }), mod);
+//#endregion
 let electron = require("electron");
 let path = require("path");
-path = require_database.__toESM(path, 1);
+path = __toESM(path, 1);
 let child_process = require("child_process");
 let fs = require("fs");
-fs = require_database.__toESM(fs);
+fs = __toESM(fs);
 let os = require("os");
-os = require_database.__toESM(os);
+os = __toESM(os);
+let better_sqlite3 = require("better-sqlite3");
+better_sqlite3 = __toESM(better_sqlite3);
 let util = require("util");
-util = require_database.__toESM(util, 1);
+util = __toESM(util, 1);
 let stream = require("stream");
-stream = require_database.__toESM(stream, 1);
+stream = __toESM(stream, 1);
 let http = require("http");
-http = require_database.__toESM(http, 1);
+http = __toESM(http, 1);
 let https = require("https");
-https = require_database.__toESM(https, 1);
+https = __toESM(https, 1);
 let url = require("url");
-url = require_database.__toESM(url, 1);
+url = __toESM(url, 1);
 let crypto = require("crypto");
-crypto = require_database.__toESM(crypto, 1);
+crypto = __toESM(crypto, 1);
 let node_process = require("node:process");
-node_process = require_database.__toESM(node_process, 1);
+node_process = __toESM(node_process, 1);
 let node_os = require("node:os");
-node_os = require_database.__toESM(node_os, 1);
+node_os = __toESM(node_os, 1);
 let node_tty = require("node:tty");
-node_tty = require_database.__toESM(node_tty, 1);
+node_tty = __toESM(node_tty, 1);
 let events = require("events");
 let http2 = require("http2");
-http2 = require_database.__toESM(http2, 1);
+http2 = __toESM(http2, 1);
 let zlib = require("zlib");
-zlib = require_database.__toESM(zlib, 1);
+zlib = __toESM(zlib, 1);
+//#region electron/services/logger.ts
+var LoggerService = class {
+	constructor() {
+		this.logDir = path.default.join(os.default.homedir(), "Documents", "SecOpsScans", "logs");
+		this.logFile = path.default.join(this.logDir, "application.log");
+		this.init();
+	}
+	init() {
+		if (!fs.default.existsSync(this.logDir)) fs.default.mkdirSync(this.logDir, { recursive: true });
+	}
+	formatMessage(level, message) {
+		return `[${(/* @__PURE__ */ new Date()).toISOString()}] [${level.toUpperCase()}] ${message}\n`;
+	}
+	info(message) {
+		const log = this.formatMessage("info", message);
+		fs.default.appendFileSync(this.logFile, log);
+		console.log(log.trim());
+	}
+	error(message, err) {
+		let errMsg = "";
+		if (err) errMsg = err instanceof Error ? ` - ${err.message}` : ` - ${String(err)}`;
+		const log = this.formatMessage("error", message + errMsg);
+		fs.default.appendFileSync(this.logFile, log);
+		console.error(log.trim());
+	}
+	warn(message) {
+		const log = this.formatMessage("warn", message);
+		fs.default.appendFileSync(this.logFile, log);
+		console.warn(log.trim());
+	}
+};
+var logger = new LoggerService();
+//#endregion
 //#region node_modules/date-fns/constants.js
 /**
 * @constant
@@ -2182,6 +2250,172 @@ function cleanEscapedString(input) {
 	return matched[1].replace(doubleQuoteRegExp, "'");
 }
 //#endregion
+//#region electron/services/database.ts
+var database_exports = /* @__PURE__ */ __exportAll({
+	DatabaseService: () => DatabaseService,
+	dbService: () => dbService
+});
+var DatabaseService = class {
+	constructor() {
+		const baseDir = path.default.join(os.default.homedir(), "Documents", "SecOpsScans");
+		const dbPath = path.default.join(baseDir, "recon_app.sqlite");
+		this.db = new better_sqlite3.default(dbPath, { verbose: logger.debug });
+		this.initSchema();
+	}
+	initSchema() {
+		this.db.pragma("journal_mode = WAL");
+		this.db.exec(`
+      CREATE TABLE IF NOT EXISTS scans (
+        scanId TEXT PRIMARY KEY,
+        target TEXT NOT NULL,
+        status TEXT NOT NULL,
+        startTime TEXT NOT NULL,
+        endTime TEXT,
+        config TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS scan_status (
+        scanId TEXT NOT NULL,
+        scanner TEXT NOT NULL,
+        status TEXT NOT NULL,
+        PRIMARY KEY (scanId, scanner),
+        FOREIGN KEY (scanId) REFERENCES scans(scanId) ON DELETE CASCADE
+      );
+
+      CREATE TABLE IF NOT EXISTS findings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scanId TEXT NOT NULL,
+        scanner TEXT NOT NULL,
+        type TEXT,
+        name TEXT,
+        severity TEXT,
+        url TEXT,
+        description TEXT,
+        rawJson TEXT,
+        FOREIGN KEY (scanId) REFERENCES scans(scanId) ON DELETE CASCADE
+      );
+    `);
+	}
+	insertScan(scanId, target, status, startTime, config) {
+		this.db.prepare("INSERT INTO scans (scanId, target, status, startTime, config) VALUES (?, ?, ?, ?, ?)").run(scanId, target, status, startTime, JSON.stringify(config));
+	}
+	updateScanStatus(scanId, status, endTime) {
+		if (endTime) this.db.prepare("UPDATE scans SET status = ?, endTime = ? WHERE scanId = ?").run(status, endTime, scanId);
+		else this.db.prepare("UPDATE scans SET status = ? WHERE scanId = ?").run(status, scanId);
+	}
+	updateScannerStatus(scanId, scanner, status) {
+		this.db.prepare("INSERT OR REPLACE INTO scan_status (scanId, scanner, status) VALUES (?, ?, ?)").run(scanId, scanner, status);
+	}
+	getHistory() {
+		const scans = this.db.prepare("SELECT * FROM scans ORDER BY startTime DESC").all();
+		const scanStatuses = this.db.prepare("SELECT * FROM scan_status").all();
+		return scans.map((scanRaw) => {
+			const scan = scanRaw;
+			const parsedConfig = JSON.parse(scan.config || "{}");
+			const scannerStatuses = scanStatuses.filter((sRaw) => sRaw.scanId === scan.scanId).reduce((acc, currRaw) => {
+				const curr = currRaw;
+				acc[`${curr.scanner}Status`] = curr.status;
+				return acc;
+			}, {});
+			return {
+				scanId: scan.scanId,
+				target: scan.target,
+				status: scan.status,
+				startTime: scan.startTime,
+				endTime: scan.endTime,
+				config: parsedConfig,
+				...scannerStatuses
+			};
+		});
+	}
+	getScanById(scanId) {
+		const scan = this.db.prepare("SELECT * FROM scans WHERE scanId = ?").get(scanId);
+		if (!scan) return null;
+		const scanStatuses = this.db.prepare("SELECT * FROM scan_status WHERE scanId = ?").all(scanId);
+		const scanRecord = scan;
+		const parsedConfig = JSON.parse(scanRecord.config || "{}");
+		const scannerStatuses = scanStatuses.reduce((acc, currRaw) => {
+			const curr = currRaw;
+			acc[`${curr.scanner}Status`] = curr.status;
+			return acc;
+		}, {});
+		return {
+			scanId: scanRecord.scanId,
+			target: scanRecord.target,
+			status: scanRecord.status,
+			startTime: scanRecord.startTime,
+			endTime: scanRecord.endTime,
+			config: parsedConfig,
+			...scannerStatuses
+		};
+	}
+	insertFinding(scanId, scanner, finding) {
+		const stmt = this.db.prepare(`
+      INSERT INTO findings (scanId, scanner, type, name, severity, url, description, rawJson)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+		const type = finding.id || "unknown";
+		const name = finding.name || "Unknown Finding";
+		const severity = finding.severity || "info";
+		const url = finding.url || "";
+		const description = finding.description || "";
+		stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding));
+	}
+	getFindingsPaginated(scanId, options) {
+		const page = options.page || 1;
+		const limit = options.limit || 100;
+		const offset = (page - 1) * limit;
+		let query = "SELECT * FROM findings WHERE scanId = ?";
+		let countQuery = "SELECT COUNT(*) as total FROM findings WHERE scanId = ?";
+		const params = [scanId];
+		if (options.severity && options.severity !== "all") {
+			query += " AND severity = ?";
+			countQuery += " AND severity = ?";
+			params.push(options.severity);
+		}
+		if (options.scanner && options.scanner !== "all") {
+			query += " AND scanner = ?";
+			countQuery += " AND scanner = ?";
+			params.push(options.scanner);
+		}
+		if (options.search) {
+			query += " AND (name LIKE ? OR url LIKE ? OR type LIKE ?)";
+			countQuery += " AND (name LIKE ? OR url LIKE ? OR type LIKE ?)";
+			const searchParam = `%${options.search}%`;
+			params.push(searchParam, searchParam, searchParam);
+		}
+		query += ` ORDER BY 
+      CASE severity 
+        WHEN 'critical' THEN 1 
+        WHEN 'high' THEN 2 
+        WHEN 'medium' THEN 3 
+        WHEN 'low' THEN 4 
+        WHEN 'info' THEN 5 
+        ELSE 6 
+      END, id DESC`;
+		query += " LIMIT ? OFFSET ?";
+		const items = this.db.prepare(query).all(...params, limit, offset);
+		const countRow = this.db.prepare(countQuery).get(...params);
+		return {
+			findings: items.map((rowRaw) => {
+				const row = rowRaw;
+				const parsed = JSON.parse(row.rawJson);
+				parsed._dbId = row.id;
+				return parsed;
+			}),
+			total: countRow.total,
+			page,
+			limit
+		};
+	}
+	getFindings(scanId) {
+		return this.db.prepare("SELECT * FROM findings WHERE scanId = ?").all(scanId).map((rowRaw) => {
+			return JSON.parse(rowRaw.rawJson);
+		});
+	}
+};
+var dbService = new DatabaseService();
+//#endregion
 //#region electron/services/storage.ts
 var Mutex = class {
 	constructor() {
@@ -2210,24 +2444,24 @@ var StorageService = class {
 	}
 	migrateOldData() {
 		if (!fs.default.existsSync(this.reportsDir)) return;
-		if (require_database.dbService.getHistory().length > 0) return;
-		require_database.logger.info("Migrating old JSON scan history to SQLite...");
+		if (dbService.getHistory().length > 0) return;
+		logger.info("Migrating old JSON scan history to SQLite...");
 		const scans = fs.default.readdirSync(this.reportsDir);
 		for (const scanId of scans) {
 			const metaPath = path.default.join(this.reportsDir, scanId, "scan_metadata.json");
 			if (fs.default.existsSync(metaPath)) try {
 				const meta = JSON.parse(fs.default.readFileSync(metaPath, "utf8"));
-				require_database.dbService.insertScan(meta.scanId || scanId, meta.target || "", meta.status || "UNKNOWN", meta.startTime || (/* @__PURE__ */ new Date()).toISOString(), meta.config || {});
-				if (meta.endTime) require_database.dbService.updateScanStatus(meta.scanId || scanId, meta.status, meta.endTime);
+				dbService.insertScan(meta.scanId || scanId, meta.target || "", meta.status || "UNKNOWN", meta.startTime || (/* @__PURE__ */ new Date()).toISOString(), meta.config || {});
+				if (meta.endTime) dbService.updateScanStatus(meta.scanId || scanId, meta.status, meta.endTime);
 				for (const key of Object.keys(meta)) if (key.endsWith("Status")) {
 					const scanner = key.replace("Status", "");
-					if (scanner) require_database.dbService.updateScannerStatus(meta.scanId || scanId, scanner, meta[key]);
+					if (scanner) dbService.updateScannerStatus(meta.scanId || scanId, scanner, meta[key]);
 				}
 			} catch (e) {
-				require_database.logger.error(`Failed to migrate metadata for ${scanId}`, e);
+				logger.error(`Failed to migrate metadata for ${scanId}`, e);
 			}
 		}
-		require_database.logger.info("Migration complete.");
+		logger.info("Migration complete.");
 	}
 	createScanDirectory(domain) {
 		const timestamp = format(/* @__PURE__ */ new Date(), "yyyyMMdd_HHmmss");
@@ -2239,7 +2473,7 @@ var StorageService = class {
 		fs.default.mkdirSync(nucleiDir, { recursive: true });
 		fs.default.mkdirSync(wapitiDir, { recursive: true });
 		fs.default.mkdirSync(logsDir, { recursive: true });
-		require_database.logger.info(`Created scan directory for ${scanId}`);
+		logger.info(`Created scan directory for ${scanId}`);
 		return {
 			scanId,
 			scanDir,
@@ -2248,14 +2482,14 @@ var StorageService = class {
 		};
 	}
 	async saveMetadata(scanId, data) {
-		require_database.dbService.insertScan(scanId, data.target || "", data.status || "RUNNING", data.startTime || (/* @__PURE__ */ new Date()).toISOString(), data.config || {});
+		dbService.insertScan(scanId, data.target || "", data.status || "RUNNING", data.startTime || (/* @__PURE__ */ new Date()).toISOString(), data.config || {});
 		const filePath = path.default.join(this.reportsDir, scanId, "scan_metadata.json");
 		return this.getLock(scanId).run(async () => {
 			await fs.promises.writeFile(filePath, JSON.stringify(data, null, 2));
 		});
 	}
 	getHistory() {
-		return require_database.dbService.getHistory();
+		return dbService.getHistory();
 	}
 	openFolder(scanId) {
 		const folderPath = path.default.join(this.reportsDir, scanId);
@@ -2265,9 +2499,9 @@ var StorageService = class {
 	*  If `scanner` is provided, sets e.g. nucleiStatus / wapitiStatus.
 	*  Always re-evaluates the overall `status` field. */
 	async updateStatus(scanId, scanner, status) {
-		if (scanner) require_database.dbService.updateScannerStatus(scanId, scanner, status);
-		else require_database.dbService.updateScanStatus(scanId, status, status === "STOPPED" || status === "COMPLETED" || status === "FAILED" ? (/* @__PURE__ */ new Date()).toISOString() : void 0);
-		const scan = require_database.dbService.getScanById(scanId);
+		if (scanner) dbService.updateScannerStatus(scanId, scanner, status);
+		else dbService.updateScanStatus(scanId, status, status === "STOPPED" || status === "COMPLETED" || status === "FAILED" ? (/* @__PURE__ */ new Date()).toISOString() : void 0);
+		const scan = dbService.getScanById(scanId);
 		if (scan) {
 			const tools = scan.config?.tools || [];
 			const terminal = [
@@ -2282,8 +2516,8 @@ var StorageService = class {
 				if (!terminal.includes(tStatus)) allTerminal = false;
 				if (tStatus === "FAILED") anyFailed = true;
 			}
-			if (status === "STOPPED") require_database.dbService.updateScanStatus(scanId, "STOPPED", (/* @__PURE__ */ new Date()).toISOString());
-			else if (allTerminal && tools.length > 0) require_database.dbService.updateScanStatus(scanId, anyFailed ? "FAILED" : "COMPLETED", (/* @__PURE__ */ new Date()).toISOString());
+			if (status === "STOPPED") dbService.updateScanStatus(scanId, "STOPPED", (/* @__PURE__ */ new Date()).toISOString());
+			else if (allTerminal && tools.length > 0) dbService.updateScanStatus(scanId, anyFailed ? "FAILED" : "COMPLETED", (/* @__PURE__ */ new Date()).toISOString());
 		}
 		const metaPath = path.default.join(this.reportsDir, scanId, "scan_metadata.json");
 		if (!fs.default.existsSync(metaPath)) return;
@@ -2313,7 +2547,7 @@ var StorageService = class {
 				}
 				await fs.promises.writeFile(metaPath, JSON.stringify(meta, null, 2));
 			} catch (err) {
-				require_database.logger.error(`Failed to update status for ${scanId}`, err);
+				logger.error(`Failed to update status for ${scanId}`, err);
 			}
 		});
 	}
@@ -2362,7 +2596,7 @@ var SettingsStore = class {
 		if (electron.safeStorage && electron.safeStorage.isEncryptionAvailable()) try {
 			return electron.safeStorage.encryptString(value).toString("base64");
 		} catch (e) {
-			require_database.logger.error("Failed to encrypt field", e);
+			logger.error("Failed to encrypt field", e);
 		}
 		return value;
 	}
@@ -2391,7 +2625,7 @@ var SettingsStore = class {
 				return this.cache;
 			}
 		} catch (err) {
-			require_database.logger.error("Failed to read settings", err);
+			logger.error("Failed to read settings", err);
 		}
 		this.cache = { ...DEFAULTS };
 		return this.cache;
@@ -2410,9 +2644,9 @@ var SettingsStore = class {
 				if (toSave[field]) toSave[field] = this.encryptField(toSave[field]);
 			});
 			fs.default.writeFileSync(this.filePath, JSON.stringify(toSave, null, 2));
-			require_database.logger.info("Settings saved securely");
+			logger.info("Settings saved securely");
 		} catch (err) {
-			require_database.logger.error("Failed to save settings", err);
+			logger.error("Failed to save settings", err);
 		}
 		return merged;
 	}
@@ -3608,7 +3842,7 @@ AxiosError.ERR_INVALID_URL = "ERR_INVALID_URL";
 AxiosError.ERR_FORM_DATA_DEPTH_EXCEEDED = "ERR_FORM_DATA_DEPTH_EXCEEDED";
 //#endregion
 //#region node_modules/delayed-stream/lib/delayed_stream.js
-var require_delayed_stream = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_delayed_stream = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Stream$2 = require("stream").Stream;
 	var util$9 = require("util");
 	module.exports = DelayedStream;
@@ -3686,7 +3920,7 @@ var require_delayed_stream = /* @__PURE__ */ require_database.__commonJSMin(((ex
 }));
 //#endregion
 //#region node_modules/combined-stream/lib/combined_stream.js
-var require_combined_stream = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_combined_stream = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var util$8 = require("util");
 	var Stream$1 = require("stream").Stream;
 	var DelayedStream = require_delayed_stream();
@@ -3837,9 +4071,9 @@ var require_combined_stream = /* @__PURE__ */ require_database.__commonJSMin(((e
 }));
 //#endregion
 //#region node_modules/mime-db/db.json
-var db_exports = /* @__PURE__ */ require_database.__exportAll({ default: () => db_default });
+var db_exports = /* @__PURE__ */ __exportAll({ default: () => db_default });
 var db_default;
-var init_db = require_database.__esmMin((() => {
+var init_db = __esmMin((() => {
 	db_default = {
 		"application/1d-interleaved-parityfec": { "source": "iana" },
 		"application/3gpdash-qoe-report+xml": {
@@ -10884,7 +11118,7 @@ var init_db = require_database.__esmMin((() => {
 }));
 //#endregion
 //#region node_modules/mime-db/index.js
-var require_mime_db = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_mime_db = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/*!
 	* mime-db
 	* Copyright(c) 2014 Jonathan Ong
@@ -10894,7 +11128,7 @@ var require_mime_db = /* @__PURE__ */ require_database.__commonJSMin(((exports, 
 	/**
 	* Module exports.
 	*/
-	module.exports = (init_db(), require_database.__toCommonJS(db_exports).default);
+	module.exports = (init_db(), __toCommonJS(db_exports).default);
 }));
 //#endregion
 //#region node_modules/mime-types/index.js
@@ -10904,7 +11138,7 @@ var require_mime_db = /* @__PURE__ */ require_database.__commonJSMin(((exports, 
 * Copyright(c) 2015 Douglas Christopher Wilson
 * MIT Licensed
 */
-var require_mime_types = /* @__PURE__ */ require_database.__commonJSMin(((exports) => {
+var require_mime_types = /* @__PURE__ */ __commonJSMin(((exports) => {
 	/**
 	* Module dependencies.
 	* @private
@@ -10978,9 +11212,9 @@ var require_mime_types = /* @__PURE__ */ require_database.__commonJSMin(((export
 	* @param {string} path
 	* @return {boolean|string}
 	*/
-	function lookup(path$11) {
-		if (!path$11 || typeof path$11 !== "string") return false;
-		var extension = extname("x." + path$11).toLowerCase().substr(1);
+	function lookup(path$13) {
+		if (!path$13 || typeof path$13 !== "string") return false;
+		var extension = extname("x." + path$13).toLowerCase().substr(1);
 		if (!extension) return false;
 		return exports.types[extension] || false;
 	}
@@ -11014,7 +11248,7 @@ var require_mime_types = /* @__PURE__ */ require_database.__commonJSMin(((export
 }));
 //#endregion
 //#region node_modules/asynckit/lib/defer.js
-var require_defer = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_defer = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = defer;
 	/**
 	* Runs provided function on next iteration of the event loop
@@ -11029,7 +11263,7 @@ var require_defer = /* @__PURE__ */ require_database.__commonJSMin(((exports, mo
 }));
 //#endregion
 //#region node_modules/asynckit/lib/async.js
-var require_async = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_async = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var defer = require_defer();
 	module.exports = async;
 	/**
@@ -11054,7 +11288,7 @@ var require_async = /* @__PURE__ */ require_database.__commonJSMin(((exports, mo
 }));
 //#endregion
 //#region node_modules/asynckit/lib/abort.js
-var require_abort = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_abort = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = abort;
 	/**
 	* Aborts leftover active jobs
@@ -11077,7 +11311,7 @@ var require_abort = /* @__PURE__ */ require_database.__commonJSMin(((exports, mo
 }));
 //#endregion
 //#region node_modules/asynckit/lib/iterate.js
-var require_iterate = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_iterate = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var async = require_async(), abort = require_abort();
 	module.exports = iterate;
 	/**
@@ -11116,7 +11350,7 @@ var require_iterate = /* @__PURE__ */ require_database.__commonJSMin(((exports, 
 }));
 //#endregion
 //#region node_modules/asynckit/lib/state.js
-var require_state = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_state = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = state;
 	/**
 	* Creates initial state object
@@ -11143,7 +11377,7 @@ var require_state = /* @__PURE__ */ require_database.__commonJSMin(((exports, mo
 }));
 //#endregion
 //#region node_modules/asynckit/lib/terminator.js
-var require_terminator = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_terminator = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var abort = require_abort(), async = require_async();
 	module.exports = terminator;
 	/**
@@ -11161,7 +11395,7 @@ var require_terminator = /* @__PURE__ */ require_database.__commonJSMin(((export
 }));
 //#endregion
 //#region node_modules/asynckit/parallel.js
-var require_parallel = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_parallel = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var iterate = require_iterate(), initState = require_state(), terminator = require_terminator();
 	module.exports = parallel;
 	/**
@@ -11192,7 +11426,7 @@ var require_parallel = /* @__PURE__ */ require_database.__commonJSMin(((exports,
 }));
 //#endregion
 //#region node_modules/asynckit/serialOrdered.js
-var require_serialOrdered = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_serialOrdered = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var iterate = require_iterate(), initState = require_state(), terminator = require_terminator();
 	module.exports = serialOrdered;
 	module.exports.ascending = ascending;
@@ -11245,7 +11479,7 @@ var require_serialOrdered = /* @__PURE__ */ require_database.__commonJSMin(((exp
 }));
 //#endregion
 //#region node_modules/asynckit/serial.js
-var require_serial = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_serial = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var serialOrdered = require_serialOrdered();
 	module.exports = serial;
 	/**
@@ -11262,7 +11496,7 @@ var require_serial = /* @__PURE__ */ require_database.__commonJSMin(((exports, m
 }));
 //#endregion
 //#region node_modules/asynckit/index.js
-var require_asynckit = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_asynckit = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = {
 		parallel: require_parallel(),
 		serial: require_serial(),
@@ -11271,91 +11505,91 @@ var require_asynckit = /* @__PURE__ */ require_database.__commonJSMin(((exports,
 }));
 //#endregion
 //#region node_modules/es-object-atoms/index.js
-var require_es_object_atoms = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_es_object_atoms = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('.')} */
 	module.exports = Object;
 }));
 //#endregion
 //#region node_modules/es-errors/index.js
-var require_es_errors = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_es_errors = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('.')} */
 	module.exports = Error;
 }));
 //#endregion
 //#region node_modules/es-errors/eval.js
-var require_eval = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_eval = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./eval')} */
 	module.exports = EvalError;
 }));
 //#endregion
 //#region node_modules/es-errors/range.js
-var require_range = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_range = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./range')} */
 	module.exports = RangeError;
 }));
 //#endregion
 //#region node_modules/es-errors/ref.js
-var require_ref = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_ref = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./ref')} */
 	module.exports = ReferenceError;
 }));
 //#endregion
 //#region node_modules/es-errors/syntax.js
-var require_syntax = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_syntax = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./syntax')} */
 	module.exports = SyntaxError;
 }));
 //#endregion
 //#region node_modules/es-errors/type.js
-var require_type = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_type = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./type')} */
 	module.exports = TypeError;
 }));
 //#endregion
 //#region node_modules/es-errors/uri.js
-var require_uri = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_uri = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./uri')} */
 	module.exports = URIError;
 }));
 //#endregion
 //#region node_modules/math-intrinsics/abs.js
-var require_abs = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_abs = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./abs')} */
 	module.exports = Math.abs;
 }));
 //#endregion
 //#region node_modules/math-intrinsics/floor.js
-var require_floor = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_floor = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./floor')} */
 	module.exports = Math.floor;
 }));
 //#endregion
 //#region node_modules/math-intrinsics/max.js
-var require_max = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_max = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./max')} */
 	module.exports = Math.max;
 }));
 //#endregion
 //#region node_modules/math-intrinsics/min.js
-var require_min = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_min = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./min')} */
 	module.exports = Math.min;
 }));
 //#endregion
 //#region node_modules/math-intrinsics/pow.js
-var require_pow = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_pow = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./pow')} */
 	module.exports = Math.pow;
 }));
 //#endregion
 //#region node_modules/math-intrinsics/round.js
-var require_round = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_round = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./round')} */
 	module.exports = Math.round;
 }));
 //#endregion
 //#region node_modules/math-intrinsics/isNaN.js
-var require_isNaN = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_isNaN = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./isNaN')} */
 	module.exports = Number.isNaN || function isNaN(a) {
 		return a !== a;
@@ -11363,7 +11597,7 @@ var require_isNaN = /* @__PURE__ */ require_database.__commonJSMin(((exports, mo
 }));
 //#endregion
 //#region node_modules/math-intrinsics/sign.js
-var require_sign = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_sign = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var $isNaN = require_isNaN();
 	/** @type {import('./sign')} */
 	module.exports = function sign(number) {
@@ -11373,13 +11607,13 @@ var require_sign = /* @__PURE__ */ require_database.__commonJSMin(((exports, mod
 }));
 //#endregion
 //#region node_modules/gopd/gOPD.js
-var require_gOPD = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_gOPD = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./gOPD')} */
 	module.exports = Object.getOwnPropertyDescriptor;
 }));
 //#endregion
 //#region node_modules/gopd/index.js
-var require_gopd = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_gopd = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('.')} */
 	var $gOPD = require_gOPD();
 	if ($gOPD) try {
@@ -11391,7 +11625,7 @@ var require_gopd = /* @__PURE__ */ require_database.__commonJSMin(((exports, mod
 }));
 //#endregion
 //#region node_modules/es-define-property/index.js
-var require_es_define_property = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_es_define_property = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('.')} */
 	var $defineProperty = Object.defineProperty || false;
 	if ($defineProperty) try {
@@ -11403,7 +11637,7 @@ var require_es_define_property = /* @__PURE__ */ require_database.__commonJSMin(
 }));
 //#endregion
 //#region node_modules/has-symbols/shams.js
-var require_shams$1 = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_shams$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./shams')} */
 	module.exports = function hasSymbols() {
 		if (typeof Symbol !== "function" || typeof Object.getOwnPropertySymbols !== "function") return false;
@@ -11432,7 +11666,7 @@ var require_shams$1 = /* @__PURE__ */ require_database.__commonJSMin(((exports, 
 }));
 //#endregion
 //#region node_modules/has-symbols/index.js
-var require_has_symbols = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_has_symbols = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var origSymbol = typeof Symbol !== "undefined" && Symbol;
 	var hasSymbolSham = require_shams$1();
 	/** @type {import('.')} */
@@ -11446,19 +11680,19 @@ var require_has_symbols = /* @__PURE__ */ require_database.__commonJSMin(((expor
 }));
 //#endregion
 //#region node_modules/get-proto/Reflect.getPrototypeOf.js
-var require_Reflect_getPrototypeOf = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_Reflect_getPrototypeOf = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./Reflect.getPrototypeOf')} */
 	module.exports = typeof Reflect !== "undefined" && Reflect.getPrototypeOf || null;
 }));
 //#endregion
 //#region node_modules/get-proto/Object.getPrototypeOf.js
-var require_Object_getPrototypeOf = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_Object_getPrototypeOf = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./Object.getPrototypeOf')} */
 	module.exports = require_es_object_atoms().getPrototypeOf || null;
 }));
 //#endregion
 //#region node_modules/function-bind/implementation.js
-var require_implementation = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_implementation = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var ERROR_MESSAGE = "Function.prototype.bind called on incompatible ";
 	var toStr = Object.prototype.toString;
 	var max = Math.max;
@@ -11510,31 +11744,31 @@ var require_implementation = /* @__PURE__ */ require_database.__commonJSMin(((ex
 }));
 //#endregion
 //#region node_modules/function-bind/index.js
-var require_function_bind = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_function_bind = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var implementation = require_implementation();
 	module.exports = Function.prototype.bind || implementation;
 }));
 //#endregion
 //#region node_modules/call-bind-apply-helpers/functionCall.js
-var require_functionCall = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_functionCall = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./functionCall')} */
 	module.exports = Function.prototype.call;
 }));
 //#endregion
 //#region node_modules/call-bind-apply-helpers/functionApply.js
-var require_functionApply = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_functionApply = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./functionApply')} */
 	module.exports = Function.prototype.apply;
 }));
 //#endregion
 //#region node_modules/call-bind-apply-helpers/reflectApply.js
-var require_reflectApply = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_reflectApply = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/** @type {import('./reflectApply')} */
 	module.exports = typeof Reflect !== "undefined" && Reflect && Reflect.apply;
 }));
 //#endregion
 //#region node_modules/call-bind-apply-helpers/actualApply.js
-var require_actualApply = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_actualApply = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var bind = require_function_bind();
 	var $apply = require_functionApply();
 	var $call = require_functionCall();
@@ -11543,7 +11777,7 @@ var require_actualApply = /* @__PURE__ */ require_database.__commonJSMin(((expor
 }));
 //#endregion
 //#region node_modules/call-bind-apply-helpers/index.js
-var require_call_bind_apply_helpers = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_call_bind_apply_helpers = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var bind = require_function_bind();
 	var $TypeError = require_type();
 	var $call = require_functionCall();
@@ -11556,7 +11790,7 @@ var require_call_bind_apply_helpers = /* @__PURE__ */ require_database.__commonJ
 }));
 //#endregion
 //#region node_modules/dunder-proto/get.js
-var require_get = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_get = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var callBind = require_call_bind_apply_helpers();
 	var gOPD = require_gopd();
 	var hasProtoAccessor;
@@ -11575,7 +11809,7 @@ var require_get = /* @__PURE__ */ require_database.__commonJSMin(((exports, modu
 }));
 //#endregion
 //#region node_modules/get-proto/index.js
-var require_get_proto = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_get_proto = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var reflectGetProto = require_Reflect_getPrototypeOf();
 	var originalGetProto = require_Object_getPrototypeOf();
 	var getDunderProto = require_get();
@@ -11591,7 +11825,7 @@ var require_get_proto = /* @__PURE__ */ require_database.__commonJSMin(((exports
 }));
 //#endregion
 //#region node_modules/hasown/index.js
-var require_hasown = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_hasown = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var call = Function.prototype.call;
 	var $hasOwn = Object.prototype.hasOwnProperty;
 	/** @type {import('.')} */
@@ -11599,7 +11833,7 @@ var require_hasown = /* @__PURE__ */ require_database.__commonJSMin(((exports, m
 }));
 //#endregion
 //#region node_modules/get-intrinsic/index.js
-var require_get_intrinsic = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_get_intrinsic = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var undefined;
 	var $Object = require_es_object_atoms();
 	var $Error = require_es_errors();
@@ -11925,7 +12159,7 @@ var require_get_intrinsic = /* @__PURE__ */ require_database.__commonJSMin(((exp
 }));
 //#endregion
 //#region node_modules/has-tostringtag/shams.js
-var require_shams = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_shams = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var hasSymbols = require_shams$1();
 	/** @type {import('.')} */
 	module.exports = function hasToStringTagShams() {
@@ -11934,7 +12168,7 @@ var require_shams = /* @__PURE__ */ require_database.__commonJSMin(((exports, mo
 }));
 //#endregion
 //#region node_modules/es-set-tostringtag/index.js
-var require_es_set_tostringtag = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_es_set_tostringtag = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var $defineProperty = require_get_intrinsic()("%Object.defineProperty%", true);
 	var hasToStringTag = require_shams()();
 	var hasOwn = require_hasown();
@@ -11956,7 +12190,7 @@ var require_es_set_tostringtag = /* @__PURE__ */ require_database.__commonJSMin(
 }));
 //#endregion
 //#region node_modules/form-data/lib/populate.js
-var require_populate = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_populate = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = function(dst, src) {
 		Object.keys(src).forEach(function(prop) {
 			dst[prop] = dst[prop] || src[prop];
@@ -11964,9 +12198,7 @@ var require_populate = /* @__PURE__ */ require_database.__commonJSMin(((exports,
 		return dst;
 	};
 }));
-//#endregion
-//#region node_modules/form-data/lib/form_data.js
-var require_form_data = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var FormData_default = (/* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var CombinedStream = require_combined_stream();
 	var util$7 = require("util");
 	var path$7 = require("path");
@@ -12198,8 +12430,7 @@ var require_form_data = /* @__PURE__ */ require_database.__commonJSMin(((exports
 	};
 	setToStringTag(FormData.prototype, "FormData");
 	module.exports = FormData;
-}));
-var FormData_default = (/* @__PURE__ */ require_database.__toESM(require_form_data(), 1)).default;
+})))(), 1)).default;
 /**
 * Determines if the given thing is a array or js object.
 *
@@ -12553,7 +12784,7 @@ var node_default = {
 };
 //#endregion
 //#region node_modules/axios/lib/platform/common/utils.js
-var utils_exports = /* @__PURE__ */ require_database.__exportAll({
+var utils_exports = /* @__PURE__ */ __exportAll({
 	hasBrowserEnv: () => hasBrowserEnv,
 	hasStandardBrowserEnv: () => hasStandardBrowserEnv,
 	hasStandardBrowserWebWorkerEnv: () => hasStandardBrowserWebWorkerEnv,
@@ -12992,7 +13223,7 @@ function getEnv(key) {
 }
 //#endregion
 //#region node_modules/ms/index.js
-var require_ms = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_ms = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/**
 	* Helpers.
 	*/
@@ -13110,7 +13341,7 @@ var require_ms = /* @__PURE__ */ require_database.__commonJSMin(((exports, modul
 }));
 //#endregion
 //#region node_modules/debug/src/common.js
-var require_common = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_common = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/**
 	* This is the common logic for both the Node.js and web browser
 	* implementations of `debug()`.
@@ -13312,7 +13543,7 @@ var require_common = /* @__PURE__ */ require_database.__commonJSMin(((exports, m
 }));
 //#endregion
 //#region node_modules/debug/src/browser.js
-var require_browser = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_browser = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/**
 	* This is the web browser implementation of `debug()`.
 	*/
@@ -13508,7 +13739,7 @@ var require_browser = /* @__PURE__ */ require_database.__commonJSMin(((exports, 
 }));
 //#endregion
 //#region node_modules/supports-color/index.js
-var supports_color_exports = /* @__PURE__ */ require_database.__exportAll({
+var supports_color_exports = /* @__PURE__ */ __exportAll({
 	createSupportsColor: () => createSupportsColor,
 	default: () => supportsColor
 });
@@ -13598,7 +13829,7 @@ function createSupportsColor(stream, options = {}) {
 	}));
 }
 var env, flagForceColor, supportsColor;
-var init_supports_color = require_database.__esmMin((() => {
+var init_supports_color = __esmMin((() => {
 	({env} = node_process.default);
 	if (hasFlag("no-color") || hasFlag("no-colors") || hasFlag("color=false") || hasFlag("color=never")) flagForceColor = 0;
 	else if (hasFlag("color") || hasFlag("colors") || hasFlag("color=true") || hasFlag("color=always")) flagForceColor = 1;
@@ -13609,7 +13840,7 @@ var init_supports_color = require_database.__esmMin((() => {
 }));
 //#endregion
 //#region node_modules/debug/src/node.js
-var require_node = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_node = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/**
 	* Module dependencies.
 	*/
@@ -13637,7 +13868,7 @@ var require_node = /* @__PURE__ */ require_database.__commonJSMin(((exports, mod
 		1
 	];
 	try {
-		const supportsColor = (init_supports_color(), require_database.__toCommonJS(supports_color_exports));
+		const supportsColor = (init_supports_color(), __toCommonJS(supports_color_exports));
 		if (supportsColor && (supportsColor.stderr || supportsColor).level >= 2) exports.colors = [
 			20,
 			21,
@@ -13816,7 +14047,7 @@ var require_node = /* @__PURE__ */ require_database.__commonJSMin(((exports, mod
 }));
 //#endregion
 //#region node_modules/debug/src/index.js
-var require_src$1 = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_src$1 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	/**
 	* Detect Electron renderer / nwjs process, which is node, but we should
 	* treat as a browser.
@@ -13826,7 +14057,7 @@ var require_src$1 = /* @__PURE__ */ require_database.__commonJSMin(((exports, mo
 }));
 //#endregion
 //#region node_modules/agent-base/dist/src/promisify.js
-var require_promisify = /* @__PURE__ */ require_database.__commonJSMin(((exports) => {
+var require_promisify = /* @__PURE__ */ __commonJSMin(((exports) => {
 	Object.defineProperty(exports, "__esModule", { value: true });
 	function promisify(fn) {
 		return function(req, opts) {
@@ -13842,7 +14073,7 @@ var require_promisify = /* @__PURE__ */ require_database.__commonJSMin(((exports
 }));
 //#endregion
 //#region node_modules/agent-base/dist/src/index.js
-var require_src = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_src = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { "default": mod };
 	};
@@ -13997,7 +14228,7 @@ var require_src = /* @__PURE__ */ require_database.__commonJSMin(((exports, modu
 }));
 //#endregion
 //#region node_modules/https-proxy-agent/dist/parse-proxy-response.js
-var require_parse_proxy_response = /* @__PURE__ */ require_database.__commonJSMin(((exports) => {
+var require_parse_proxy_response = /* @__PURE__ */ __commonJSMin(((exports) => {
 	var __importDefault = exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { "default": mod };
 	};
@@ -14056,7 +14287,7 @@ var require_parse_proxy_response = /* @__PURE__ */ require_database.__commonJSMi
 }));
 //#endregion
 //#region node_modules/https-proxy-agent/dist/agent.js
-var require_agent = /* @__PURE__ */ require_database.__commonJSMin(((exports) => {
+var require_agent = /* @__PURE__ */ __commonJSMin(((exports) => {
 	var __awaiter = exports && exports.__awaiter || function(thisArg, _arguments, P, generator) {
 		function adopt(value) {
 			return value instanceof P ? value : new P(function(resolve) {
@@ -14202,7 +14433,7 @@ var require_agent = /* @__PURE__ */ require_database.__commonJSMin(((exports) =>
 }));
 //#endregion
 //#region node_modules/https-proxy-agent/dist/index.js
-var require_dist = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_dist = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var agent_1 = (exports && exports.__importDefault || function(mod) {
 		return mod && mod.__esModule ? mod : { "default": mod };
 	})(require_agent());
@@ -14217,7 +14448,7 @@ var require_dist = /* @__PURE__ */ require_database.__commonJSMin(((exports, mod
 }));
 //#endregion
 //#region node_modules/follow-redirects/debug.js
-var require_debug = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_debug = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var debug;
 	module.exports = function() {
 		if (!debug) {
@@ -14231,7 +14462,7 @@ var require_debug = /* @__PURE__ */ require_database.__commonJSMin(((exports, mo
 }));
 //#endregion
 //#region node_modules/follow-redirects/index.js
-var require_follow_redirects = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_follow_redirects = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var url$1 = require("url");
 	var URL = url$1.URL;
 	var http$2 = require("http");
@@ -15273,8 +15504,8 @@ function estimateDataURLDecodedBytes(url) {
 }
 //#endregion
 //#region node_modules/axios/lib/adapters/http.js
-var import_dist = /* @__PURE__ */ require_database.__toESM(require_dist(), 1);
-var import_follow_redirects = /* @__PURE__ */ require_database.__toESM(require_follow_redirects(), 1);
+var import_dist = /* @__PURE__ */ __toESM(require_dist(), 1);
+var import_follow_redirects = /* @__PURE__ */ __toESM(require_follow_redirects(), 1);
 var zlibOptions = {
 	flush: zlib.default.constants.Z_SYNC_FLUSH,
 	finishFlush: zlib.default.constants.Z_SYNC_FLUSH
@@ -15679,9 +15910,9 @@ var http_default = isHttpAdapterSupported && function httpAdapter(config) {
 			auth = urlUsername + ":" + urlPassword;
 		}
 		auth && headers.delete("authorization");
-		let path$10;
+		let path$12;
 		try {
-			path$10 = buildURL(parsed.pathname + parsed.search, own("params"), own("paramsSerializer")).replace(/^\?/, "");
+			path$12 = buildURL(parsed.pathname + parsed.search, own("params"), own("paramsSerializer")).replace(/^\?/, "");
 		} catch (err) {
 			const customErr = new Error(err.message);
 			customErr.config = config;
@@ -15691,7 +15922,7 @@ var http_default = isHttpAdapterSupported && function httpAdapter(config) {
 		}
 		headers.set("Accept-Encoding", utils_default.hasOwnProp(transitional, "advertiseZstdAcceptEncoding") && transitional.advertiseZstdAcceptEncoding === true ? ACCEPT_ENCODING_WITH_ZSTD : ACCEPT_ENCODING, false);
 		const options = Object.assign(Object.create(null), {
-			path: path$10,
+			path: path$12,
 			method,
 			headers: toByteStringHeaderObject(headers),
 			agents: {
@@ -17252,7 +17483,7 @@ axios.HttpStatusCode = HttpStatusCode;
 axios.default = axios;
 //#endregion
 //#region node_modules/wrappy/wrappy.js
-var require_wrappy = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_wrappy = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = wrappy;
 	function wrappy(fn, cb) {
 		if (fn && cb) return wrappy(fn)(cb);
@@ -17275,7 +17506,7 @@ var require_wrappy = /* @__PURE__ */ require_database.__commonJSMin(((exports, m
 }));
 //#endregion
 //#region node_modules/once/once.js
-var require_once = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_once = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var wrappy = require_wrappy();
 	module.exports = wrappy(once);
 	module.exports.strict = wrappy(onceStrict);
@@ -17315,7 +17546,7 @@ var require_once = /* @__PURE__ */ require_database.__commonJSMin(((exports, mod
 }));
 //#endregion
 //#region node_modules/end-of-stream/index.js
-var require_end_of_stream = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_end_of_stream = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var once = require_once();
 	var noop = function() {};
 	var qnt = global.Bare ? queueMicrotask : process.nextTick.bind(process);
@@ -17395,7 +17626,7 @@ var require_end_of_stream = /* @__PURE__ */ require_database.__commonJSMin(((exp
 }));
 //#endregion
 //#region node_modules/pump/index.js
-var require_pump = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_pump = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var once = require_once();
 	var eos = require_end_of_stream();
 	var fs;
@@ -17468,7 +17699,7 @@ var require_pump = /* @__PURE__ */ require_database.__commonJSMin(((exports, mod
 }));
 //#endregion
 //#region node_modules/get-stream/buffer-stream.js
-var require_buffer_stream = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_buffer_stream = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var { PassThrough: PassThroughStream } = require("stream");
 	module.exports = (options) => {
 		options = { ...options };
@@ -17498,7 +17729,7 @@ var require_buffer_stream = /* @__PURE__ */ require_database.__commonJSMin(((exp
 }));
 //#endregion
 //#region node_modules/get-stream/index.js
-var require_get_stream = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_get_stream = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var { constants: BufferConstants } = require("buffer");
 	var pump = require_pump();
 	var bufferStream = require_buffer_stream();
@@ -17548,7 +17779,7 @@ var require_get_stream = /* @__PURE__ */ require_database.__commonJSMin(((export
 }));
 //#endregion
 //#region node_modules/pend/index.js
-var require_pend = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_pend = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	module.exports = Pend;
 	function Pend() {
 		this.pending = 0;
@@ -17594,7 +17825,7 @@ var require_pend = /* @__PURE__ */ require_database.__commonJSMin(((exports, mod
 }));
 //#endregion
 //#region node_modules/fd-slicer/index.js
-var require_fd_slicer = /* @__PURE__ */ require_database.__commonJSMin(((exports) => {
+var require_fd_slicer = /* @__PURE__ */ __commonJSMin(((exports) => {
 	var fs$7 = require("fs");
 	var util$2 = require("util");
 	var stream$2 = require("stream");
@@ -17839,7 +18070,7 @@ var require_fd_slicer = /* @__PURE__ */ require_database.__commonJSMin(((exports
 }));
 //#endregion
 //#region node_modules/buffer-crc32/index.js
-var require_buffer_crc32 = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+var require_buffer_crc32 = /* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var Buffer$1 = require("buffer").Buffer;
 	var CRC_TABLE = [
 		0,
@@ -18132,7 +18363,7 @@ var require_buffer_crc32 = /* @__PURE__ */ require_database.__commonJSMin(((expo
 }));
 //#endregion
 //#region node_modules/yauzl/index.js
-var require_yauzl = /* @__PURE__ */ require_database.__commonJSMin(((exports) => {
+var require_yauzl = /* @__PURE__ */ __commonJSMin(((exports) => {
 	var fs$6 = require("fs");
 	var zlib$1 = require("zlib");
 	var fd_slicer = require_fd_slicer();
@@ -18688,8 +18919,8 @@ var require_yauzl = /* @__PURE__ */ require_database.__commonJSMin(((exports) =>
 	}
 }));
 //#endregion
-//#region node_modules/extract-zip/index.js
-var require_extract_zip = /* @__PURE__ */ require_database.__commonJSMin(((exports, module) => {
+//#region electron/services/dependencyManager.ts
+var import_extract_zip = /* @__PURE__ */ __toESM((/* @__PURE__ */ __commonJSMin(((exports, module) => {
 	var debug = require_src$1()("extract-zip");
 	var { createWriteStream, promises: fs$5 } = require("fs");
 	var getStream = require_get_stream();
@@ -18804,10 +19035,7 @@ var require_extract_zip = /* @__PURE__ */ require_database.__commonJSMin(((expor
 		opts.dir = await fs$5.realpath(opts.dir);
 		return new Extractor(zipPath, opts).extract();
 	};
-}));
-//#endregion
-//#region electron/services/dependencyManager.ts
-var import_extract_zip = /* @__PURE__ */ require_database.__toESM(require_extract_zip());
+})))());
 var DEPENDENCIES = [
 	{
 		name: "nuclei",
@@ -18929,7 +19157,7 @@ var DependencyService = class {
 			return true;
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			require_database.logger.error(`Failed to install ${tool.name}`, errorMessage);
+			logger.error(`Failed to install ${tool.name}`, errorMessage);
 			this.sendProgress(sender, tool.name, `Error: ${errorMessage}`, true);
 			return false;
 		}
@@ -18939,7 +19167,7 @@ var DependencyService = class {
 		safeSend$1(sender, "dependencies:ready", { status: "all_installed" });
 	}
 	sendProgress(sender, tool, message, isError = false) {
-		require_database.logger.info(`[Install ${tool}] ${message}`);
+		logger.info(`[Install ${tool}] ${message}`);
 		safeSend$1(sender, "dependency:progress", {
 			tool,
 			message,
@@ -22928,7 +23156,6 @@ var ScannerAdapters = {
 				"-stats",
 				"-duc",
 				"-ni",
-				"-v",
 				"-o",
 				ctx.outputFile,
 				"-je",
@@ -22962,7 +23189,10 @@ var ScannerAdapters = {
 					scanner: "nuclei",
 					url: data["matched-at"] || data.host || "",
 					description: data.info?.description || "",
-					timestamp: data.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+					timestamp: data.timestamp || (/* @__PURE__ */ new Date()).toISOString(),
+					extractedResults: data["extracted-results"] || [],
+					curlCommand: data["curl-command"] || "",
+					references: data.info?.reference || []
 				});
 			} catch {}
 			return findings;
@@ -22982,7 +23212,11 @@ var ScannerAdapters = {
 				"-dr",
 				"2",
 				"-o",
-				ctx.jsonFile
+				ctx.jsonFile,
+				"--flush-session",
+				"--store-session",
+				ctx.outDir,
+				"--no-bugreport"
 			];
 		},
 		getEnv(ctx, env) {
@@ -23015,7 +23249,10 @@ var ScannerAdapters = {
 					scanner: "wapiti",
 					url: v.path || "",
 					description: v.info || "",
-					timestamp: (/* @__PURE__ */ new Date()).toISOString()
+					timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+					httpRequest: v.http_request || "",
+					curlCommand: v.curl_command || "",
+					parameter: v.parameter || ""
 				});
 			}
 			return findings;
@@ -23026,16 +23263,39 @@ var ScannerAdapters = {
 			return [
 				"-d",
 				ctx.domain,
+				"-silent",
 				"-json",
 				"-o",
 				ctx.jsonFile
 			];
 		},
-		parseFindings: genericJsonLinesParser
+		parseFindings(ctx) {
+			if (!fs.default.existsSync(ctx.jsonFile)) return [];
+			const content = fs.default.readFileSync(ctx.jsonFile, "utf-8");
+			const findings = [];
+			const lines = content.split("\n").filter((l) => l.trim() !== "");
+			for (const line of lines) try {
+				const data = JSON.parse(line);
+				findings.push({
+					id: "subfinder-domain",
+					name: "Subdomain Discovered",
+					severity: "info",
+					scanner: "subfinder",
+					url: data.host || "",
+					description: `Source: ${data.source || "Unknown"}`,
+					timestamp: (/* @__PURE__ */ new Date()).toISOString()
+				});
+			} catch {}
+			return findings;
+		}
 	},
 	alterx: {
 		getCommandArgs(ctx) {
-			return ["-o", ctx.outputFile];
+			return [
+				"-silent",
+				"-o",
+				ctx.outputFile
+			];
 		},
 		handleStdin(ctx, proc) {
 			proc.stdin?.write(ctx.domain + "\n");
@@ -23058,6 +23318,7 @@ var ScannerAdapters = {
 	dnsx: {
 		getCommandArgs(ctx) {
 			return [
+				"-silent",
 				"-json",
 				"-o",
 				ctx.jsonFile
@@ -23066,7 +23327,26 @@ var ScannerAdapters = {
 		handleStdin(ctx, proc) {
 			proc.stdin?.write(ctx.domain + "\n");
 		},
-		parseFindings: genericJsonLinesParser
+		parseFindings(ctx) {
+			if (!fs.default.existsSync(ctx.jsonFile)) return [];
+			const content = fs.default.readFileSync(ctx.jsonFile, "utf-8");
+			const findings = [];
+			const lines = content.split("\n").filter((l) => l.trim() !== "");
+			for (const line of lines) try {
+				const data = JSON.parse(line);
+				const ips = data.a ? data.a.join(", ") : "Unknown IP";
+				findings.push({
+					id: "dnsx-record",
+					name: "DNS Record Resolved",
+					severity: "info",
+					scanner: "dnsx",
+					url: data.host || "",
+					description: `Resolved IPs: ${ips}`,
+					timestamp: data.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+				});
+			} catch {}
+			return findings;
+		}
 	},
 	naabu: {
 		getCommandArgs(ctx) {
@@ -23075,24 +23355,64 @@ var ScannerAdapters = {
 				ctx.domain,
 				"-top-ports",
 				"100",
+				"-silent",
 				"-json",
 				"-o",
 				ctx.jsonFile
 			];
 		},
-		parseFindings: genericJsonLinesParser
+		parseFindings(ctx) {
+			if (!fs.default.existsSync(ctx.jsonFile)) return [];
+			const content = fs.default.readFileSync(ctx.jsonFile, "utf-8");
+			const findings = [];
+			const lines = content.split("\n").filter((l) => l.trim() !== "");
+			for (const line of lines) try {
+				const data = JSON.parse(line);
+				findings.push({
+					id: `naabu-port-${data.port}`,
+					name: `Open Port Discovered`,
+					severity: "low",
+					scanner: "naabu",
+					url: `${data.host}:${data.port}`,
+					description: `Port ${data.port} is open on ${data.host} (${data.ip || ""})`,
+					timestamp: (/* @__PURE__ */ new Date()).toISOString()
+				});
+			} catch {}
+			return findings;
+		}
 	},
 	tlsx: {
 		getCommandArgs(ctx) {
 			return [
 				"-u",
 				ctx.domain,
+				"-silent",
 				"-json",
 				"-o",
 				ctx.jsonFile
 			];
 		},
-		parseFindings: genericJsonLinesParser
+		parseFindings(ctx) {
+			if (!fs.default.existsSync(ctx.jsonFile)) return [];
+			const content = fs.default.readFileSync(ctx.jsonFile, "utf-8");
+			const findings = [];
+			const lines = content.split("\n").filter((l) => l.trim() !== "");
+			for (const line of lines) try {
+				const data = JSON.parse(line);
+				const issuer = data.issuer_dn || "Unknown";
+				const version = data.tls_version || "Unknown TLS";
+				findings.push({
+					id: "tlsx-info",
+					name: "TLS Certificate Info",
+					severity: "info",
+					scanner: "tlsx",
+					url: data.host || "",
+					description: `Version: ${version}, Issuer: ${issuer}`,
+					timestamp: data.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+				});
+			} catch {}
+			return findings;
+		}
 	},
 	httpx: {
 		getCommandArgs(ctx) {
@@ -23102,12 +23422,32 @@ var ScannerAdapters = {
 				"-title",
 				"-tech-detect",
 				"-status-code",
+				"-silent",
 				"-json",
 				"-o",
 				ctx.jsonFile
 			];
 		},
-		parseFindings: genericJsonLinesParser
+		parseFindings(ctx) {
+			if (!fs.default.existsSync(ctx.jsonFile)) return [];
+			const content = fs.default.readFileSync(ctx.jsonFile, "utf-8");
+			const findings = [];
+			const lines = content.split("\n").filter((l) => l.trim() !== "");
+			for (const line of lines) try {
+				const data = JSON.parse(line);
+				const tech = data.tech ? data.tech.join(", ") : "None";
+				findings.push({
+					id: "httpx-service",
+					name: `HTTP Service: ${data.title || "Untitled"}`,
+					severity: "info",
+					scanner: "httpx",
+					url: data.url || data.host || "",
+					description: `Status: ${data["status_code"] || "Unknown"}\nTech: ${tech}\nWeb Server: ${data.webserver || "Unknown"}`,
+					timestamp: data.timestamp || (/* @__PURE__ */ new Date()).toISOString()
+				});
+			} catch {}
+			return findings;
+		}
 	},
 	nmap: {
 		getCommandArgs(ctx) {
@@ -23246,7 +23586,9 @@ var ScannerAdapters = {
 						severity: "high",
 						scanner: "wpscan",
 						url: "",
-						description: v.references?.url?.join("\n") || v.title || "",
+						description: v.title || "",
+						references: v.references?.url || [],
+						cves: v.references?.cve || [],
 						timestamp: (/* @__PURE__ */ new Date()).toISOString()
 					});
 				});
@@ -23259,6 +23601,8 @@ var ScannerAdapters = {
 							scanner: "wpscan",
 							url: pluginData.location || "",
 							description: v.title || "",
+							references: v.references?.url || [],
+							cves: v.references?.cve || [],
 							timestamp: (/* @__PURE__ */ new Date()).toISOString()
 						});
 					});
@@ -23272,13 +23616,15 @@ var ScannerAdapters = {
 							scanner: "wpscan",
 							url: themeData.location || "",
 							description: v.title || "",
+							references: v.references?.url || [],
+							cves: v.references?.cve || [],
 							timestamp: (/* @__PURE__ */ new Date()).toISOString()
 						});
 					});
 				}
 				return findings;
 			} catch (e) {
-				require_database.logger.error("Failed to parse WPScan JSON:", e);
+				logger.error("Failed to parse WPScan JSON:", e);
 				return [];
 			}
 		}
@@ -23288,6 +23634,7 @@ var ScannerAdapters = {
 			return [
 				"-u",
 				ctx.targetUrl,
+				"-silent",
 				"-j",
 				"-o",
 				ctx.jsonFile
@@ -23486,25 +23833,6 @@ var ScannerAdapters = {
 		}
 	}
 };
-function genericJsonLinesParser(ctx) {
-	if (!fs.default.existsSync(ctx.jsonFile)) return [];
-	const content = fs.default.readFileSync(ctx.jsonFile, "utf-8");
-	const findings = [];
-	const lines = content.split("\n").filter((l) => l.trim() !== "");
-	for (const line of lines) try {
-		const data = JSON.parse(line);
-		findings.push({
-			id: `${ctx.scannerName}-finding`,
-			name: data.host || data.url || data.title || "Discovered Item",
-			severity: "info",
-			scanner: ctx.scannerName,
-			url: data.url || data.host || "",
-			description: JSON.stringify(data),
-			timestamp: data.timestamp || (/* @__PURE__ */ new Date()).toISOString()
-		});
-	} catch {}
-	return findings;
-}
 var getAdapter = (scannerName) => {
 	return ScannerAdapters[scannerName] || { getCommandArgs: (ctx) => [ctx.targetUrl] };
 };
@@ -23677,7 +24005,7 @@ var ScannerService = class {
 			};
 		} catch (error) {
 			const errorMessage = error instanceof Error ? error.message : String(error);
-			require_database.logger.error("Failed to start scan", errorMessage);
+			logger.error("Failed to start scan", errorMessage);
 			return {
 				success: false,
 				error: errorMessage
@@ -23754,7 +24082,7 @@ var ScannerService = class {
 			stderrBatcher.send(sender, scanId, scannerName, "stderr", data.toString());
 		});
 		processInstance.on("error", (err) => {
-			require_database.logger.error(`Failed to start ${scannerName}:`, err);
+			logger.error(`Failed to start ${scannerName}:`, err);
 			safeSend(sender, "scan:output", {
 				scanId,
 				scanner: scannerName,
@@ -23769,7 +24097,7 @@ var ScannerService = class {
 			});
 		});
 		processInstance.on("exit", (code) => {
-			require_database.logger.info(`${scannerName} process for ${scanId} exited with code ${code}`);
+			logger.info(`${scannerName} process for ${scanId} exited with code ${code}`);
 			const fileToRead = ["alterx", "nmap"].includes(scannerName) ? outputFile : ["appscan", "netsparker"].includes(scannerName) ? xmlFile : jsonFile;
 			if (fs.default.existsSync(fileToRead)) try {
 				const stats = fs.default.statSync(fileToRead);
@@ -23795,7 +24123,7 @@ var ScannerService = class {
 					message: `\n[SYSTEM] Tool finished. Output file generated (Size: ${(stats.size / 1024 / 1024).toFixed(2)} MB)`
 				});
 			} catch (e) {
-				require_database.logger.error(`Error reading output file for ${scannerName}:`, e);
+				logger.error(`Error reading output file for ${scannerName}:`, e);
 			}
 			else safeSend(sender, "scan:output", {
 				scanId,
@@ -23828,7 +24156,7 @@ var ScannerService = class {
 			});
 		});
 		processInstance.on("error", (err) => {
-			require_database.logger.error(`${scannerName} process error for ${scanId}`, err);
+			logger.error(`${scannerName} process error for ${scanId}`, err);
 			storage.updateStatus(scanId, scannerName, "FAILED");
 			safeSend(sender, "scan:status", {
 				scanId,
@@ -23849,7 +24177,7 @@ var ScannerService = class {
 				this.statEmitIntervals.delete(scanId);
 			}
 			storage.updateStatus(scanId, null, "STOPPED");
-			require_database.logger.info(`Scan ${scanId} stopped by user`);
+			logger.info(`Scan ${scanId} stopped by user`);
 			return { success: true };
 		}
 		return {
@@ -23863,9 +24191,9 @@ var ScannerService = class {
 			if (findings && findings.length > 0) {
 				findings.forEach((finding) => {
 					try {
-						require_database.dbService.insertFinding(context.scanId, context.scannerName, finding);
+						dbService.insertFinding(context.scanId, context.scannerName, finding);
 					} catch (e) {
-						require_database.logger.error(`Error inserting finding to DB for ${context.scannerName}`, e);
+						logger.error(`Error inserting finding to DB for ${context.scannerName}`, e);
 					}
 				});
 				safeSend(context.sender, "scan:findings", {
@@ -23876,14 +24204,14 @@ var ScannerService = class {
 			}
 		} catch (e) {
 			const errMsg = e instanceof Error ? e.message : String(e);
-			require_database.logger.error(`Error parsing findings for ${context.scannerName}: ${errMsg}`, e);
+			logger.error(`Error parsing findings for ${context.scannerName}: ${errMsg}`, e);
 		}
 	}
 	/** Kill all running scans — called on app quit */
 	killAll() {
 		for (const [scanId, processes] of this.activeScans) {
 			for (const proc of Object.values(processes)) this.killProcess(proc);
-			require_database.logger.info(`Killed processes for scan ${scanId} (app quit)`);
+			logger.info(`Killed processes for scan ${scanId} (app quit)`);
 		}
 		this.activeScans.clear();
 		for (const interval of this.statEmitIntervals.values()) clearInterval(interval);
@@ -23903,7 +24231,7 @@ var ScannerService = class {
 var UpdaterService = class {
 	async updateTools(sender) {
 		const sendOutput = (msg) => {
-			require_database.logger.info(msg, "Updater");
+			logger.info(msg, "Updater");
 			sender.send("update:output", msg);
 		};
 		sendOutput("[*] Starting tools update process...");
@@ -23914,7 +24242,12 @@ var UpdaterService = class {
 				if (process.platform === "win32" && [
 					"httpx",
 					"subfinder",
-					"nuclei"
+					"nuclei",
+					"alterx",
+					"dnsx",
+					"naabu",
+					"tlsx",
+					"katana"
 				].includes(name)) {
 					const goPath = path.default.join(os.default.homedir(), "go", "bin", `${name}.exe`);
 					if (fs.default.existsSync(goPath)) return goPath;
@@ -23924,24 +24257,38 @@ var UpdaterService = class {
 			const nucleiBin = resolveTool("nuclei", settings.nucleiPath);
 			const subfinderBin = resolveTool("subfinder", settings.subfinderPath);
 			const httpxBin = resolveTool("httpx", settings.httpxPath);
-			sendOutput("[+] Updating Nuclei Engine...");
-			await this.runCommand(nucleiBin, ["-update"], sendOutput);
-			sendOutput("[+] Updating Nuclei Templates...");
-			await this.runCommand(nucleiBin, ["-update-templates"], sendOutput);
-			sendOutput("[+] Updating Wapiti via pip...");
-			await this.runCommand("pip", [
+			const alterxBin = resolveTool("alterx", settings.alterxPath);
+			const dnsxBin = resolveTool("dnsx", settings.dnsxPath);
+			const naabuBin = resolveTool("naabu", settings.naabuPath);
+			const tlsxBin = resolveTool("tlsx", settings.tlsxPath);
+			const katanaBin = resolveTool("katana", settings.katanaPath);
+			const updateTool = async (step, command, args) => {
+				sendOutput(`[+] ${step}...`);
+				try {
+					await this.runCommand(command, args, sendOutput);
+					sendOutput(`[+] Successfully updated: ${step}`);
+				} catch (e) {
+					sendOutput(`[-] Error updating ${step}: ${e.message}`);
+				}
+			};
+			await updateTool("Updating Nuclei Engine", nucleiBin, ["-update"]);
+			await updateTool("Updating Nuclei Templates", nucleiBin, ["-update-templates"]);
+			await updateTool("Updating Wapiti via pip", "pip", [
 				"install",
 				"--upgrade",
 				"wapiti3"
-			], sendOutput);
-			sendOutput("[+] Updating Subfinder...");
-			await this.runCommand(subfinderBin, ["-update"], sendOutput);
-			sendOutput("[+] Updating httpx...");
-			await this.runCommand(httpxBin, ["-update"], sendOutput);
-			sendOutput("[*] Tools update completed successfully.");
+			]);
+			await updateTool("Updating Subfinder", subfinderBin, ["-update"]);
+			await updateTool("Updating httpx", httpxBin, ["-update"]);
+			await updateTool("Updating Alterx", alterxBin, ["-update"]);
+			await updateTool("Updating dnsx", dnsxBin, ["-update"]);
+			await updateTool("Updating Naabu", naabuBin, ["-update"]);
+			await updateTool("Updating tlsx", tlsxBin, ["-update"]);
+			await updateTool("Updating Katana", katanaBin, ["-update"]);
+			sendOutput("[*] Tools update completed.");
 			sender.send("update:status", "DONE");
 		} catch (err) {
-			sendOutput(`[-] Error during update: ${err.message}`);
+			sendOutput(`[-] Critical error during update: ${err.message}`);
 			sender.send("update:status", "ERROR");
 		}
 	}
@@ -23981,7 +24328,7 @@ var AIService = class {
 			else throw new Error("Unknown AI Provider");
 		} catch (err) {
 			const error = err;
-			require_database.logger.error(`AI Analysis failed: ${error.message}`, error);
+			logger.error(`AI Analysis failed: ${error.message}`, error);
 			throw new Error(`AI Analysis failed: ${error.message}`, { cause: err });
 		}
 	}
@@ -24162,7 +24509,6 @@ var AIService = class {
 var aiService = new AIService();
 //#endregion
 //#region electron/ipc.ts
-var ipc_exports = /* @__PURE__ */ require_database.__exportAll({ scannerService: () => scannerService });
 var scannerService = new ScannerService();
 electron.ipcMain.handle("tools:update", async (event) => {
 	return await updaterService.updateTools(event.sender);
@@ -24188,7 +24534,7 @@ electron.ipcMain.handle("storage:getHistory", async () => {
 	return storage.getHistory();
 });
 electron.ipcMain.handle("storage:getFindingsPaginated", async (event, scanId, options) => {
-	const { dbService } = await Promise.resolve().then(() => require("./database-zeAxfY2L.js")).then((n) => n.database_exports);
+	const { dbService } = await Promise.resolve().then(() => database_exports);
 	return dbService.getFindingsPaginated(scanId, options);
 });
 electron.ipcMain.handle("storage:openFolder", async (event, scanId) => {
@@ -24244,9 +24590,8 @@ electron.app.whenReady().then(() => {
 electron.app.on("window-all-closed", () => {
 	if (process.platform !== "darwin") electron.app.quit();
 });
-electron.app.on("before-quit", async () => {
+electron.app.on("before-quit", () => {
 	try {
-		const { scannerService } = await Promise.resolve().then(() => ipc_exports);
 		scannerService.killAll();
 	} catch {}
 });
