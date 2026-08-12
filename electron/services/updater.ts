@@ -19,7 +19,7 @@ export class UpdaterService {
       
       const resolveTool = (name: string, settingPath: string | undefined) => {
         if (settingPath) return settingPath;
-        if (process.platform === 'win32' && ['httpx', 'subfinder', 'nuclei'].includes(name)) {
+        if (process.platform === 'win32' && ['httpx', 'subfinder', 'nuclei', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].includes(name)) {
           const goPath = path.join(os.homedir(), 'go', 'bin', `${name}.exe`);
           if (fs.existsSync(goPath)) return goPath;
         }
@@ -27,34 +27,39 @@ export class UpdaterService {
       };
 
       const nucleiBin = resolveTool('nuclei', settings.nucleiPath);
-
       const subfinderBin = resolveTool('subfinder', settings.subfinderPath);
       const httpxBin = resolveTool('httpx', settings.httpxPath);
+      const alterxBin = resolveTool('alterx', settings.alterxPath);
+      const dnsxBin = resolveTool('dnsx', settings.dnsxPath);
+      const naabuBin = resolveTool('naabu', settings.naabuPath);
+      const tlsxBin = resolveTool('tlsx', settings.tlsxPath);
+      const katanaBin = resolveTool('katana', settings.katanaPath);
 
-      // 1. Update Nuclei Engine
-      sendOutput('[+] Updating Nuclei Engine...');
-      await this.runCommand(nucleiBin, ['-update'], sendOutput);
+      const updateTool = async (step: string, command: string, args: string[]) => {
+        sendOutput(`[+] ${step}...`);
+        try {
+          await this.runCommand(command, args, sendOutput);
+          sendOutput(`[+] Successfully updated: ${step}`);
+        } catch (e: any) {
+          sendOutput(`[-] Error updating ${step}: ${e.message}`);
+        }
+      };
 
-      // 2. Update Nuclei Templates
-      sendOutput('[+] Updating Nuclei Templates...');
-      await this.runCommand(nucleiBin, ['-update-templates'], sendOutput);
+      await updateTool('Updating Nuclei Engine', nucleiBin, ['-update']);
+      await updateTool('Updating Nuclei Templates', nucleiBin, ['-update-templates']);
+      await updateTool('Updating Wapiti via pip', 'pip', ['install', '--upgrade', 'wapiti3']);
+      await updateTool('Updating Subfinder', subfinderBin, ['-update']);
+      await updateTool('Updating httpx', httpxBin, ['-update']);
+      await updateTool('Updating Alterx', alterxBin, ['-update']);
+      await updateTool('Updating dnsx', dnsxBin, ['-update']);
+      await updateTool('Updating Naabu', naabuBin, ['-update']);
+      await updateTool('Updating tlsx', tlsxBin, ['-update']);
+      await updateTool('Updating Katana', katanaBin, ['-update']);
 
-      // 3. Update Wapiti
-      sendOutput('[+] Updating Wapiti via pip...');
-      await this.runCommand('pip', ['install', '--upgrade', 'wapiti3'], sendOutput);
-
-      // 4. Update subfinder
-      sendOutput('[+] Updating Subfinder...');
-      await this.runCommand(subfinderBin, ['-update'], sendOutput);
-
-      // 5. Update httpx
-      sendOutput('[+] Updating httpx...');
-      await this.runCommand(httpxBin, ['-update'], sendOutput);
-
-      sendOutput('[*] Tools update completed successfully.');
+      sendOutput('[*] Tools update completed.');
       sender.send('update:status', 'DONE');
     } catch (err: unknown) {
-      sendOutput(`[-] Error during update: ${(err as Error).message}`);
+      sendOutput(`[-] Critical error during update: ${(err as Error).message}`);
       sender.send('update:status', 'ERROR');
     }
   }
