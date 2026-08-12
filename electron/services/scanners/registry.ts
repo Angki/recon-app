@@ -8,7 +8,7 @@ import { logger } from '../logger';
 export const ScannerAdapters: Record<string, IScannerAdapter> = {
   nuclei: {
     getCommandArgs(ctx) {
-      const args = ['-u', ctx.targetUrl, '-severity', 'info,low,medium,high,critical', '-stats', '-duc', '-ni', '-v', '-o', ctx.outputFile, '-je', ctx.jsonFile];
+      const args = ['-u', ctx.targetUrl, '-severity', 'info,low,medium,high,critical', '-stats', '-duc', '-ni', '-o', ctx.outputFile, '-je', ctx.jsonFile];
       if (ctx.config?.isWordpress) {
         args.splice(2, 0, '-tags', 'wordpress,wp-plugin,wp-theme');
       }
@@ -54,7 +54,17 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
 
   wapiti: {
     getCommandArgs(ctx) {
-      return ['-u', ctx.targetUrl, '-l', '2', '-v', '2', '-f', 'json', '-dr', '2', '-o', ctx.jsonFile];
+      return [
+        '-u', ctx.targetUrl,
+        '-l', '2',
+        '-v', '2',
+        '-f', 'json',
+        '-dr', '2',
+        '-o', ctx.jsonFile,
+        '--flush-session',
+        '--store-session', ctx.outDir,
+        '--no-bugreport'
+      ];
     },
     getEnv(ctx, env) {
       return { ...env, PYTHONIOENCODING: 'utf-8' };
@@ -105,12 +115,12 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
 
   subfinder: {
     getCommandArgs(ctx) {
-      return ['-d', ctx.domain, '-json', '-o', ctx.jsonFile];
+      return ['-d', ctx.domain, '-silent', '-json', '-o', ctx.jsonFile];
     },
     parseFindings: genericJsonLinesParser
   },
   alterx: {
-    getCommandArgs(ctx) { return ['-o', ctx.outputFile]; },
+    getCommandArgs(ctx) { return ['-silent', '-o', ctx.outputFile]; },
     handleStdin(ctx, proc) { proc.stdin?.write(ctx.domain + '\n'); },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.outputFile)) return [];
@@ -131,20 +141,20 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   dnsx: {
-    getCommandArgs(ctx) { return ['-json', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) { return ['-silent', '-json', '-o', ctx.jsonFile]; },
     handleStdin(ctx, proc) { proc.stdin?.write(ctx.domain + '\n'); },
     parseFindings: genericJsonLinesParser
   },
   naabu: {
-    getCommandArgs(ctx) { return ['-host', ctx.domain, '-top-ports', '100', '-json', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) { return ['-host', ctx.domain, '-top-ports', '100', '-silent', '-json', '-o', ctx.jsonFile]; },
     parseFindings: genericJsonLinesParser
   },
   tlsx: {
-    getCommandArgs(ctx) { return ['-u', ctx.domain, '-json', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) { return ['-u', ctx.domain, '-silent', '-json', '-o', ctx.jsonFile]; },
     parseFindings: genericJsonLinesParser
   },
   httpx: {
-    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-title', '-tech-detect', '-status-code', '-json', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-title', '-tech-detect', '-status-code', '-silent', '-json', '-o', ctx.jsonFile]; },
     parseFindings: genericJsonLinesParser
   },
   nmap: {
@@ -321,7 +331,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   katana: {
-    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-j', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-silent', '-j', '-o', ctx.jsonFile]; },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
