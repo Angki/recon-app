@@ -123,7 +123,27 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     getCommandArgs(ctx) {
       return ['-d', ctx.domain, '-silent', '-json', '-o', ctx.jsonFile];
     },
-    parseFindings: genericJsonLinesParser
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      const lines = content.split('\n').filter(l => l.trim() !== '');
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          findings.push({
+            id: 'subfinder-domain',
+            name: 'Subdomain Discovered',
+            severity: 'info',
+            scanner: 'subfinder',
+            url: data.host || '',
+            description: `Source: ${data.source || 'Unknown'}`,
+            timestamp: new Date().toISOString(),
+          });
+        } catch { /* ignore */ }
+      }
+      return findings;
+    }
   },
   alterx: {
     getCommandArgs(ctx) { return ['-silent', '-o', ctx.outputFile]; },
@@ -149,19 +169,103 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
   dnsx: {
     getCommandArgs(ctx) { return ['-silent', '-json', '-o', ctx.jsonFile]; },
     handleStdin(ctx, proc) { proc.stdin?.write(ctx.domain + '\n'); },
-    parseFindings: genericJsonLinesParser
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      const lines = content.split('\n').filter(l => l.trim() !== '');
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          const ips = data.a ? data.a.join(', ') : 'Unknown IP';
+          findings.push({
+            id: 'dnsx-record',
+            name: 'DNS Record Resolved',
+            severity: 'info',
+            scanner: 'dnsx',
+            url: data.host || '',
+            description: `Resolved IPs: ${ips}`,
+            timestamp: data.timestamp || new Date().toISOString(),
+          });
+        } catch { /* ignore */ }
+      }
+      return findings;
+    }
   },
   naabu: {
     getCommandArgs(ctx) { return ['-host', ctx.domain, '-top-ports', '100', '-silent', '-json', '-o', ctx.jsonFile]; },
-    parseFindings: genericJsonLinesParser
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      const lines = content.split('\n').filter(l => l.trim() !== '');
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          findings.push({
+            id: `naabu-port-${data.port}`,
+            name: `Open Port Discovered`,
+            severity: 'low',
+            scanner: 'naabu',
+            url: `${data.host}:${data.port}`,
+            description: `Port ${data.port} is open on ${data.host} (${data.ip || ''})`,
+            timestamp: new Date().toISOString(),
+          });
+        } catch { /* ignore */ }
+      }
+      return findings;
+    }
   },
   tlsx: {
     getCommandArgs(ctx) { return ['-u', ctx.domain, '-silent', '-json', '-o', ctx.jsonFile]; },
-    parseFindings: genericJsonLinesParser
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      const lines = content.split('\n').filter(l => l.trim() !== '');
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          const issuer = data.issuer_dn || 'Unknown';
+          const version = data.tls_version || 'Unknown TLS';
+          findings.push({
+            id: 'tlsx-info',
+            name: 'TLS Certificate Info',
+            severity: 'info',
+            scanner: 'tlsx',
+            url: data.host || '',
+            description: `Version: ${version}, Issuer: ${issuer}`,
+            timestamp: data.timestamp || new Date().toISOString(),
+          });
+        } catch { /* ignore */ }
+      }
+      return findings;
+    }
   },
   httpx: {
     getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-title', '-tech-detect', '-status-code', '-silent', '-json', '-o', ctx.jsonFile]; },
-    parseFindings: genericJsonLinesParser
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      const lines = content.split('\n').filter(l => l.trim() !== '');
+      for (const line of lines) {
+        try {
+          const data = JSON.parse(line);
+          const tech = data.tech ? data.tech.join(', ') : 'None';
+          findings.push({
+            id: 'httpx-service',
+            name: `HTTP Service: ${data.title || 'Untitled'}`,
+            severity: 'info',
+            scanner: 'httpx',
+            url: data.url || data.host || '',
+            description: `Status: ${data['status_code'] || 'Unknown'}\nTech: ${tech}\nWeb Server: ${data.webserver || 'Unknown'}`,
+            timestamp: data.timestamp || new Date().toISOString(),
+          });
+        } catch { /* ignore */ }
+      }
+      return findings;
+    }
   },
   nmap: {
     getCommandArgs(ctx) { return ['-sV', '-sC', ctx.domain, '-oN', ctx.outputFile]; },
