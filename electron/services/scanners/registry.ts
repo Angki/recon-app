@@ -98,7 +98,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       const findings: Record<string, unknown>[] = [];
       if (data.vulnerabilities) {
         for (const [vulnType, vulns] of Object.entries(data.vulnerabilities)) {
-          const vulnArray = vulns as Array<{ level?: number, path?: string, info?: string }>;
+          const vulnArray = vulns as Array<{ level?: number, path?: string, info?: string, http_request?: string, curl_command?: string, parameter?: string }>;
           for (const v of vulnArray) {
             findings.push({
               id: vulnType,
@@ -108,6 +108,9 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
               url: v.path || '',
               description: v.info || '',
               timestamp: new Date().toISOString(),
+              httpRequest: v.http_request || '',
+              curlCommand: v.curl_command || '',
+              parameter: v.parameter || ''
             });
           }
         }
