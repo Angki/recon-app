@@ -283,22 +283,24 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         }
         if (data.vulns || (data.version && data.version.vulnerabilities)) {
           const vList = data.vulns || data.version.vulnerabilities;
-          vList.forEach((v: { title?: string, id?: string, references?: { url?: string[] } }) => {
+          vList.forEach((v: { title?: string, id?: string, references?: { url?: string[], cve?: string[] } }) => {
             findings.push({
               id: v.title || v.id || 'wpscan-vuln',
               name: v.title || 'WP Core Vulnerability',
               severity: 'high',
               scanner: 'wpscan',
               url: '',
-              description: v.references?.url?.join('\n') || v.title || '',
+              description: v.title || '',
+              references: v.references?.url || [],
+              cves: v.references?.cve || [],
               timestamp: new Date().toISOString()
             });
           });
         }
         if (data.plugins) {
-          for (const [pluginName, pluginData] of Object.entries(data.plugins) as Iterable<[string, { vulnerabilities?: { id?: string, title?: string }[], location?: string }]>) {
+          for (const [pluginName, pluginData] of Object.entries(data.plugins) as Iterable<[string, { vulnerabilities?: { id?: string, title?: string, references?: { url?: string[], cve?: string[] } }[], location?: string }]>) {
             if (pluginData.vulnerabilities) {
-              pluginData.vulnerabilities.forEach((v: { id?: string, title?: string }) => {
+              pluginData.vulnerabilities.forEach((v: { id?: string, title?: string, references?: { url?: string[], cve?: string[] } }) => {
                 findings.push({
                   id: v.id || `wpscan-plugin-${pluginName}`,
                   name: `Plugin Vuln: ${pluginName}`,
@@ -306,6 +308,8 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
                   scanner: 'wpscan',
                   url: pluginData.location || '',
                   description: v.title || '',
+                  references: v.references?.url || [],
+                  cves: v.references?.cve || [],
                   timestamp: new Date().toISOString()
                 });
               });
@@ -313,9 +317,9 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
           }
         }
         if (data.themes) {
-          for (const [themeName, themeData] of Object.entries(data.themes) as Iterable<[string, { vulnerabilities?: { id?: string, title?: string }[], location?: string }]>) {
+          for (const [themeName, themeData] of Object.entries(data.themes) as Iterable<[string, { vulnerabilities?: { id?: string, title?: string, references?: { url?: string[], cve?: string[] } }[], location?: string }]>) {
             if (themeData.vulnerabilities) {
-              themeData.vulnerabilities.forEach((v: { id?: string, title?: string }) => {
+              themeData.vulnerabilities.forEach((v: { id?: string, title?: string, references?: { url?: string[], cve?: string[] } }) => {
                 findings.push({
                   id: v.id || `wpscan-theme-${themeName}`,
                   name: `Theme Vuln: ${themeName}`,
@@ -323,6 +327,8 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
                   scanner: 'wpscan',
                   url: themeData.location || '',
                   description: v.title || '',
+                  references: v.references?.url || [],
+                  cves: v.references?.cve || [],
                   timestamp: new Date().toISOString()
                 });
               });
