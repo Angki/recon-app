@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
-import { Settings as SettingsIcon, Save, ShieldAlert, Cpu, Network, Database, Wrench, Globe, TerminalSquare, Key, Sparkles } from 'lucide-react';
+import { 
+  Settings as SettingsIcon, Save, ShieldAlert, Cpu, Network, Database, 
+  Wrench, Globe, TerminalSquare, Key, Sparkles 
+} from 'lucide-react';
+import { ToolsHubModal } from '../components/ToolsHubModal';
 
 interface InputFieldProps {
   label: string;
@@ -12,8 +16,8 @@ interface InputFieldProps {
 
 const InputField = ({ label, value, onChange, placeholder, hint, icon: Icon }: InputFieldProps) => (
   <div className="flex flex-col space-y-1.5">
-    <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
-      {Icon && <Icon className="w-4 h-4 text-slate-500" />}
+    <label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-2">
+      {Icon && <Icon className="w-3.5 h-3.5 text-[var(--accent-primary)]" />}
       {label}
     </label>
     <input 
@@ -21,9 +25,9 @@ const InputField = ({ label, value, onChange, placeholder, hint, icon: Icon }: I
       value={value}
       onChange={(e) => onChange(e.target.value)}
       placeholder={placeholder}
-      className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 font-mono text-sm transition-all placeholder:text-slate-600 shadow-inner"
+      className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] font-mono text-xs transition-all placeholder:[var(--text-muted)] shadow-inner"
     />
-    {hint && <p className="text-xs text-slate-500">{hint}</p>}
+    {hint && <p className="text-[11px] text-[var(--text-muted)]">{hint}</p>}
   </div>
 );
 
@@ -53,6 +57,7 @@ export default function SettingsPage() {
   const [aiApiKey, setAiApiKey] = useState('');
   const [wpscanApiToken, setWpscanApiToken] = useState('');
   const [saving, setSaving] = useState(false);
+  const [showToolsHub, setShowToolsHub] = useState(false);
 
   useEffect(() => {
     if (window.api) {
@@ -99,191 +104,180 @@ export default function SettingsPage() {
     setTimeout(() => setSaving(false), 500);
   };
 
-
   return (
-    <div className="flex flex-col h-full max-w-4xl mx-auto space-y-8 pb-10">
-      <div className="flex items-center justify-between border-b border-slate-800 pb-5 sticky top-0 bg-slate-950/80 backdrop-blur-md z-10 pt-4">
+    <div className="flex flex-col h-full max-w-5xl mx-auto space-y-6 pb-12">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-[var(--border-card)] pb-4 sticky top-0 bg-[var(--bg-app)]/90 backdrop-blur-md z-10 pt-2">
         <div>
-          <h1 className="text-2xl font-bold text-slate-100 flex items-center gap-3">
-            <div className="bg-blue-500/10 p-2 rounded-lg border border-blue-500/20">
-              <SettingsIcon className="w-5 h-5 text-blue-400" />
+          <h1 className="text-xl font-bold text-[var(--text-primary)] flex items-center gap-2.5">
+            <div className="bg-[var(--accent-primary)]/10 p-2 rounded-xl border border-[var(--border-glow)]">
+              <SettingsIcon className="w-5 h-5 text-[var(--accent-primary)]" />
             </div>
-            Configuration
+            Configuration & Engines
           </h1>
-          <p className="text-slate-400 mt-1 text-sm">Manage executable paths, AI integrations, and tool behavior.</p>
+          <p className="text-[var(--text-secondary)] mt-1 text-xs">Manage executable paths, AI integrations, and tool behavior.</p>
         </div>
         <button 
           onClick={handleSave}
           disabled={saving}
-          className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-5 py-2.5 rounded-lg transition-all font-medium disabled:opacity-50 shadow-lg shadow-blue-900/20"
+          className="flex items-center gap-2 bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white px-5 py-2 rounded-xl transition-all font-semibold text-xs disabled:opacity-50 shadow-md shadow-[var(--accent-glow)] cursor-pointer"
         >
-          <Save className="w-4 h-4" />
-          {saving ? 'Saving...' : 'Save Changes'}
+          <Save className="w-3.5 h-3.5" />
+          {saving ? 'Saving...' : 'Save Configuration'}
         </button>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* Left Column: Scanners */}
-        <div className="lg:col-span-8 space-y-8">
-          
-          <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-1 h-full bg-rose-500/50"></div>
-            <h2 className="text-lg font-semibold text-slate-200 mb-5 flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5 text-rose-400" />
+      {/* Engines Banner */}
+      <div className="flex items-center justify-between p-4 rounded-2xl bg-gradient-to-r from-emerald-500/10 via-[var(--accent-primary)]/10 to-transparent border border-[var(--border-glow)]">
+        <div className="flex items-center gap-3.5">
+          <div className="p-2.5 rounded-xl bg-[var(--accent-primary)]/20 border border-[var(--border-glow)]">
+            <Cpu className="w-5 h-5 text-[var(--accent-primary)]" />
+          </div>
+          <div>
+            <div className="text-sm font-bold text-[var(--text-primary)]">Automated Security Engine Management</div>
+            <div className="text-xs text-[var(--text-secondary)]">Want to 1-click update or auto-download Nuclei, Wapiti, Katana, HTTPX, or Subfinder?</div>
+          </div>
+        </div>
+        <button
+          onClick={() => setShowToolsHub(true)}
+          className="flex items-center gap-2 px-4 py-2 text-xs font-bold rounded-xl bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-hover)] shadow-sm transition-all cursor-pointer"
+        >
+          <Sparkles className="w-3.5 h-3.5" />
+          <span>Open Engines & Tools Hub</span>
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        {/* Left Column */}
+        <div className="lg:col-span-8 space-y-6">
+          <div className="theme-card p-5 rounded-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-rose-500"></div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] mb-4 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-rose-400" />
               Core Vulnerability Scanners
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-              <InputField label="Nuclei Binary" value={nucleiPath} onChange={setNucleiPath} placeholder="nuclei" icon={TerminalSquare} hint="System path or relative" />
-              <InputField label="Nuclei Templates" value={nucleiTemplatesPath} onChange={setNucleiTemplatesPath} placeholder="~/nuclei-templates" icon={Database} hint="Optional custom directory" />
-              <InputField label="Wapiti Binary" value={wapitiPath} onChange={setWapitiPath} placeholder="wapiti" icon={TerminalSquare} />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <InputField label="Nuclei Binary" value={nucleiPath} onChange={setNucleiPath} placeholder="nuclei" icon={TerminalSquare} hint="Defaults to auto-downloaded AppData/bin" />
+              <InputField label="Nuclei Templates" value={nucleiTemplatesPath} onChange={setNucleiTemplatesPath} placeholder="~/nuclei-templates" icon={Database} hint="Auto-updated via -update-templates" />
+              <InputField label="Wapiti Binary" value={wapitiPath} onChange={setWapitiPath} placeholder="wapiti" icon={TerminalSquare} hint="Upgraded via pip" />
               <InputField label="OWASP ZAP" value={zapPath} onChange={setZapPath} placeholder="zap.bat" icon={TerminalSquare} />
-              <InputField label="WPScan API Token" value={wpscanApiToken} onChange={setWpscanApiToken} placeholder="API Token (Optional)" icon={Key} hint="Optional API Token for vulnerability data" />
+              <InputField label="WPScan API Token" value={wpscanApiToken} onChange={setWpscanApiToken} placeholder="API Token (Optional)" icon={Key} hint="Optional API Token for vulnerability database" />
             </div>
           </div>
 
-          <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-1 h-full bg-blue-500/50"></div>
-            <h2 className="text-lg font-semibold text-slate-200 mb-5 flex items-center gap-2">
-              <Network className="w-5 h-5 text-blue-400" />
-              ProjectDiscovery & Network Tools
+          <div className="theme-card p-5 rounded-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-[var(--accent-primary)]"></div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] mb-4 flex items-center gap-2">
+              <Network className="w-4 h-4 text-[var(--accent-primary)]" />
+              ProjectDiscovery & Recon Suite
             </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <InputField label="Subfinder" value={subfinderPath} onChange={setSubfinderPath} placeholder="subfinder" icon={Globe} />
               <InputField label="Httpx" value={httpxPath} onChange={setHttpxPath} placeholder="httpx" icon={Globe} />
               <InputField label="Katana" value={katanaPath} onChange={setKatanaPath} placeholder="katana" icon={Globe} />
-              <InputField label="Nmap" value={nmapPath} onChange={setNmapPath} placeholder="nmap" icon={Cpu} />
               <InputField label="Naabu" value={naabuPath} onChange={setNaabuPath} placeholder="naabu" icon={Network} />
               <InputField label="DNSx" value={dnsxPath} onChange={setDnsxPath} placeholder="dnsx" icon={Globe} />
               <InputField label="TLSx" value={tlsxPath} onChange={setTlsxPath} placeholder="tlsx" icon={Key} />
               <InputField label="Alterx" value={alterxPath} onChange={setAlterxPath} placeholder="alterx" icon={Wrench} />
+              <InputField label="Nmap" value={nmapPath} onChange={setNmapPath} placeholder="nmap" icon={Cpu} />
             </div>
           </div>
 
-          <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500/50"></div>
-            <h2 className="text-lg font-semibold text-slate-200 mb-5 flex items-center gap-2">
-              <Database className="w-5 h-5 text-emerald-400" />
+          <div className="theme-card p-5 rounded-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] mb-4 flex items-center gap-2">
+              <Database className="w-4 h-4 text-emerald-400" />
               Fuzzing & Wordlists
             </h2>
-            <div className="grid grid-cols-1 gap-6">
+            <div className="grid grid-cols-1 gap-4">
               <InputField label="FFUF Binary" value={ffufPath} onChange={setFfufPath} placeholder="ffuf" icon={TerminalSquare} />
               <InputField 
                 label="Global Wordlist Path" 
                 value={wordlistPath} 
                 onChange={setWordlistPath} 
-                placeholder="/usr/share/wordlists/dirb/common.txt" 
+                placeholder="C:\SecLists\Discovery\Web-Content\common.txt" 
                 icon={Database} 
-                hint="Used as default for FFUF and other fuzzers" 
+                hint="Used as default for FFUF directory enumeration" 
               />
             </div>
           </div>
 
-          <div className="bg-slate-800/50 p-6 rounded-xl border border-slate-700/50 shadow-sm relative overflow-hidden">
-            <div className="absolute top-0 left-0 w-1 h-full bg-amber-500/50"></div>
-            <h2 className="text-lg font-semibold text-slate-200 mb-5 flex items-center gap-2">
-              <ShieldAlert className="w-5 h-5 text-amber-400" />
-              Commercial Scanners
+          <div className="theme-card p-5 rounded-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-amber-500"></div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] mb-4 flex items-center gap-2">
+              <ShieldAlert className="w-4 h-4 text-amber-400" />
+              Commercial Desktop Integrations
             </h2>
-            <div className="grid grid-cols-1 gap-6">
+            <div className="grid grid-cols-1 gap-4">
               <InputField label="HCL AppScan (AppScanCMD.exe)" value={appscanPath} onChange={setAppscanPath} placeholder="C:\...\AppScanCMD.exe" icon={TerminalSquare} />
               <InputField label="Invicti Netsparker (Netsparker.exe)" value={netsparkerPath} onChange={setNetsparkerPath} placeholder="C:\...\Netsparker.exe" icon={TerminalSquare} />
-              <div className="border-t border-slate-700/50 pt-4 mt-2">
-                <InputField label="Acunetix Docker API URL" value={acunetixUrl} onChange={setAcunetixUrl} placeholder="https://127.0.0.1:13443" icon={Globe} hint="Default Docker mapping is 13443" />
-                <div className="mt-4 grid grid-cols-2 gap-4">
-                  <InputField label="Acunetix Email" value={acunetixEmail} onChange={setAcunetixEmail} placeholder="admin@admin.com" icon={Globe} hint="Used for auto-login if API Key is empty" />
-                  <div className="flex flex-col space-y-1.5">
-                    <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
-                      <Key className="w-4 h-4 text-slate-500" />
-                      Acunetix Password
-                    </label>
-                    <input 
-                      type="password" 
-                      value={acunetixPassword}
-                      onChange={(e) => setAcunetixPassword(e.target.value)}
-                      placeholder="••••••••"
-                      className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 font-mono text-sm transition-all placeholder:text-slate-600 shadow-inner"
-                    />
-                    <p className="text-xs text-slate-500">Stored encrypted. Used for auto-login.</p>
-                  </div>
-                </div>
-                <div className="mt-4">
-                  <InputField label="Acunetix API Key" value={acunetixApiKey} onChange={setAcunetixApiKey} placeholder="1986ad8c0a5b3df4d7028d5f3c06e936" icon={Key} hint="Generate this from the Administrator Profile in Acunetix UI (optional if Email/Password provided)" />
-                </div>
-                <div className="mt-4 flex flex-col space-y-1.5">
-                  <label className="text-sm font-medium text-slate-300 flex items-center gap-2">
-                    <ShieldAlert className="w-4 h-4 text-slate-500" />
-                    Scan Profile
+              <InputField label="Acunetix Docker API URL" value={acunetixUrl} onChange={setAcunetixUrl} placeholder="https://127.0.0.1:13443" icon={Globe} hint="Default Docker mapping is 13443" />
+              <div className="grid grid-cols-2 gap-4">
+                <InputField label="Acunetix Email" value={acunetixEmail} onChange={setAcunetixEmail} placeholder="admin@admin.com" icon={Globe} />
+                <div className="flex flex-col space-y-1.5">
+                  <label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-2">
+                    <Key className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+                    Acunetix Password
                   </label>
-                  <select
-                    value={acunetixProfileId}
-                    onChange={(e) => setAcunetixProfileId(e.target.value)}
-                    className="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 font-mono text-sm transition-all shadow-inner"
-                  >
-                    <option value="11111111-1111-1111-1111-111111111111">Full Scan</option>
-                    <option value="11111111-1111-1111-1111-111111111112">High Risk Vulnerabilities</option>
-                    <option value="11111111-1111-1111-1111-111111111113">SQL Injection Vulnerabilities</option>
-                    <option value="11111111-1111-1111-1111-111111111114">Weak Passwords</option>
-                    <option value="11111111-1111-1111-1111-111111111115">Cross-site Scripting Vulnerabilities</option>
-                    <option value="11111111-1111-1111-1111-111111111117">Crawl Only</option>
-                    <option value="11111111-1111-1111-1111-111111111116">Malware Scan</option>
-                  </select>
+                  <input 
+                    type="password" 
+                    value={acunetixPassword} 
+                    onChange={(e) => setAcunetixPassword(e.target.value)} 
+                    placeholder="••••••••" 
+                    className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] font-mono text-xs focus:outline-none focus:border-[var(--accent-primary)]"
+                  />
                 </div>
               </div>
             </div>
           </div>
-
         </div>
 
-        {/* Right Column: AI & Misc */}
-        <div className="lg:col-span-4 space-y-8">
-          <div className="bg-gradient-to-b from-slate-800 to-slate-800/50 p-6 rounded-xl border border-indigo-500/30 shadow-xl shadow-indigo-900/10">
-            <h2 className="text-lg font-semibold text-indigo-300 mb-5 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-indigo-400" />
-              AI Assistant
+        {/* Right Column: AI Integration */}
+        <div className="lg:col-span-4 space-y-6">
+          <div className="theme-card p-5 rounded-2xl relative overflow-hidden">
+            <div className="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
+            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] mb-4 flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              AI Executive Analysis
             </h2>
-            <div className="space-y-5">
+            <div className="space-y-4">
               <div className="flex flex-col space-y-1.5">
-                <label className="text-sm font-medium text-slate-300">Provider</label>
+                <label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                  AI Provider
+                </label>
                 <select
                   value={aiProvider}
                   onChange={(e) => setAiProvider(e.target.value)}
-                  className="bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:border-indigo-500/50 font-mono text-sm shadow-inner"
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] text-xs font-medium focus:outline-none focus:border-[var(--accent-primary)] cursor-pointer"
                 >
-                  <option value="ollama">Ollama (Local)</option>
-                  <option value="gemini">Google Gemini</option>
-                  <option value="openai">OpenAI (ChatGPT)</option>
-                  <option value="anthropic">Anthropic (Claude)</option>
+                  <option value="ollama">Ollama (Local / Privacy First)</option>
+                  <option value="openai">OpenAI (Cloud GPT-4o)</option>
+                  <option value="gemini">Google Gemini (Cloud)</option>
+                  <option value="anthropic">Anthropic Claude (Cloud)</option>
                 </select>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  Ollama runs locally on your machine with zero external cloud telemetry.
+                </p>
               </div>
-              <div className="flex flex-col space-y-1.5">
-                <label className="text-sm font-medium text-slate-300">API Key / Model</label>
-                <input 
-                  type={aiProvider === 'ollama' ? 'text' : 'password'}
-                  value={aiApiKey}
-                  onChange={(e) => setAiApiKey(e.target.value)}
-                  placeholder={aiProvider === 'ollama' ? 'minimax-m3:cloud' : 'sk-...'}
-                  className="bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2.5 text-slate-200 focus:outline-none focus:border-indigo-500/50 font-mono text-sm shadow-inner"
+
+              {aiProvider !== 'ollama' && (
+                <InputField 
+                  label="API Key" 
+                  value={aiApiKey} 
+                  onChange={setAiApiKey} 
+                  placeholder="sk-..." 
+                  icon={Key} 
+                  hint="Stored locally in secure settings" 
                 />
-                {aiProvider === 'ollama' ? (
-                  <div className="text-xs text-slate-400 space-y-1 mt-2 bg-slate-900/50 p-3 rounded border border-slate-700/50">
-                    <p>Format: <code className="text-indigo-300 bg-indigo-900/30 px-1 rounded">URL,model</code> or just <code className="text-indigo-300 bg-indigo-900/30 px-1 rounded">model</code></p>
-                    <p>Examples:</p>
-                    <ul className="list-disc pl-4 space-y-0.5 text-slate-500">
-                      <li><code>minimax-m3:cloud</code> (defaults to localhost:11434, fast)</li>
-                      <li><code>qwen3:14b</code> (higher quality, slower)</li>
-                      <li><code>http://10.0.0.5:11434,llama3</code></li>
-                    </ul>
-                  </div>
-                ) : (
-                  <p className="text-xs text-slate-500 mt-1">Enter your API key securely. It is stored locally.</p>
-                )}
-              </div>
+              )}
             </div>
           </div>
         </div>
-
       </div>
+
+      {showToolsHub && (
+        <ToolsHubModal isOpen={showToolsHub} onClose={() => setShowToolsHub(false)} />
+      )}
     </div>
   );
 }
