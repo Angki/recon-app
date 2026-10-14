@@ -1,70 +1,103 @@
+import { useState } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Shield, History, Settings as SettingsIcon } from 'lucide-react';
+import { Shield, History, Settings as SettingsIcon, Cpu, Layers } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
 import HistoryPage from './pages/History';
 import SettingsPage from './pages/Settings';
+import { CommandHeader } from './components/CommandHeader';
+import { ToolsHubModal } from './components/ToolsHubModal';
 import './App.css';
 
 function App() {
   const location = useLocation();
+  const [showToolsHub, setShowToolsHub] = useState(false);
 
   const getNavClass = (path: string) => {
-    return `flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
-      location.pathname === path 
-        ? 'bg-blue-600 text-white' 
-        : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+    const isActive = location.pathname === path;
+    return `flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm font-medium ${
+      isActive
+        ? 'bg-[var(--accent-primary)] text-white shadow-md shadow-[var(--accent-glow)] font-semibold'
+        : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
     }`;
   };
 
   return (
-    <div className="flex h-screen bg-slate-900 text-slate-200 overflow-hidden font-sans select-none">
+    <div className="flex h-screen bg-[var(--bg-app)] text-[var(--text-primary)] overflow-hidden font-sans select-none transition-colors duration-200">
       {/* Sidebar */}
-      <div className="w-64 bg-slate-950 border-r border-slate-800 flex flex-col p-4">
-        <div className="flex items-center space-x-3 mb-8 px-2">
-          <Shield className="w-8 h-8 text-emerald-500" />
-          <h1 className="text-xl font-bold bg-gradient-to-r from-emerald-400 to-blue-500 bg-clip-text text-transparent tracking-wide">
-            SecOps Recon
-          </h1>
+      <aside className="w-64 bg-[var(--bg-sidebar)] border-r border-[var(--border-card)] flex flex-col p-4 shrink-0 transition-colors duration-200">
+        <div className="flex items-center space-x-3 mb-8 px-2 py-1">
+          <div className="p-2 rounded-xl bg-[var(--accent-primary)]/10 border border-[var(--border-glow)]">
+            <Shield className="w-6 h-6 text-[var(--accent-primary)]" />
+          </div>
+          <div>
+            <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-[var(--text-primary)] to-[var(--accent-primary)] bg-clip-text text-transparent">
+              SecOps Recon
+            </h1>
+            <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)]">
+              Cyber Command v1.1
+            </span>
+          </div>
         </div>
-        
-        <nav className="flex-1 space-y-2">
+
+        <nav className="flex-1 space-y-1.5">
           <Link to="/" className={getNavClass('/')}>
-            <Shield className="w-5 h-5" />
+            <Layers className="w-4 h-4" />
             <span>Dashboard</span>
           </Link>
+          <button
+            onClick={() => setShowToolsHub(true)}
+            className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)] cursor-pointer text-left"
+          >
+            <Cpu className="w-4 h-4 text-emerald-400" />
+            <span>Engines & Tools</span>
+          </button>
           <Link to="/history" className={getNavClass('/history')}>
-            <History className="w-5 h-5" />
-            <span>History</span>
+            <History className="w-4 h-4" />
+            <span>Scan History</span>
           </Link>
           <Link to="/settings" className={getNavClass('/settings')}>
-            <SettingsIcon className="w-5 h-5" />
+            <SettingsIcon className="w-4 h-4" />
             <span>Settings</span>
           </Link>
         </nav>
-        
-        <div className="mt-auto px-2 py-4">
-          <div className="text-xs text-slate-500">v1.0.0 • Enterprise Edition</div>
-        </div>
-      </div>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Title bar drag area */}
-        <div className="h-8 w-full drag-region" style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}></div>
-        <div className="flex-1 overflow-auto p-6 relative">
-          {/* We keep Dashboard always mounted to preserve its state and xterm.js DOM instances. 
-              We just hide it using CSS when we are not on the root path. */}
-          <div className={location.pathname === '/' ? 'block h-full' : 'hidden h-full'}>
-            <Dashboard />
+        <div className="mt-auto px-2 py-3 border-t border-[var(--border-card)]">
+          <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] font-mono">
+            <span>Status: Operational</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
           </div>
-          
+        </div>
+      </aside>
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden">
+        {/* Title bar drag region for Electron window */}
+        <div
+          className="h-4 w-full bg-[var(--bg-surface)] drag-region shrink-0"
+          style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
+        />
+
+        {/* Top Header */}
+        <CommandHeader onOpenToolsHub={() => setShowToolsHub(true)} />
+
+        {/* Content View */}
+        <main className="flex-1 overflow-auto p-6 relative">
+          <div className={location.pathname === '/' ? 'block h-full' : 'hidden h-full'}>
+            <Dashboard onOpenToolsHub={() => setShowToolsHub(true)} />
+          </div>
+
           <Routes>
             <Route path="/" element={<div />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route path="/settings" element={<SettingsPage />} />
           </Routes>
-        </div>
+        </main>
       </div>
+
+      {/* Tools Hub Modal */}
+      {showToolsHub && (
+        <ToolsHubModal isOpen={showToolsHub} onClose={() => setShowToolsHub(false)} />
+      )}
     </div>
   );
 }

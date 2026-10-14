@@ -11,7 +11,7 @@ import type { ScannerType, ScannerStatus } from '../stores/useScanStore';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useLogStore } from '../stores/useLogStore';
 
-export default function Dashboard() {
+export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => void } = {}) {
   const {
     targetUrl, setTargetUrl,
     scanId, setScanId,
@@ -317,6 +317,10 @@ export default function Dashboard() {
   };
 
   const handleUpdateTools = async () => {
+    if (onOpenToolsHub) {
+      onOpenToolsHub();
+      return;
+    }
     setIsUpdating(true);
     setUpdateLogs([]);
     setShowUpdateModal(true);
