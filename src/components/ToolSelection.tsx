@@ -1,3 +1,5 @@
+import { Layers } from 'lucide-react';
+
 interface ToolSelectionProps {
   allTools: string[];
   selectedTools: string[];
@@ -8,39 +10,80 @@ interface ToolSelectionProps {
 export default function ToolSelection({
   allTools, selectedTools, setSelectedTools, status
 }: ToolSelectionProps) {
+  const isRunning = status === 'RUNNING';
+
+  const applyPreset = (preset: 'all' | 'recon' | 'dast' | 'none') => {
+    if (isRunning) return;
+    if (preset === 'all') setSelectedTools(allTools);
+    else if (preset === 'none') setSelectedTools([]);
+    else if (preset === 'recon') {
+      setSelectedTools(['subfinder', 'httpx', 'katana', 'dnsx', 'alterx', 'tlsx', 'naabu']);
+    } else if (preset === 'dast') {
+      setSelectedTools(['nuclei', 'wapiti', 'ffuf']);
+    }
+  };
+
   return (
-    <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex flex-col space-y-3">
+    <div className="theme-card p-4 rounded-2xl flex flex-col space-y-3 shadow-md">
       <div className="flex justify-between items-center">
-        <div className="text-sm font-medium text-slate-300">Select Scanners to Run:</div>
-        <button 
-          onClick={() => setSelectedTools(selectedTools.length === allTools.length ? [] : allTools)}
-          disabled={status === 'RUNNING'}
-          className="text-xs text-blue-400 hover:text-blue-300 underline disabled:opacity-50"
-        >
-          {selectedTools.length === allTools.length ? 'Deselect All' : 'Select All'}
-        </button>
+        <div className="flex items-center gap-2">
+          <Layers className="w-4 h-4 text-[var(--accent-primary)]" />
+          <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-primary)]">
+            Active Security Scanners ({selectedTools.length}/{allTools.length})
+          </span>
+        </div>
+
+        {/* Quick Presets */}
+        <div className="flex items-center gap-2">
+          <span className="text-[11px] text-[var(--text-muted)] font-mono hidden sm:inline">Presets:</span>
+          <button
+            onClick={() => applyPreset('recon')}
+            disabled={isRunning}
+            className="px-2 py-0.5 rounded-lg text-[11px] font-mono text-[var(--text-secondary)] hover:text-cyan-400 hover:bg-white/5 border border-[var(--border-card)] transition-all cursor-pointer disabled:opacity-40"
+          >
+            Recon Suite
+          </button>
+          <button
+            onClick={() => applyPreset('dast')}
+            disabled={isRunning}
+            className="px-2 py-0.5 rounded-lg text-[11px] font-mono text-[var(--text-secondary)] hover:text-amber-400 hover:bg-white/5 border border-[var(--border-card)] transition-all cursor-pointer disabled:opacity-40"
+          >
+            DAST Core
+          </button>
+          <button
+            onClick={() => applyPreset(selectedTools.length === allTools.length ? 'none' : 'all')}
+            disabled={isRunning}
+            className="px-2 py-0.5 rounded-lg text-[11px] font-mono text-[var(--accent-primary)] hover:bg-[var(--accent-primary)]/10 border border-[var(--border-card)] transition-all cursor-pointer disabled:opacity-40"
+          >
+            {selectedTools.length === allTools.length ? 'Deselect All' : 'Select All'}
+          </button>
+        </div>
       </div>
-      <div className="flex flex-wrap gap-2">
+
+      {/* Tool Toggle Pills */}
+      <div className="flex flex-wrap gap-2 pt-1">
         {allTools.map(tool => {
           const isSelected = selectedTools.includes(tool);
           return (
             <button
               key={tool}
               onClick={() => {
+                if (isRunning) return;
                 if (isSelected) {
                   setSelectedTools(prev => prev.filter(t => t !== tool));
                 } else {
                   setSelectedTools(prev => [...prev, tool]);
                 }
               }}
-              disabled={status === 'RUNNING'}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold uppercase tracking-wider transition-all border ${
+              disabled={isRunning}
+              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-mono uppercase tracking-wider font-semibold transition-all border cursor-pointer ${
                 isSelected
-                  ? 'bg-blue-500/20 text-blue-400 border-blue-500/50 shadow-[0_0_10px_rgba(59,130,246,0.1)]'
-                  : 'bg-slate-900/50 text-slate-500 border-slate-700 hover:border-slate-500 hover:text-slate-300'
-              } ${status === 'RUNNING' ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  ? 'bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] border-[var(--border-glow)] shadow-sm'
+                  : 'bg-black/20 text-[var(--text-muted)] border-[var(--border-card)] hover:border-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+              } ${isRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
-              {tool}
+              <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-[var(--accent-primary)]' : 'bg-[var(--text-muted)]'}`} />
+              <span>{tool}</span>
             </button>
           );
         })}

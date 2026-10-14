@@ -1,4 +1,4 @@
-import { Play, Square, FolderOpen, Copy, RefreshCw } from 'lucide-react';
+import { Play, Square, FolderOpen, Copy, Sparkles, Globe, ShieldAlert } from 'lucide-react';
 
 interface ScannerControlsProps {
   targetUrl: string;
@@ -24,92 +24,101 @@ export default function ScannerControls({
   handleOpenFolder, handleAnalyzeAI, handleCopyLogsForAI, handleUpdateTools,
   isAnalyzing, isUpdating
 }: ScannerControlsProps) {
+  const isRunning = status === 'RUNNING';
+
   return (
-    <div className="bg-slate-800 p-4 rounded-xl border border-slate-700 shadow-sm flex items-center justify-between">
-      <div className="flex items-center space-x-4 flex-1 max-w-2xl">
-        <div className="flex-1">
+    <div className="theme-card p-4 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg">
+      {/* Target Input with Smart Protocol and WordPress toggle */}
+      <div className="flex items-center gap-3 flex-1 w-full max-w-2xl">
+        <div className="relative flex-1">
+          <div className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[var(--accent-primary)] pointer-events-none">
+            <Globe className="w-4 h-4" />
+          </div>
           <input
             type="text"
             value={targetUrl}
             onChange={(e) => setTargetUrl(e.target.value)}
-            placeholder="Enter Target URL (e.g., https://makassarkota.go.id)"
-            className="w-full bg-slate-900 border border-slate-700 rounded-lg px-4 py-2 text-slate-200 focus:outline-none focus:border-blue-500 transition-colors placeholder-slate-500"
-            disabled={status === 'RUNNING'}
-            onKeyDown={e => {
+            placeholder="Target URL / Domain (e.g., example.com or https://target.com)"
+            className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl pl-10 pr-4 py-2.5 text-xs text-[var(--text-primary)] font-mono focus:outline-none focus:border-[var(--accent-primary)] focus:ring-1 focus:ring-[var(--accent-primary)] transition-all placeholder:[var(--text-muted)] shadow-inner"
+            disabled={isRunning}
+            onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                if (status !== 'RUNNING') handleStartScan();
+                if (!isRunning) handleStartScan();
               }
             }}
           />
         </div>
-        <label className="flex items-center space-x-2 text-slate-300">
+
+        <label className="flex items-center gap-2 px-3 py-2 rounded-xl bg-[var(--bg-card)] border border-[var(--border-card)] text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-all cursor-pointer shrink-0 select-none">
           <input
             type="checkbox"
             checked={isWordpressScan}
             onChange={(e) => setIsWordpressScan(e.target.checked)}
-            disabled={status === 'RUNNING'}
-            className="w-4 h-4 rounded bg-slate-800 border-slate-700 text-blue-600 focus:ring-blue-500"
+            disabled={isRunning}
+            className="w-3.5 h-3.5 rounded bg-[var(--bg-app)] border-[var(--border-card)] text-[var(--accent-primary)] focus:ring-0 cursor-pointer"
           />
-          <span className="text-sm">Wordpress</span>
+          <span className="font-medium">WordPress Mode</span>
         </label>
       </div>
 
-      <div className="flex items-center space-x-3 ml-4">
-        {status !== 'RUNNING' ? (
+      {/* Action Buttons */}
+      <div className="flex items-center gap-2.5 flex-wrap justify-end">
+        {!isRunning ? (
           <button
             onClick={handleStartScan}
-            className="flex items-center space-x-2 bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-emerald-900/20"
+            className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white px-5 py-2 rounded-xl font-bold text-xs transition-all shadow-md shadow-emerald-900/30 hover:scale-[1.02] cursor-pointer"
           >
-            <Play className="w-4 h-4" />
-            <span>Start Scan</span>
+            <Play className="w-4 h-4 fill-white" />
+            <span>START SCAN</span>
           </button>
         ) : (
           <button
             onClick={handleStopScan}
-            className="flex items-center space-x-2 bg-red-600 hover:bg-red-500 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-red-900/20"
+            className="flex items-center gap-2 bg-rose-600 hover:bg-rose-500 text-white px-5 py-2 rounded-xl font-bold text-xs transition-all shadow-md shadow-rose-900/30 hover:scale-[1.02] cursor-pointer animate-pulse"
           >
-            <Square className="w-4 h-4" />
-            <span>Stop Scan</span>
+            <Square className="w-4 h-4 fill-white" />
+            <span>STOP SCAN</span>
           </button>
         )}
 
         <button
           onClick={handleOpenFolder}
           disabled={!scanId}
-          className="flex items-center space-x-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-slate-200 px-4 py-2 rounded-lg font-medium transition-colors"
+          className="flex items-center gap-1.5 bg-[var(--bg-card)] hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-card)] px-3.5 py-2 rounded-xl font-medium text-xs transition-all cursor-pointer"
+          title="Open Report Folder in Explorer"
         >
-          <FolderOpen className="w-4 h-4" />
-          <span>Output</span>
+          <FolderOpen className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+          <span>Artifacts</span>
         </button>
 
         <button
           onClick={handleAnalyzeAI}
           disabled={!scanId || isAnalyzing}
-          title="Analyze console logs with configured AI"
-          className="flex items-center space-x-2 bg-purple-600 hover:bg-purple-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-purple-900/20"
+          title="Analyze console logs with AI"
+          className="flex items-center gap-1.5 bg-purple-600/90 hover:bg-purple-600 disabled:opacity-40 disabled:cursor-not-allowed text-white px-3.5 py-2 rounded-xl font-medium text-xs transition-all shadow-sm shadow-purple-900/20 cursor-pointer"
         >
-          <Copy className="w-4 h-4" />
-          <span>{isAnalyzing ? 'Analyzing...' : 'AI Analyst'}</span>
+          <Sparkles className={`w-3.5 h-3.5 ${isAnalyzing ? 'animate-spin' : ''}`} />
+          <span>{isAnalyzing ? 'Analyzing...' : 'AI Analysis'}</span>
         </button>
 
         <button
           onClick={handleCopyLogsForAI}
           disabled={!scanId}
-          title="Copy full console logs as context for AI Agent"
-          className="flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-indigo-900/20"
+          title="Copy raw scan logs formatted for LLM context"
+          className="flex items-center gap-1.5 bg-[var(--bg-card)] hover:bg-white/5 disabled:opacity-40 disabled:cursor-not-allowed text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-card)] px-3 py-2 rounded-xl font-medium text-xs transition-all cursor-pointer"
         >
-          <Copy className="w-4 h-4" />
-          <span>Copy for AI</span>
+          <Copy className="w-3.5 h-3.5" />
+          <span className="hidden lg:inline">Copy Logs</span>
         </button>
 
         <button
           onClick={handleUpdateTools}
           disabled={isUpdating}
-          className="flex items-center space-x-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white px-4 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-blue-900/20"
+          className="flex items-center gap-1.5 bg-[var(--bg-card)] hover:border-[var(--border-glow)] text-[var(--text-primary)] border border-[var(--border-card)] px-3.5 py-2 rounded-xl font-semibold text-xs transition-all cursor-pointer"
         >
-          <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin' : ''}`} />
-          <span>Update Tools</span>
+          <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+          <span>Tools Hub</span>
         </button>
       </div>
     </div>

@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { RefreshCw, X, ShieldAlert, Loader2 } from 'lucide-react';
+import { RefreshCw, X, ShieldAlert, Loader2, Sparkles, Terminal } from 'lucide-react';
 import TerminalPane from '../components/TerminalPane';
 import VulnerabilityTable from '../components/VulnerabilityTable';
 import ScannerControls from '../components/ScannerControls';
@@ -353,25 +353,38 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       />
 
       {/* Tab Navigation */}
-      <div className="flex space-x-2 border-b border-slate-700 overflow-x-auto">
-        {tabs.map(tab => (
-          <button
-            key={tab}
-            onClick={() => setActiveTab(tab as 'findings' | 'ai' | ScannerType)}
-            className={`px-4 py-2 font-medium text-sm transition-colors border-b-2 capitalize whitespace-nowrap flex items-center space-x-2 ${activeTab === tab ? 'border-blue-500 text-blue-400' : 'border-transparent text-slate-400 hover:text-slate-200'}`}
-          >
-            {tab === 'findings' && <ShieldAlert className="w-4 h-4" />}
-            <span>{tab}</span>
-            {tab !== 'findings' && scannerStatus[tab as ScannerType] === 'RUNNING' && (
-              <span className="ml-2 inline-block w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></span>
-            )}
-            {tab === 'findings' && allFindings.length > 0 && (
-              <span className="ml-2 bg-red-500/20 text-red-500 text-xs px-1.5 py-0.5 rounded-full">
-                {allFindings.length}
-              </span>
-            )}
-          </button>
-        ))}
+      <div className="flex space-x-2 border-b border-[var(--border-card)] overflow-x-auto pb-1 scrollbar-thin">
+        {tabs.map(tab => {
+          const isActive = activeTab === tab;
+          const isRunning = tab !== 'findings' && tab !== 'ai' && scannerStatus[tab as ScannerType] === 'RUNNING';
+          return (
+            <button
+              key={tab}
+              onClick={() => setActiveTab(tab as 'findings' | 'ai' | ScannerType)}
+              className={`px-4 py-2 font-medium text-xs tracking-wider uppercase transition-all duration-200 border-b-2 whitespace-nowrap flex items-center space-x-2 rounded-t-lg ${
+                isActive
+                  ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 font-bold shadow-[0_2px_12px_var(--accent-glow)]'
+                  : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]/50'
+              }`}
+            >
+              {tab === 'findings' && <ShieldAlert className="w-4 h-4 text-red-400" />}
+              {tab === 'ai' && <Sparkles className="w-4 h-4 text-purple-400" />}
+              {tab !== 'findings' && tab !== 'ai' && <Terminal className="w-3.5 h-3.5 opacity-70" />}
+              <span>{tab}</span>
+              {isRunning && (
+                <span className="relative flex h-2 w-2 ml-1.5">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                </span>
+              )}
+              {tab === 'findings' && allFindings.length > 0 && (
+                <span className="ml-1.5 bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">
+                  {allFindings.length}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Scanners Tab View */}
@@ -379,20 +392,39 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         <div className={`absolute inset-0 ${activeTab === 'findings' ? 'block z-10' : 'hidden'}`}>
           <VulnerabilityTable scanId={scanId} refreshTrigger={allFindings.length} />
         </div>
-        <div className={`absolute inset-0 bg-slate-900 p-6 overflow-y-auto ${activeTab === 'ai' ? 'block z-10' : 'hidden'}`}>
-          <div className="max-w-4xl mx-auto space-y-4">
-            <h2 className="text-2xl font-bold text-purple-400">AI Security Analyst</h2>
+        <div className={`absolute inset-0 bg-[var(--bg-card)] border border-[var(--border-card)] rounded-2xl p-6 overflow-y-auto ${activeTab === 'ai' ? 'block z-10' : 'hidden'}`}>
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="flex items-center space-x-3 pb-4 border-b border-[var(--border-card)]">
+              <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+                <Sparkles className="w-6 h-6 animate-pulse" />
+              </div>
+              <div>
+                <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
+                  AI Security Analyst Engine
+                </h2>
+                <p className="text-xs text-[var(--text-muted)]">Automated correlation, threat intelligence analysis, and guided remediation matrix</p>
+              </div>
+            </div>
+
             {isAnalyzing ? (
-              <div className="flex items-center space-x-3 text-purple-400 p-6 bg-slate-800/50 rounded-xl border border-purple-500/20">
-                <Loader2 className="w-6 h-6 animate-spin shrink-0" />
-                <span className="animate-pulse">{aiProgressMsg}</span>
+              <div className="flex items-center space-x-3 text-purple-400 p-8 bg-[var(--bg-surface)] rounded-2xl border border-purple-500/30 shadow-lg">
+                <Loader2 className="w-6 h-6 animate-spin shrink-0 text-purple-400" />
+                <span className="animate-pulse text-sm font-medium">{aiProgressMsg}</span>
               </div>
             ) : aiResponse ? (
               <div className="prose prose-invert max-w-none">
-                <pre className="whitespace-pre-wrap bg-slate-800 p-6 rounded-xl text-slate-300 font-sans text-sm border border-slate-700 shadow-inner">{aiResponse}</pre>
+                <pre className="whitespace-pre-wrap bg-[var(--bg-surface)] p-6 rounded-2xl text-[var(--text-secondary)] font-mono text-xs border border-[var(--border-card)] shadow-inner leading-relaxed">
+                  {aiResponse}
+                </pre>
               </div>
             ) : (
-              <div className="text-slate-500">Run a scan and click "AI Analyst" to get an automated executive summary and remediation guide.</div>
+              <div className="text-center py-12 px-4 rounded-2xl bg-[var(--bg-surface)]/50 border border-dashed border-[var(--border-card)]">
+                <Sparkles className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3 opacity-40" />
+                <p className="text-sm font-medium text-[var(--text-secondary)]">Ready for Intelligence Analysis</p>
+                <p className="text-xs text-[var(--text-muted)] mt-1 max-w-md mx-auto">
+                  Run a multi-tool scan and click <span className="text-[var(--accent-primary)] font-semibold">"AI Analyst"</span> in the command bar to synthesize findings into actionable triage reports.
+                </p>
+              </div>
             )}
           </div>
         </div>
@@ -418,34 +450,34 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
       {/* Update Tools Modal */}
       {showUpdateModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
-            <div className="p-4 border-b border-slate-700 flex items-center justify-between bg-slate-900">
-              <h2 className="text-lg font-semibold text-slate-200 flex items-center space-x-2">
-                <RefreshCw className={`w-5 h-5 ${isUpdating ? 'animate-spin text-blue-500' : 'text-slate-400'}`} />
-                <span>Tools Update Progress</span>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-card)] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="p-4 border-b border-[var(--border-card)] flex items-center justify-between bg-[var(--bg-surface)]">
+              <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center space-x-2">
+                <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+                <span>Security Tools Update Pipeline</span>
               </h2>
               <button
                 onClick={() => setShowUpdateModal(false)}
-                className="text-slate-400 hover:text-white transition-colors"
+                className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1 rounded-lg hover:bg-[var(--bg-card)]"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-4 bg-slate-950 flex-1 overflow-y-auto font-mono text-sm space-y-1">
-              {updateLogs.length === 0 && <div className="text-slate-500">Initializing update...</div>}
+            <div className="p-4 bg-[var(--bg-surface)]/80 flex-1 overflow-y-auto font-mono text-xs space-y-1 scrollbar-thin">
+              {updateLogs.length === 0 && <div className="text-[var(--text-muted)]">Initializing update orchestration...</div>}
               {updateLogs.map((log, idx) => (
-               <div key={idx} className="text-slate-300 break-words">{log}</div>
+               <div key={idx} className="text-[var(--text-secondary)] break-words leading-relaxed">{log}</div>
               ))}
             </div>
 
-            <div className="p-4 border-t border-slate-700 bg-slate-900 flex justify-end">
+            <div className="p-4 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex justify-end">
               <button
                 onClick={() => setShowUpdateModal(false)}
-                className="px-6 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors"
+                className="px-5 py-2 bg-[var(--bg-card)] hover:bg-[var(--border-card)] text-[var(--text-primary)] border border-[var(--border-card)] text-xs font-semibold rounded-xl transition-all shadow-sm"
               >
-                {isUpdating ? 'Hide' : 'Close'}
+                {isUpdating ? 'Background Task' : 'Close'}
               </button>
             </div>
           </div>
@@ -454,35 +486,38 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
       {/* Dependency Tools Modal */}
       {showDependencyModal && (
-        <div className="fixed inset-0 bg-black/60 flex items-center justify-center p-4 z-50">
-          <div className="bg-slate-800 rounded-xl border border-slate-700 shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
-            <div className="p-4 border-b border-slate-700 flex items-center justify-between bg-slate-900">
-              <h2 className="text-lg font-semibold text-slate-200 flex items-center space-x-2">
-                <ShieldAlert className="w-5 h-5 text-amber-500" />
-                <span>Missing Dependencies</span>
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-card)] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
+            <div className="p-4 border-b border-[var(--border-card)] flex items-center justify-between bg-[var(--bg-surface)]">
+              <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center space-x-2">
+                <ShieldAlert className="w-4 h-4 text-amber-500" />
+                <span>Security Engine Dependencies</span>
               </h2>
               {(!isInstallingDependencies) && (
                 <button
                   onClick={() => setShowDependencyModal(false)}
-                  className="text-slate-400 hover:text-white transition-colors"
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1 rounded-lg hover:bg-[var(--bg-card)]"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               )}
             </div>
 
-            <div className="p-6 bg-slate-900 overflow-y-auto">
-              <p className="text-slate-300 mb-4">
-                Some security tools required for the scan are missing.
+            <div className="p-6 bg-[var(--bg-card)] overflow-y-auto space-y-4">
+              <p className="text-xs text-[var(--text-secondary)]">
+                Some security tools required for the active scan pipeline are missing from your environment.
               </p>
 
               {/* Automatic Tools */}
               {dependencies.filter(d => !d.isInstalled && !d.requiresManual).length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-sm font-semibold text-emerald-400 uppercase tracking-wider mb-2">Can be installed automatically</h3>
+                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-card)]">
+                  <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2.5 flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+                    <span>Can Be Installed Automatically</span>
+                  </h3>
                   <div className="flex flex-wrap gap-2">
                     {dependencies.filter(d => !d.isInstalled && !d.requiresManual).map(d => (
-                      <span key={d.name} className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-full text-sm">
+                      <span key={d.name} className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-mono font-medium">
                         {d.name}
                       </span>
                     ))}
@@ -492,36 +527,39 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
               {/* Manual Tools */}
               {dependencies.filter(d => !d.isInstalled && d.requiresManual).length > 0 && (
-                <div className="mb-6">
-                  <h3 className="text-sm font-semibold text-amber-400 uppercase tracking-wider mb-2">Requires manual installation</h3>
+                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-card)]">
+                  <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-2.5 flex items-center space-x-1.5">
+                    <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+                    <span>Requires Manual Installation</span>
+                  </h3>
                   <div className="flex flex-wrap gap-2">
                     {dependencies.filter(d => !d.isInstalled && d.requiresManual).map(d => (
-                      <span key={d.name} className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-full text-sm">
+                      <span key={d.name} className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg text-xs font-mono font-medium">
                         {d.name}
                       </span>
                     ))}
                   </div>
-                  <p className="text-xs text-slate-500 mt-2">
-                    Tools like Nmap (requires Npcap), ZAP (requires Java), and Wapiti (requires Python) must be installed manually.
+                  <p className="text-[11px] text-[var(--text-muted)] mt-2.5 leading-relaxed">
+                    Heavy scanners such as Nmap (requires Npcap driver), ZAP (requires Java runtime), and Wapiti (requires Python pip) should be installed via their official installers or system package managers.
                   </p>
                 </div>
               )}
 
               {/* Installation Logs */}
               {dependencyLogs.length > 0 && (
-                <div className="mt-4 bg-slate-950 p-4 rounded-lg font-mono text-xs text-slate-300 h-32 overflow-y-auto border border-slate-800 space-y-1">
+                <div className="bg-[var(--bg-surface)] p-4 rounded-xl font-mono text-xs text-[var(--text-secondary)] h-32 overflow-y-auto border border-[var(--border-card)] space-y-1 scrollbar-thin">
                   {dependencyLogs.map((log, idx) => (
-                    <div key={idx} className="break-words">{log}</div>
+                    <div key={idx} className="break-words leading-relaxed">{log}</div>
                   ))}
                 </div>
               )}
             </div>
 
-            <div className="p-4 border-t border-slate-700 bg-slate-900 flex justify-end space-x-3">
+            <div className="p-4 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex justify-end space-x-3">
               <button
                 onClick={() => setShowDependencyModal(false)}
                 disabled={isInstallingDependencies}
-                className="px-6 py-2 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-white rounded-lg transition-colors"
+                className="px-5 py-2 bg-[var(--bg-card)] hover:bg-[var(--border-card)] disabled:opacity-50 text-[var(--text-primary)] border border-[var(--border-card)] rounded-xl text-xs font-semibold transition-all shadow-sm"
               >
                 Skip for now
               </button>
@@ -530,12 +568,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                 <button
                   onClick={handleInstallDependencies}
                   disabled={isInstallingDependencies}
-                  className="flex items-center space-x-2 px-6 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg transition-colors shadow-lg shadow-blue-900/20"
+                  className="flex items-center space-x-2 px-5 py-2 bg-[var(--accent-primary)] hover:opacity-90 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all shadow-md shadow-blue-500/20"
                 >
                   {isInstallingDependencies ? (
                     <>
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Installing...</span>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Installing Tools...</span>
                     </>
                   ) : (
                     <span>Install Automatic Tools</span>
