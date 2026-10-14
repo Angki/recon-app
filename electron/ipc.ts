@@ -1,16 +1,30 @@
-import { ipcMain } from 'electron';
+import { ipcMain, shell } from 'electron';
 import { ScannerService } from './services/scanner';
 import { updaterService } from './services/updater';
 import { storage } from './services/storage';
 import { settingsStore } from './services/settings';
 import { aiService } from './services/aiService';
-
 import { dependencyService, DEPENDENCIES } from './services/dependencyManager';
+import { toolManager } from './services/toolManager';
 
 export const scannerService = new ScannerService();
 
+// Unified Tool Engine Handlers
+ipcMain.handle('tools:get-health', async () => {
+  return await toolManager.getHealthMatrix();
+});
+
+ipcMain.handle('tools:update-single', async (event, toolName: string) => {
+  return await toolManager.updateTool(toolName, event.sender);
+});
+
+ipcMain.handle('tools:update-all', async (event) => {
+  return await toolManager.updateAll(event.sender);
+});
+
+// Legacy Tools Update
 ipcMain.handle('tools:update', async (event) => {
-  return await updaterService.updateTools(event.sender);
+  return await toolManager.updateAll(event.sender);
 });
 
 ipcMain.handle('dependency:check', async () => {
@@ -48,7 +62,7 @@ ipcMain.handle('storage:openFolder', async (event, scanId) => {
   storage.openFolder(scanId);
 });
 
-// Settings — now persisted to disk
+// Settings — persisted to disk
 ipcMain.handle('settings:get', async () => {
   return settingsStore.get();
 });
@@ -63,7 +77,6 @@ ipcMain.handle('ai:analyzeLogs', async (event, logs, prompt) => {
 });
 
 // Shell
-import { shell } from 'electron';
 ipcMain.handle('shell:openExternal', async (event, url) => {
   await shell.openExternal(url);
 });

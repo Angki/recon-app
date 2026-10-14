@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 
 // Increase max listeners to prevent MaxListenersExceededWarning when rendering many TerminalPanes
 ipcRenderer.setMaxListeners(50);
+
 // Expose secure API to renderer
 contextBridge.exposeInMainWorld('api', {
   // Scanners
@@ -42,7 +43,20 @@ contextBridge.exposeInMainWorld('api', {
     return () => { ipcRenderer.removeListener('ai:progress', callback); };
   },
 
-  // Dependencies
+  // Tool Engine & Health Matrix
+  getToolsHealth: () => ipcRenderer.invoke('tools:get-health'),
+  updateTool: (toolName: string) => ipcRenderer.invoke('tools:update-single', toolName),
+  updateAllTools: () => ipcRenderer.invoke('tools:update-all'),
+  onToolUpdateProgress: (callback: (event: IpcRendererEvent, data: { tool: string, message: string }) => void) => {
+    ipcRenderer.on('tools:update-progress', callback);
+    return () => { ipcRenderer.removeListener('tools:update-progress', callback); };
+  },
+  onToolUpdateStatus: (callback: (event: IpcRendererEvent, status: string) => void) => {
+    ipcRenderer.on('tools:update-status', callback);
+    return () => { ipcRenderer.removeListener('tools:update-status', callback); };
+  },
+
+  // Dependencies (Legacy compatibility)
   checkDependencies: () => ipcRenderer.invoke('dependency:check'),
   installDependencies: () => ipcRenderer.invoke('dependency:installAll'),
   onInstallProgress: (callback: (event: IpcRendererEvent, msg: string) => void) => {
@@ -50,7 +64,7 @@ contextBridge.exposeInMainWorld('api', {
     return () => { ipcRenderer.removeListener('dependency:installProgress', callback); };
   },
 
-  // Updater
+  // Updater (Legacy compatibility)
   updateTools: () => ipcRenderer.invoke('tools:update'),
   onUpdateOutput: (callback: (event: IpcRendererEvent, msg: string) => void) => {
     ipcRenderer.on('update:output', callback);
@@ -64,29 +78,3 @@ contextBridge.exposeInMainWorld('api', {
   // Shell
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
 });
-
-// Declare global type for TS
-declare global {
-  interface Window {
-    api: {
-      startScan: (targetUrl: string, config: Record<string, unknown>) => Promise<unknown>;
-      stopScan: (scanId: string) => Promise<unknown>;
-      onScanOutput: (callback: (event: IpcRendererEvent, data: { scanId: string, scanner: 'nuclei' | 'wapiti' | 'subfinder' | 'httpx' | 'nmap', type: 'stdout' | 'stderr', message: string }) => void) => () => void;
-      onScanStatus: (callback: (event: IpcRendererEvent, data: { scanId: string, status: string, scanner: string }) => void) => () => void;
-      onScanFindings: (callback: (event: IpcRendererEvent, data: { scanId: string, scanner: string, findings: Record<string, unknown>[] }) => void) => () => void;
-      onScanStats: (callback: (event: IpcRendererEvent, data: { scanId: string, stats: { nuclei: unknown, wapiti: unknown } }) => void) => () => void;
-      getHistory: () => Promise<unknown[]>;
-      getFindingsPaginated: (scanId: string, options: Record<string, unknown>) => Promise<{ findings: Record<string, unknown>[], total: number, page: number, limit: number }>;
-      openReportFolder: (scanId: string) => Promise<void>;
-      getSettings: () => Promise<Record<string, unknown>>;
-      saveSettings: (settings: Record<string, unknown>) => Promise<void>;
-      checkDependencies: () => Promise<{name: string, isInstalled: boolean, requiresManual: boolean}[]>;
-      installDependencies: () => Promise<{success: boolean, error?: string}>;
-      onInstallProgress: (callback: (event: IpcRendererEvent, msg: string) => void) => () => void;
-      updateTools: () => Promise<void>;
-      onUpdateOutput: (callback: (event: IpcRendererEvent, msg: string) => void) => () => void;
-      onUpdateStatus: (callback: (event: IpcRendererEvent, status: string) => void) => () => void;
-      openExternal: (url: string) => Promise<void>;
-    }
-  }
-}

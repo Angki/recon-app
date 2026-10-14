@@ -1,5 +1,17 @@
 import type { Vulnerability } from './vulnerability';
 
+export interface ToolHealthInfo {
+  name: string;
+  displayName: string;
+  category: 'recon' | 'dast' | 'fuzz' | 'network';
+  installed: boolean;
+  currentVersion: string;
+  latestVersion: string;
+  updateAvailable: boolean;
+  resolvedPath: string;
+  requiresManual?: boolean;
+}
+
 export {};
 
 declare global {
@@ -18,6 +30,15 @@ declare global {
       saveSettings: (settings: any) => Promise<any>;
       analyzeLogs: (logs: string, prompt: string) => Promise<string>;
       onAiProgress: (callback: (event: unknown, msg: string) => void) => () => void;
+      
+      // Tool Manager & Health Matrix
+      getToolsHealth: () => Promise<ToolHealthInfo[]>;
+      updateTool: (toolName: string) => Promise<boolean>;
+      updateAllTools: () => Promise<void>;
+      onToolUpdateProgress: (callback: (event: unknown, data: { tool: string, message: string }) => void) => () => void;
+      onToolUpdateStatus: (callback: (event: unknown, status: string) => void) => () => void;
+
+      // Legacy updater
       updateTools: () => Promise<void>;
       onUpdateOutput: (callback: (event: unknown, msg: string) => void) => () => void;
       onUpdateStatus: (callback: (event: unknown, status: string) => void) => () => void;

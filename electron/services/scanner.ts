@@ -65,8 +65,14 @@ export class ScannerService {
         return { available: true, resolvedPath: name };
       }
 
+      // Check ReconApp bin first
+      const appDataBin = path.join(os.homedir(), 'AppData', 'Roaming', 'ReconApp', 'bin', process.platform === 'win32' ? `${name}.exe` : name);
+      if (fs.existsSync(appDataBin)) {
+        return { available: true, resolvedPath: appDataBin };
+      }
+
       // Prioritize Go bin directory for ProjectDiscovery tools to avoid clashes (e.g. Python's httpx)
-      if (process.platform === 'win32' && ['httpx', 'subfinder', 'nuclei'].includes(name)) {
+      if (process.platform === 'win32' && ['httpx', 'subfinder', 'nuclei', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].includes(name)) {
         const goPath = path.join(os.homedir(), 'go', 'bin', `${name}.exe`);
         if (fs.existsSync(goPath)) {
           return { available: true, resolvedPath: goPath };
@@ -126,6 +132,7 @@ export class ScannerService {
         alterx: settings.alterxPath || dependencyService.getBinPath('alterx'),
         dnsx: settings.dnsxPath || dependencyService.getBinPath('dnsx'),
         naabu: settings.naabuPath || dependencyService.getBinPath('naabu'),
+        tlsx: settings.tlsxPath || path.join(os.homedir(), 'AppData', 'Roaming', 'ReconApp', 'bin', 'tlsx.exe'),
         appscan: settings.appscanPath || 'C:\\Program Files (x86)\\HCL\\AppScan Standard\\AppScanCMD.exe',
         netsparker: settings.netsparkerPath || path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Invicti Professional Edition', 'Netsparker.exe'),
         acunetix: process.execPath, // We use bundled Electron Node to run the API runner script
