@@ -1,0 +1,2 @@
+src/components/FindingsSummary.tsx(1,10): error TS6133: 'ShieldAlert' is declared but its value is never read.
+src/components/TerminalPane.tsx(199,22): error TS2304: Cannot find name 'useLogStore'.

@@ -1,0 +1,270 @@
+[
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\App.css",
+    "Hash": "050EFFE31DF82F5BF52196D91F81956A128A6A4213080F1F30FF191CD44A7A1E"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\App.tsx",
+    "Hash": "FBDC47AC5FFBF9A00799EB507CCF561A9ACA7FFDAB5E7FF01EC11C6D252AB97E"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\index.css",
+    "Hash": "876478E266E917AADBC66B22E1B20C3E2E0EF788AF305808B615C132F93C59C2"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\main.tsx",
+    "Hash": "57C73431B81FF4B4671AF690E73E0328AC8CFF9F213A694A787D743F546B75B2"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\assets\\hero.png",
+    "Hash": "881FFBCAAFC212E49ADDAD08846A5B82761355FA20624253AF3477BA33262C5C"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\assets\\react.svg",
+    "Hash": "35EF61ED53B323AE94A16A8EC659B3D0AF3880698791133F23B084085AB1C2E5"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\assets\\vite.svg",
+    "Hash": "5BE21ACD42EB7B896E517F4E0F0F11EB5C5D9E54FBBCEBE9453F033008FCCA6F"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\CommandHeader.tsx",
+    "Hash": "14705B4BCB52DDE515B5D83D83A80BF3E0302A4FA73110C97CEBE870C4C1950A"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\ErrorBoundary.tsx",
+    "Hash": "E83C81F94C3B6F5993FBB5542FA6A179465A0F338F30168DAC5875719EF0B905"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\ExportReportModal.tsx",
+    "Hash": "722ECDB21608CF24D720F98867FD318646123BBAAC03693E81106003FED72334"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\FindingsSummary.tsx",
+    "Hash": "51D354634002200561263B81CB1CB544B7C9CA82A8F44A0D3A66757C2ECA61FB"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\ScannerControls.tsx",
+    "Hash": "3FBB1963041F451D0DF870751471E944BA7E2022C3C8FC513CABDA00D5E204AE"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\TerminalPane.tsx",
+    "Hash": "423808E82B35726AF946987BB7C242172B4C1D114B555021FF6D8C5D34B2A86F"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\ThemeSwitcher.tsx",
+    "Hash": "FEB95D301692481F1307A502913D22D6E94FD4864E81AC55243E907A48E1B617"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\ToolSelection.tsx",
+    "Hash": "2B8FED321E94F6958B051E88092358E9C681B71E6C05F0C26D452A15BE73E58C"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\ToolsHubModal.tsx",
+    "Hash": "374589D9510A35D4610ADF365D725746871CBDC09C8FE00F8AA10EC6E9062F3E"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\components\\VulnerabilityTable.tsx",
+    "Hash": "B9752FC98076C6C3B3DB72AE02608045D35859BE281E43AED957D003C7B991EF"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\pages\\Dashboard.tsx",
+    "Hash": "0C294907FD002747C8B9FB80AFA05759DF8811F82E23D08F190FE7BD763E8627"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\pages\\History.tsx",
+    "Hash": "08761BD1C275B7F6102F421274675C716DC025138269089D33230ED57F3A6B10"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\pages\\Settings.tsx",
+    "Hash": "6A7AA36D070390147564888B5471042C8650BDDDD1C6B6C823FCC9918E1B33C5"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\stores\\useConfigStore.ts",
+    "Hash": "9538713CC49DA9F3ACA14D1443F75F919C80397278C81E394094BFD3B5CD9831"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\stores\\useLogStore.ts",
+    "Hash": "8DF6CB99EEFA63F6846C061F345BC6499CE8C41168FE8B25A6EFD9AFBF51CC3A"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\stores\\useScanStore.ts",
+    "Hash": "BFC1550FF90AC0976B6B36D650DEABEF66F0A66E7CFD010A470D036455D37474"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\stores\\useThemeStore.ts",
+    "Hash": "B6AA46B29BC02F428F6BF646A6EDAB51C5452FECA0A07DA9344DB348B4CCB24F"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\types\\global.d.ts",
+    "Hash": "8CB5128C1C9AD5B4DD9115C305857C2EAA7129DB32979E0FD3E3D3A9E9CF68F3"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\src\\types\\vulnerability.ts",
+    "Hash": "5CBE56116E9A225AAB46ECF9C04FC3CA06B9F993CB9A054E5F304C57BF73A6DF"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\ipc.ts",
+    "Hash": "9032866D13621FC3B34C8910DD1C880A82CAEA3D74220CE18A6558DB69143677"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\main.ts",
+    "Hash": "7DC4938AF08602AEFD380093AD840A9C93230C6B2601E260242B84A92BEFFEA8"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\preload.ts",
+    "Hash": "ABC1CB32912264ADFCBAEFB66312F3B7FC801F74D9BB4BA57112B07866445595"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\scripts\\acunetix_runner.js",
+    "Hash": "1029681FA602EB420E50E3ECDF28719336A79C61E43B4DC13C073C500479A9EE"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\aiService.ts",
+    "Hash": "17BCD4ED0A1145DE61C1861BCF191779A3F2DF2D90E56333B49ABFA25E93FBCB"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\database.ts",
+    "Hash": "121E731258141BAC6598644759378F26832E76C94447AB08D8E7D0921BA5172D"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\dependencyManager.ts",
+    "Hash": "AF45441BC15AD2A6C55DA7E14356922600B2652F64C99B385B4311C37D072E51"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\logger.ts",
+    "Hash": "D45A1AD5FB1B2C6D3E92B88B63D944ACD4612F6341F3FF91937C834FBF90390F"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\reportService.ts",
+    "Hash": "8B7E526210B543D1B79D1AE2096E2B47614237641A5096D968EB857F9F34798F"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\scanner.ts",
+    "Hash": "215B5C07D128D75675E99C85FAE511233ED1350DA88C748A2D2E098EDE3C2542"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\settings.ts",
+    "Hash": "50AF08F14656C8371F9DDFD2F46599F3C6A6AEAED80945AB341996A4CCE27453"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\storage.ts",
+    "Hash": "73A4FCFD6355857335F782A59D00B34C7AA9E6758088AC3CCC6230F4364A9944"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\toolManager.ts",
+    "Hash": "DB2F3B5703F56F9C9BEC0B00A2AB9314E30A8DC2B7054D42EBF534BDC92275F5"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\updater.ts",
+    "Hash": "B32B18332C360068EEEF8EE7B05430A7C76BCC3C831D5CCBBBC93590D46990AD"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\catalog\\index.ts",
+    "Hash": "96DC95C660FD28DDF6D2CED6C3E3AB76F5A102DBC440B3B7AD1979B3ECC80911"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\catalog\\manifests.ts",
+    "Hash": "57EFC6692312564A7444C6FB2F9C05591AFD733C27C4DD5C04F24666A713FD26"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\catalog\\types.ts",
+    "Hash": "9D8743CBC982F2ED8DB4CA6BEBDBF06E6FBC3D27C99C538A38DD45D061019D3F"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\db\\backup.ts",
+    "Hash": "AC07C4497CC25D326005479DEE1DDE5CE9EB72165878A9BF3DB67C8D6DCEFEA3"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\db\\baseline.ts",
+    "Hash": "D0706F8F4F581E8BE026DA784156120BB2BB8FA0FBF319AE9AA18F64516E9233"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\db\\fingerprint.ts",
+    "Hash": "BC37A0B529D2E5C163853E5C61538F8A046C35DABB13CA3047CAEDCD1035706F"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\db\\migrations.ts",
+    "Hash": "E8504584DE95FA552EA103C65C139A9210DCD1C78A7D07AD99E7EB7895CD5164"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\pipeline\\profiles.ts",
+    "Hash": "AA18F5470080629C5DE33EFD9EC677C236AAFA9235E5E45F616F402BDFC0EF92"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\runner\\stateMachine.ts",
+    "Hash": "BACF2135A9462B63D568EA11EEE551ED11DB3C37EA6DCA3963F205121C35D0B2"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\scanners\\registry.ts",
+    "Hash": "A07CFFC29C860A7092134A97FE4F984284DF4B2CB58C01FB5D4F98EA68E79F3C"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\electron\\services\\scanners\\types.ts",
+    "Hash": "0C60DBCD660B376F5F690245E9142F881FD4C6259A0006AFD5B95523B2C78F89"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tests\\phase0-gates.test.ts",
+    "Hash": "D523DC44E12D3DCAE1BC700928189857B860CF40BD295532917E7CAE194CC97B"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tests\\phase1-gates.test.ts",
+    "Hash": "B05A3EE86277E3A39386337894613BA6175041BC78EFFAAF06CDCE703E41104B"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tests\\phase2-gates.test.ts",
+    "Hash": "3782A614CCF75DF7B4819957E48074BA624DC2F7FD9E7757B7B8D3D3AEF57E45"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tests\\phase3-gates.test.ts",
+    "Hash": "92BB5140BA9542B239DAC118102452D0233AED5CCF6861E102EB6DD6574452CF"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tests\\phase4-gates.test.ts",
+    "Hash": "86C22EF9AC3E062C4B86A89183DB3FDBB5C29CDE1DD8A25778F18462724DD797"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tests\\phase5-gates.test.ts",
+    "Hash": "DF779EE9DB964E572F493ACF0E6539A9BDD600E76AE06071DA3F93E943D8A168"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tests\\phase6-gates.test.ts",
+    "Hash": "70BAC2744851EB0601EBECE6A0E9B12B471AD854B2ABA453413CD532819FEE34"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tests\\run-phase0-gates.js",
+    "Hash": "037DE09F8313D33E8AEEAC3B0A6C6EF3E035D4AF140B2A9744A72C76031C7425"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\package.json",
+    "Hash": "BDB307573459A83935B9050BAAAD9568603ACAC4DD47444829BBC904DD6800DC"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\package-lock.json",
+    "Hash": "F464F38AD24B22EA02384EF8D07097BE5E0684ADBDADE1264F7B02C22E3EA24E"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tsconfig.app.json",
+    "Hash": "B1EAC9BA6CD1C01D59EBCA159805E052C798D9D4AB904680B79CE3E306EA0BBD"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tsconfig.electron.json",
+    "Hash": "50CA31F2F65CA1198CD89378B7C55039E818EDFB59A16168EDCFD15D0FFDFB2C"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tsconfig.json",
+    "Hash": "E84BA88BAFDB52935711F0020AEE4351D9062A9FA85589BC13FCB1057980CC41"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\tsconfig.node.json",
+    "Hash": "90A22C920CBC14624FB4658B58F15C875ABF3234224F3933F211849C3ADA3242"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\vite.config.ts",
+    "Hash": "67E580F1F23FF19016527ED73E54A56C3DA989DCF1F4FF85786FF1A8881E0744"
+  },
+  {
+    "Path": "D:\\Projects\\recon-app\\eslint.config.mjs",
+    "Hash": "8AAFD59B96CD8DF788F0716923DD757DD1D6F13BDDA30CF01995B85E80F230EC"
+  }
+]

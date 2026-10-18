@@ -1,0 +1,40 @@
+npm warn Unknown project config "electron_mirror". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> recon-app@0.0.0 build
+> tsc -b && vite build
+
+vite v8.0.16 building client environment for production...
+[2K
+transforming...✓ 2081 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                   0.67 kB │ gzip:   0.38 kB
+dist/assets/index-CGsfRSEN.css   69.78 kB │ gzip:  11.45 kB
+dist/assets/index-ChKlsWaE.js   739.46 kB │ gzip: 196.87 kB
+
+✓ built in 2.00s
+[plugin builtin:vite-reporter] 
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rolldownOptions.output.codeSplitting to improve chunking: https://rolldown.rs/reference/OutputOptions.codeSplitting
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.
+vite v8.0.16 building client environment for production...
+[2K
+transforming...✓ 492 modules transformed.
+rendering chunks...
+computing gzip size...
+dist-electron/backup-a0pJhV69.js           2.12 kB │ gzip:   0.99 kB
+dist-electron/logger-CKCk7ys7.js           4.90 kB │ gzip:   1.89 kB
+dist-electron/database-RqNLiJTw.js        13.56 kB │ gzip:   4.08 kB
+dist-electron/reportService-MtgmD6Ic.js   15.09 kB │ gzip:   5.05 kB
+dist-electron/main.js                    470.57 kB │ gzip: 130.69 kB
+
+✓ built in 332ms
+vite v8.0.16 building client environment for production...
+[2K
+transforming...✓ 2 modules transformed.
+rendering chunks...
+computing gzip size...
+dist-electron/preload.js  3.21 kB │ gzip: 0.74 kB
+
+✓ built in 53ms

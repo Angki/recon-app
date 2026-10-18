@@ -1,0 +1,23 @@
+electron/services/database.ts(12,54): error TS2339: Property 'debug' does not exist on type 'LoggerService'.
+electron/services/dependencyManager.ts(375,36): error TS2363: The right-hand side of an arithmetic operation must be of type 'any', 'number', 'bigint' or an enum type.
+electron/services/reportService.ts(60,7): error TS2322: Type 'unknown' is not assignable to type 'string'.
+electron/services/reportService.ts(61,7): error TS2322: Type 'unknown' is not assignable to type 'string'.
+electron/services/reportService.ts(62,7): error TS2322: Type 'unknown' is not assignable to type 'string'.
+electron/services/reportService.ts(63,21): error TS2339: Property 'endTime' does not exist on type '{ scanId: unknown; target: unknown; status: unknown; startTime: unknown; endTime: unknown; config: any; } | { scanId: string; target: string; status: string; startTime: string; config: {}; }'.
+  Property 'endTime' does not exist on type '{ scanId: string; target: string; status: string; startTime: string; config: {}; }'.
+electron/services/scanner.ts(153,41): error TS2339: Property 'filter' does not exist on type '{}'.
+electron/services/scanner.ts(229,7): error TS2322: Type 'AppSettings' is not assignable to type 'Record<string, unknown>'.
+  Index signature for type 'string' is missing in type 'AppSettings'.
+electron/services/scanner.ts(387,75): error TS2345: Argument of type 'unknown[]' is not assignable to parameter of type 'Record<string, unknown>[]'.
+  Type 'unknown' is not assignable to type 'Record<string, unknown>'.
+electron/services/scanners/registry.ts(554,5): error TS2322: Type '(ctx: ScannerContext) => {}[]' is not assignable to type '(context: ScannerContext) => string[]'.
+  Type '{}[]' is not assignable to type 'string[]'.
+    Type '{}' is not assignable to type 'string'.
+electron/services/scanners/registry.ts(565,42): error TS2339: Property 'ACUNETIX_API_KEY' does not exist on type '{ ELECTRON_RUN_AS_NODE: string; }'.
+electron/services/scanners/registry.ts(566,41): error TS2339: Property 'ACUNETIX_EMAIL' does not exist on type '{ ELECTRON_RUN_AS_NODE: string; }'.
+electron/services/scanners/registry.ts(567,44): error TS2339: Property 'ACUNETIX_PASSWORD' does not exist on type '{ ELECTRON_RUN_AS_NODE: string; }'.
+electron/services/settings.ts(114,9): error TS2322: Type 'AppSettings | null' is not assignable to type 'AppSettings'.
+  Type 'null' is not assignable to type 'AppSettings'.
+electron/services/toolManager.ts(266,24): error TS2554: Expected 1 arguments, but got 2.
+electron/services/toolManager.ts(459,24): error TS2554: Expected 1 arguments, but got 2.
+electron/services/updater.ts(11,24): error TS2554: Expected 1 arguments, but got 2.

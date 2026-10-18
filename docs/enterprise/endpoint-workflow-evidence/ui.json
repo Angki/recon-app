@@ -1,0 +1,12 @@
+{
+  "errors": [],
+  "passed": [
+    "select endpoint",
+    "out of scope disabled",
+    "review draft",
+    "launch linked test",
+    "prepare retest from stored finding",
+    "launch linked retest"
+  ],
+  "mode": "Renderer mock IPC; no network scans"
+}

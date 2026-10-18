@@ -1,0 +1,124 @@
+
+D:\Projects\recon-app\electron\services\reportService.ts
+  6:10  warning  'shell' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+D:\Projects\recon-app\electron\services\scanner.ts
+   5:10  warning  'dependencyService' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+  12:8   warning  'os' is defined but never used. Allowed unused vars must match /^_/u                 @typescript-eslint/no-unused-vars
+  14:10  warning  'ScanStateMachine' is defined but never used. Allowed unused vars must match /^_/u   @typescript-eslint/no-unused-vars
+
+D:\Projects\recon-app\electron\services\scanners\registry.ts
+    38:49   warning  Unexpected any. Specify a different type                                                  @typescript-eslint/no-explicit-any
+    59:48   warning  Unexpected any. Specify a different type                                                  @typescript-eslint/no-explicit-any
+    63:48   warning  Unexpected any. Specify a different type                                                  @typescript-eslint/no-explicit-any
+    76:71   warning  Unexpected any. Specify a different type                                                  @typescript-eslint/no-explicit-any
+    78:48   warning  Unexpected any. Specify a different type                                                  @typescript-eslint/no-explicit-any
+   686:112  warning  Unexpected any. Specify a different type                                                  @typescript-eslint/no-explicit-any
+  1318:76   warning  Unexpected any. Specify a different type                                                  @typescript-eslint/no-explicit-any
+  1368:10   warning  'genericJsonLinesParser' is defined but never used. Allowed unused vars must match /^_/u  @typescript-eslint/no-unused-vars
+
+D:\Projects\recon-app\electron\services\toolManager.ts
+  403:24  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\Projects\recon-app\electron\services\updater.ts
+  43:21  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\Projects\recon-app\src\components\ScannerControls.tsx
+   59:9    warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+D:\Projects\recon-app\src\components\ScannerControls.tsx:59:9
+  57 |       const stored = localStorage.getItem('secops_recent_targets');
+  58 |       if (stored) {
+> 59 |         setRecentTargets(JSON.parse(stored));
+     |         ^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  60 |       } else {
+  61 |         setRecentTargets(DEFAULT_TARGET_PRESETS);
+  62 |       }  react-hooks/set-state-in-effect
+  417:116  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-explicit-any
+  430:112  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-explicit-any
+  443:115  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      @typescript-eslint/no-explicit-any
+
+D:\Projects\recon-app\src\components\TerminalPane.tsx
+  112:7   warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+D:\Projects\recon-app\src\components\TerminalPane.tsx:112:7
+  110 |   useEffect(() => {
+  111 |     if (isVisible && !hasBeenVisible) {
+> 112 |       setHasBeenVisible(true);
+      |       ^^^^^^^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  113 |     }
+  114 |   }, [isVisible, hasBeenVisible]);
+  115 |  react-hooks/set-state-in-effect
+  137:45  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+  178:29  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+  183:45  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+  184:27  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+  250:31  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+  285:31  warning  Unexpected any. Specify a different type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               @typescript-eslint/no-explicit-any
+  307:6   warning  React Hook useEffect has missing dependencies: 'currentTheme', 'logs', and 'scanner'. Either include them or remove the dependency array                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               react-hooks/exhaustive-deps
+
+D:\Projects\recon-app\src\components\ToolsHubModal.tsx
+  39:7  warning  Error: Calling setState synchronously within an effect can trigger cascading renders
+
+Effects are intended to synchronize state between React and external systems such as manually updating the DOM, state management libraries, or other platform APIs. In general, the body of an effect should do one or both of the following:
+* Update external systems with the latest state from React.
+* Subscribe for updates from some external system, calling setState in a callback function when external state changes.
+
+Calling setState synchronously within an effect body causes cascading renders that can hurt performance, and is not recommended. (https://react.dev/learn/you-might-not-need-an-effect).
+
+D:\Projects\recon-app\src\components\ToolsHubModal.tsx:39:7
+  37 |   useEffect(() => {
+  38 |     if (isOpen) {
+> 39 |       fetchHealth();
+     |       ^^^^^^^^^^^ Avoid calling setState() directly within an effect
+  40 |     }
+  41 |   }, [isOpen]);
+  42 |  react-hooks/set-state-in-effect
+
+D:\Projects\recon-app\src\pages\Dashboard.tsx
+   88:70  warning  Unexpected any. Specify a different type                                                                           @typescript-eslint/no-explicit-any
+  159:6   warning  React Hook useEffect has a missing dependency: 'setAllFindings'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+D:\Projects\recon-app\src\types\global.d.ts
+  25:79  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  26:33  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  32:51  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  33:34  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  34:32  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  34:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  49:40  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\Projects\recon-app\tests\phase4-gates.test.ts
+   93:45  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   97:45  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  101:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  105:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  109:45  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\Projects\recon-app\tests\phase5-gates.test.ts
+  26:19  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\Projects\recon-app\tests\phase6-gates.test.ts
+   62:43  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   63:48  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  135:20  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  146:23  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  188:16  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  198:44  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  203:45  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  233:28  warning  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 50 problems (0 errors, 50 warnings)
+

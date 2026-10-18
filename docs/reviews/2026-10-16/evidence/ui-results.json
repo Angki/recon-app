@@ -1,0 +1,58 @@
+{
+  "mode": "Renderer only, mocked read-only IPC; no scanner or provider requests",
+  "diagnosticPatch": "None. Current renderer source with mock read-only IPC.",
+  "measures": [
+    {
+      "viewport": [
+        1400,
+        900
+      ],
+      "xterms": 1,
+      "terminals": [
+        {
+          "width": 1084,
+          "height": 270
+        }
+      ],
+      "main": {
+        "height": 828,
+        "scrollHeight": 828
+      }
+    },
+    {
+      "viewport": [
+        1366,
+        768
+      ],
+      "xterms": 1,
+      "terminals": [
+        {
+          "width": 1050,
+          "height": 138
+        }
+      ],
+      "main": {
+        "height": 696,
+        "scrollHeight": 696
+      }
+    },
+    {
+      "viewport": [
+        1920,
+        1080
+      ],
+      "xterms": 1,
+      "terminals": [
+        {
+          "width": 1604,
+          "height": 450
+        }
+      ],
+      "main": {
+        "height": 1008,
+        "scrollHeight": 1008
+      }
+    }
+  ],
+  "errors": []
+}

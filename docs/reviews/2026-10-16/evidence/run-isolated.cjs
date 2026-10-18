@@ -1,0 +1,14 @@
+const fs = require('fs');
+const cp = require('child_process');
+const path = require('path');
+const rootHome = fs.readFileSync(path.join(__dirname, 'test-home.txt'), 'utf8').trim();
+const home = fs.mkdtempSync(path.join(rootHome, 'run-'));
+const env = {...process.env, USERPROFILE:home, ELECTRON_RUN_AS_NODE:'1'};
+const exe = path.resolve('node_modules/electron/dist/electron.exe');
+const probe = cp.spawnSync(exe, ['-e', "if(require('os').homedir()!==process.env.USERPROFILE)process.exit(7);console.log(require('os').homedir())"], {env, encoding:'utf8', windowsHide:true});
+console.log({isolationStatus:probe.status, stdout:probe.stdout, stderr:probe.stderr});
+if(probe.status!==0) process.exit(1);
+const args = process.argv.slice(2);
+const result = cp.spawnSync(exe, ['node_modules/tsx/dist/cli.mjs', ...(args.length?args:['--test','--test-concurrency=1', ...Array.from({length:7},(_,i)=>`tests/phase${i}-gates.test.ts`)])], {env,encoding:'utf8',windowsHide:true,timeout:180000,maxBuffer:10*1024*1024});
+fs.writeFileSync(path.join(__dirname,args.length?'probes.txt':'tests.txt'), (result.stdout||'')+'\n'+(result.stderr||'')+'\nExit: '+result.status+'\n'+(result.error||''));
+console.log({status:result.status,error:String(result.error||''),tail:result.stdout?.slice(-1800)});

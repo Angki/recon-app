@@ -1,0 +1,14 @@
+[
+  {
+    "Name": "Recon App 0.0.0.exe",
+    "Bytes": 104768263,
+    "SHA256": "E7A812988D763D36F822B8D70E5618DB30353E94001201BE443EEC265770B50A",
+    "Signature": "NotSigned"
+  },
+  {
+    "Name": "Recon App Setup 0.0.0.exe",
+    "Bytes": 104935324,
+    "SHA256": "1E0690D627AA50F9E8A6458D8FEE1680E174455FA364740C583EBDED038192A1",
+    "Signature": "NotSigned"
+  }
+]

@@ -1,0 +1,38 @@
+{
+  "errors": [],
+  "calls": [
+    {
+      "settings": {
+        "activePythonPath": "C:\\Python\\python.exe",
+        "sqlmapScriptPath": "C:\\Tools\\sqlmap\\sqlmap.py",
+        "commixScriptPath": "",
+        "activePerlPath": "",
+        "niktoScriptPath": "",
+        "niktoRuntime": "docker",
+        "activeDockerPath": "",
+        "niktoDockerImage": ""
+      }
+    },
+    {
+      "target": "http://127.0.0.1:8080/item?id=1",
+      "config": {
+        "tools": [
+          "httpx",
+          "nuclei",
+          "sqlmap"
+        ],
+        "isWordpress": false,
+        "executionMode": "pipeline",
+        "activeValidation": {
+          "scopeOrigin": "http://127.0.0.1:8080",
+          "parameters": [
+            "id"
+          ],
+          "timeoutMinutes": 10,
+          "delaySeconds": 1
+        }
+      }
+    }
+  ],
+  "mode": "Renderer IPC mock; no scans"
+}

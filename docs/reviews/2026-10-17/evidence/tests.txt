@@ -1,0 +1,179 @@
+[2026-10-17T09:35:00.111Z] [INFO] Applying migration v1: 001_initial_schema...
+[2026-10-17T09:35:00.114Z] [INFO] Applying migration v2: 002_query_indexes...
+[2026-10-17T09:35:00.114Z] [INFO] Applying migration v3: 003_enterprise_domains...
+[2026-10-17T09:35:00.115Z] [INFO] Applying migration v4: 004_finding_fingerprints...
+[2026-10-17T09:35:00.116Z] [INFO] Migrations finished. Applied 4 migration(s). Current DB version: v4
+[2026-10-17T09:35:00.964Z] [INFO] Migrating old JSON scan history to SQLite...
+[2026-10-17T09:35:00.964Z] [INFO] Migration complete.
+[2026-10-17T09:35:02.375Z] [INFO] Created scan directory for race_test_local_20261017_173502_e0cfbd84
+▶ Gate Phase 0: Nuclei JSONL and JSON Array parsing integrity
+  ✔ parses standard JSONL format correctly (11.6992ms)
+  ✔ parses pretty JSON Array format (-je) correctly (1.3096ms)
+  ✔ resilient against malformed lines in JSONL (0.9659ms)
+✔ Gate Phase 0: Nuclei JSONL and JSON Array parsing integrity (26.0626ms)
+✔ Gate Phase 0: Observation vs Vulnerability separation (R15) (19.7199ms)
+▶ Gate Phase 0: Report assessment honesty & score assurance (R02, R21)
+  ✔ failed scan with 0 findings does not receive Grade A (0.1736ms)
+  ✔ stopped scan with 0 findings does not receive Grade A (0.0756ms)
+  ✔ completed scan with critical finding receives Grade F (0.0994ms)
+  ✔ unknown scan ID throws error rather than fabricating fake completed report (0.545ms)
+✔ Gate Phase 0: Report assessment honesty & score assurance (R02, R21) (1.407ms)
+[2026-10-17T09:35:02.472Z] [INFO] Created scan directory for example_com_20261017_173502_e4a2e5c5
+[2026-10-17T09:35:02.505Z] [INFO] Created scan directory for example_com_20261017_173502_1ca73872
+✔ Gate Phase 0: Cancellation race & non-overwrite guarantee (R03, R04) (135.514ms)
+▶ Gate Phase 0: Scan ID uniqueness & empty tools rejection (R05)
+  ✔ createScanDirectory generates distinct scanIds within the same second (36.6072ms)
+  ✔ Empty tools list is rejected immediately with error (0.8898ms)
+✔ Gate Phase 0: Scan ID uniqueness & empty tools rejection (R05) (37.9747ms)
+[2026-10-17T09:35:02.812Z] [WARN] Found 2 dangling scan(s) from previous session. Recovering...
+[2026-10-17T09:35:02.813Z] [INFO] Reconciling dangling scan crash-1 (RUNNING -> INTERRUPTED)
+[2026-10-17T09:35:02.813Z] [INFO] Reconciling dangling scan crash-2 (VALIDATING -> INTERRUPTED)
+▶ Gate Phase 1: Unified Tool Catalog Integrity
+  ✔ contains all managed and commercial tools (0.6257ms)
+  ✔ commercial tools are unchecked by default (0.0979ms)
+  ✔ WhatWeb upstream provenance is corrected (not python pip homonym) (0.1425ms)
+  ✔ validates target types accurately per tool capability (0.0779ms)
+  ✔ interprets exit code semantics correctly (0.0866ms)
+✔ Gate Phase 1: Unified Tool Catalog Integrity (1.9572ms)
+▶ Gate Phase 1: State Machine Transitions & Aggregate Computations
+  ✔ enforces legal transitions and rejects illegal backwards transitions (0.1052ms)
+  ✔ identifies terminal states properly (0.0951ms)
+  ✔ computes aggregate state accurately (0.1967ms)
+  ✔ recovers dangling scans left behind by crashes (2.3905ms)
+✔ Gate Phase 1: State Machine Transitions & Aggregate Computations (3.1881ms)
+▶ Gate Phase 1: Standardized Scan Profiles and Passive Isolation
+  ✔ passive-discovery profile contains no active probing tools (0.0859ms)
+  ✔ all tools in profiles exist in toolCatalog (0.0782ms)
+✔ Gate Phase 1: Standardized Scan Profiles and Passive Isolation (0.3655ms)
+[2026-10-17T09:35:03.272Z] [WARN] SafeStorage unavailable: 'acunetixApiKey' kept in session memory only (fail-closed)
+[2026-10-17T09:35:03.273Z] [WARN] SafeStorage unavailable: 'aiApiKey' kept in session memory only (fail-closed)
+[2026-10-17T09:35:03.274Z] [INFO] Settings saved
+[2026-10-17T09:35:03.276Z] [WARN] SafeStorage unavailable: 'acunetixApiKey' kept in session memory only (fail-closed)
+[2026-10-17T09:35:03.276Z] [WARN] SafeStorage unavailable: 'aiApiKey' kept in session memory only (fail-closed)
+[2026-10-17T09:35:03.284Z] [INFO] Settings saved
+▶ Gate Phase 2: External URL Protocol Allowlisting & Boundary Enforcement
+  ✔ permits valid http and https URLs (0.5917ms)
+  ✔ strictly blocks file:// scheme (0.2567ms)
+  ✔ strictly blocks javascript: pseudo-protocol (0.0945ms)
+  ✔ strictly blocks arbitrary shell or data protocols (0.1024ms)
+  ✔ rejects empty or non-string inputs (0.0915ms)
+✔ Gate Phase 2: External URL Protocol Allowlisting & Boundary Enforcement (2.3033ms)
+▶ Gate Phase 2: Secrets Vault, Masked Reads, and Fail-Closed Storage
+  ✔ saves secret and retrieves masked value via getPublic() (3.5757ms)
+  ✔ preserves existing secret when UI returns sentinel without changes (8.8403ms)
+✔ Gate Phase 2: Secrets Vault, Masked Reads, and Fail-Closed Storage (12.8376ms)
+▶ Gate Phase 2: AI Isolation & Local-First Model Enforcement
+  ✔ identifies loopback endpoints correctly (126.9437ms)
+  ✔ rejects external/remote endpoints from loopback check (0.1516ms)
+  ✔ default AI settings are local-first with offline model (0.1177ms)
+✔ Gate Phase 2: AI Isolation & Local-First Model Enforcement (127.8049ms)
+▶ Gate Phase 2: Acunetix Hardening & Commercial Credential Safety
+  ✔ runner script contains NO hardcoded passwords or emails (0.1334ms)
+  ✔ runner script contains NO static developer container IDs (0.0517ms)
+  ✔ runner script verifies TLS certificates by default (0.2008ms)
+✔ Gate Phase 2: Acunetix Hardening & Commercial Credential Safety (0.8353ms)
+[2026-10-17T09:35:03.620Z] [INFO] Applying migration v1: 001_initial_schema...
+[2026-10-17T09:35:03.623Z] [INFO] Applying migration v2: 002_query_indexes...
+[2026-10-17T09:35:03.623Z] [INFO] Applying migration v3: 003_enterprise_domains...
+[2026-10-17T09:35:03.624Z] [INFO] Applying migration v4: 004_finding_fingerprints...
+[2026-10-17T09:35:03.625Z] [INFO] Migrations finished. Applied 4 migration(s). Current DB version: v4
+[2026-10-17T09:35:03.627Z] [INFO] Applying migration v1: 001_initial_schema...
+[2026-10-17T09:35:03.628Z] [INFO] Applying migration v2: 002_query_indexes...
+[2026-10-17T09:35:03.628Z] [INFO] Applying migration v3: 003_enterprise_domains...
+[2026-10-17T09:35:03.629Z] [INFO] Applying migration v4: 004_finding_fingerprints...
+[2026-10-17T09:35:03.630Z] [INFO] Migrations finished. Applied 4 migration(s). Current DB version: v4
+▶ Gate Phase 3: Versioned Schema Migrations & Ledger Idempotency
+  ✔ applies all pending migrations on fresh database (5.8654ms)
+  ✔ migration execution is strictly idempotent (0.1601ms)
+✔ Gate Phase 3: Versioned Schema Migrations & Ledger Idempotency (10.5638ms)
+▶ Gate Phase 3: Deterministic Versioned Finding Fingerprints
+  ✔ generates identical fingerprint for same flaw and location (0.1818ms)
+  ✔ generates distinct fingerprints for different endpoints or parameters (0.13ms)
+✔ Gate Phase 3: Deterministic Versioned Finding Fingerprints (0.5491ms)
+▶ Gate Phase 3: Baseline Comparison Engine & Resolution Safety
+  ✔ detects new, persistent, and resolved findings accurately on completed run (0.4945ms)
+  ✔ failsafe: incomplete or failed scan NEVER marks missing findings as resolved (0.3732ms)
+  ✔ identifies reopened findings previously resolved in triage (0.2083ms)
+✔ Gate Phase 3: Baseline Comparison Engine & Resolution Safety (5.1198ms)
+[2026-10-17T09:35:04.014Z] [INFO] Exported SARIF Report at C:\Users\angki\AppData\Local\Temp\recon-review-20261017-be51f30f5f6946a1add6bfba44fb590c\run-NZrJbc\Documents\SecOpsScans\reports\test_sarif_scan_1792229703984\findings_test_sarif_scan_1792229703984.sarif
+▶ Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance
+  ✔ generates valid SARIF 2.1.0 document matching OASIS specification (43.8244ms)
+[2026-10-17T09:35:04.077Z] [INFO] Generated HTML Report at C:\Users\angki\AppData\Local\Temp\recon-review-20261017-be51f30f5f6946a1add6bfba44fb590c\run-NZrJbc\Documents\SecOpsScans\reports\test_sarif_scan_1792229703984\Executive_Report_test_sarif_scan_1792229703984.html
+  ✔ HTML report includes @media print CSS layout and methodology disclosures (38.2802ms)
+[2026-10-17T09:35:04.095Z] [INFO] Generated Markdown Report at C:\Users\angki\AppData\Local\Temp\recon-review-20261017-be51f30f5f6946a1add6bfba44fb590c\run-NZrJbc\Documents\SecOpsScans\reports\test_sarif_scan_1792229703984\SECURITY_REPORT_test_sarif_scan_1792229703984.md
+[2026-10-17T09:35:04.097Z] [INFO] Exported JSON Report at C:\Users\angki\AppData\Local\Temp\recon-review-20261017-be51f30f5f6946a1add6bfba44fb590c\run-NZrJbc\Documents\SecOpsScans\reports\test_sarif_scan_1792229703984\findings_test_sarif_scan_1792229703984.json
+  ✔ Markdown and JSON exports include score heuristic disclosures (15.5194ms)
+  ✔ Non-existent scan throws clear error instead of fabricating clean report (0.7186ms)
+✔ Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance (125.9413ms)
+▶ Gate Phase 4: UX Defaults & Commercial Tool Separation
+  ✔ Default selected tools is conservative and excludes commercial tools (0.2142ms)
+  ✔ Catalog default selected tools excludes all commercial tools (0.1466ms)
+✔ Gate Phase 4: UX Defaults & Commercial Tool Separation (0.6479ms)
+[2026-10-17T09:35:04.320Z] [ERROR] Failed to parse ZAP output: SyntaxError: Expected property name or '}' in JSON at position 2 (line 1 column 3)
+▶ Gate Phase 5: Deepened OWASP ZAP Adapter & Automation Framework
+  ✔ generates Automation Framework args when zapAutomationPlan is specified (2.0765ms)
+  ✔ generates OpenAPI import args when openapiUrl is specified (1.0347ms)
+  ✔ parses multi-site, multi-instance alerts with CWE and confidence (2.5938ms)
+  ✔ handles empty and malformed ZAP json gracefully (10.6092ms)
+✔ Gate Phase 5: Deepened OWASP ZAP Adapter & Automation Framework (17.4944ms)
+▶ Gate Phase 5: SSLyze TLS Audit Adapter
+  ✔ generates expected command line arguments (1.3874ms)
+  ✔ parses expired certificates, insecure protocols, and ROBOT attacks (8.7285ms)
+  ✔ handles empty output cleanly without errors (1.3001ms)
+✔ Gate Phase 5: SSLyze TLS Audit Adapter (12.0684ms)
+▶ Gate Phase 5: Gitleaks Secret Auditing Adapter
+  ✔ enforces --redact flag in command line to protect secrets in flight (0.7836ms)
+  ✔ parses exposed secrets and preserves redaction in descriptions (2.1836ms)
+  ✔ exit code 1 is treated as successful scan completion (leaks found) (0.7341ms)
+✔ Gate Phase 5: Gitleaks Secret Auditing Adapter (4.188ms)
+▶ Gate Phase 5: Semgrep Static Code Analysis Adapter
+  ✔ parses SAST vulnerabilities with CWE metadata and file locations (2.0747ms)
+✔ Gate Phase 5: Semgrep Static Code Analysis Adapter (2.2728ms)
+▶ Gate Phase 5: Trivy Dependency & Misconfiguration Adapter
+  ✔ parses package CVEs and IaC misconfigurations (11.6297ms)
+✔ Gate Phase 5: Trivy Dependency & Misconfiguration Adapter (11.8543ms)
+▶ Gate Phase 5: Tool Catalog Manifests Verification
+  ✔ all Phase 5 tools are declared in tool catalog with complete manifests (0.2137ms)
+✔ Gate Phase 5: Tool Catalog Manifests Verification (0.4553ms)
+▶ Gate Phase 6: Operational Logging, Redaction & Diagnostics
+  ✔ strictly redacts sensitive Bearer tokens, Basic auth, and API keys from logs (0.8166ms)
+  ✔ structured operations log formats audit entries accurately (6.9254ms)
+  ✔ diagnostics summary provides non-sensitive system environment metrics (14.3761ms)
+✔ Gate Phase 6: Operational Logging, Redaction & Diagnostics (23.0003ms)
+[2026-10-17T09:35:04.848Z] [INFO] Database backup created: C:\Users\angki\AppData\Local\Temp\test_recon_backup_1792229704767\backups\test_backup.sqlite (8192 bytes)
+[2026-10-17T09:35:04.877Z] [INFO] Retention pruned backup: old_backup.sqlite (116 bytes)
+[2026-10-17T09:35:04.899Z] [INFO] Created scan directory for deltest_local_20261017_173504_e12c2493
+[2026-10-17T09:35:04.908Z] [INFO] Deleted scan artifact directory: C:\Users\angki\AppData\Local\Temp\recon-review-20261017-be51f30f5f6946a1add6bfba44fb590c\run-NZrJbc\Documents\SecOpsScans\reports\deltest_local_20261017_173504_e12c2493
+[2026-10-17T09:35:04.923Z] [INFO] Created scan directory for batch1_local_20261017_173504_b319fff2
+[2026-10-17T09:35:04.924Z] [INFO] Created scan directory for batch2_local_20261017_173504_c9afc030
+[2026-10-17T09:35:04.929Z] [INFO] Cleared all scan artifact directories
+▶ Gate Phase 6: Database Backup, Verification & Retention Engine
+  ✔ creates a valid SQLite backup with official file header (77.8761ms)
+  ✔ validateBackupFile rejects corrupt or non-sqlite files (3.0358ms)
+  ✔ enforceRetention prunes expired or excess backups safely (2.4935ms)
+✔ Gate Phase 6: Database Backup, Verification & Retention Engine (83.6437ms)
+▶ Gate Phase 6: Schemathesis API Fuzzer Integration
+  ✔ manifest is declared in catalog with pip and api-fuzz capability (0.2019ms)
+  ✔ generates expected CLI arguments with safety controls (0.1189ms)
+  ✔ exit code 1 is treated as successful fuzzing completion (0.0893ms)
+  ✔ parses 5xx crashes as high severity and schema mismatches as low severity (2.6163ms)
+✔ Gate Phase 6: Schemathesis API Fuzzer Integration (3.2644ms)
+▶ Gate Phase 6: Desktop Packaged Paths & Non-Admin Resilience
+  ✔ ToolManager resolveToolPath checks process.resourcesPath when present (6.4716ms)
+  ✔ AppData directory path handles paths with spaces and Unicode cleanly (9.3245ms)
+✔ Gate Phase 6: Desktop Packaged Paths & Non-Admin Resilience (15.9426ms)
+▶ Gate Phase 6: Scan Results Deletion & Clear All Engine
+  ✔ deleteScan permanently removes scan from DB and deletes artifact directory (24.7877ms)
+  ✔ clearAllScans wipes all scan records and purges all artifact folders (8.1884ms)
+✔ Gate Phase 6: Scan Results Deletion & Clear All Engine (33.064ms)
+ℹ tests 96
+ℹ suites 5
+ℹ pass 96
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5679.8975
+
+
+Exit: 0

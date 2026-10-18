@@ -1,0 +1,38 @@
+Isolated test home: C:\Users\angki\AppData\Local\Temp\recon-tests-xvHfEW
+[2026-10-17T11:28:01.552Z] [INFO] Applying migration v1: 001_initial_schema...
+[2026-10-17T11:28:01.555Z] [INFO] Applying migration v2: 002_query_indexes...
+[2026-10-17T11:28:01.557Z] [INFO] Applying migration v3: 003_enterprise_domains...
+[2026-10-17T11:28:01.559Z] [INFO] Applying migration v4: 004_finding_fingerprints...
+[2026-10-17T11:28:01.561Z] [INFO] Migrations finished. Applied 4 migration(s). Current DB version: v4
+[2026-10-17T11:28:01.564Z] [INFO] Migrating old JSON scan history to SQLite...
+[2026-10-17T11:28:01.565Z] [INFO] Migration complete.
+[2026-10-17T11:28:01.691Z] [INFO] Settings saved
+[2026-10-17T11:28:01.694Z] [ERROR] Failed to start scan - Configure the Active Testing plan before starting.
+[2026-10-17T11:28:01.698Z] [INFO] Created scan directory for 127_0_0_1_20261017_192801_915b789c
+✔ active plan rejects absent scope, wrong origin, missing parameters and invalid limits (2.2815ms)
+✔ SQLmap differentiates confirmed, negative, truncated and error output (0.7692ms)
+✔ Nikto supports both report shapes and rejects malformed/out of scope/failed reports (0.3075ms)
+✔ runtime and argv preserve paths as arguments without shell (4.6312ms)
+[2026-10-17T11:28:01.869Z] [INFO] sqlmap process for 127_0_0_1_20261017_192801_915b789c closed with code 0
+[2026-10-17T11:28:01.906Z] [INFO] Created scan directory for 127_0_0_1_20261017_192801_4a6986f9
+[2026-10-17T11:28:02.059Z] [INFO] sqlmap process for 127_0_0_1_20261017_192801_4a6986f9 closed with code 0
+[2026-10-17T11:28:02.060Z] [ERROR] Error parsing findings for sqlmap: SQLmap did not produce a conclusive result in the supported output format. - SQLmap did not produce a conclusive result in the supported output format.
+[2026-10-17T11:28:02.076Z] [INFO] Settings saved
+[2026-10-17T11:28:02.083Z] [INFO] Created scan directory for 127_0_0_1_20261017_192802_52b90a2d
+[2026-10-17T11:28:02.242Z] [INFO] nikto process for 127_0_0_1_20261017_192802_52b90a2d closed with code 0
+[2026-10-17T11:28:02.266Z] [INFO] Created scan directory for 127_0_0_1_20261017_192802_6c318fa1
+[2026-10-17T11:28:02.412Z] [INFO] nikto process for 127_0_0_1_20261017_192802_6c318fa1 closed with code 0
+[2026-10-17T11:28:02.413Z] [ERROR] Error parsing findings for nikto: Unexpected token 'i', "invalid json" is not valid JSON - Unexpected token 'i', "invalid json" is not valid JSON
+[2026-10-17T11:28:02.418Z] [INFO] Created scan directory for 127_0_0_1_20261017_192802_ba2db989
+[2026-10-17T11:28:03.187Z] [INFO] Scan 127_0_0_1_20261017_192802_ba2db989 stopped by user
+[2026-10-17T11:28:03.189Z] [INFO] nikto process for 127_0_0_1_20261017_192802_ba2db989 closed with code 1
+[2026-10-17T11:28:03.190Z] [ERROR] Error parsing findings for nikto: Tool produced no result artifact; assessment is inconclusive. - Tool produced no result artifact; assessment is inconclusive.
+✔ runner persists success/failure and rejects missing active plan before launch (2105.2692ms)
+ℹ tests 5
+ℹ suites 0
+ℹ pass 5
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 12383.7956

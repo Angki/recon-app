@@ -1,0 +1,227 @@
+npm warn Unknown project config "electron_mirror". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> recon-app@0.0.0 test
+> node scripts/test-isolated.cjs
+
+Isolated test home: C:\Users\angki\AppData\Local\Temp\recon-tests-3Eeg2I
+[2026-10-17T14:43:32.782Z] [INFO] Applying migration v1: 001_initial_schema...
+[2026-10-17T14:43:32.784Z] [INFO] Applying migration v2: 002_query_indexes...
+[2026-10-17T14:43:32.785Z] [INFO] Applying migration v3: 003_enterprise_domains...
+[2026-10-17T14:43:32.786Z] [INFO] Applying migration v4: 004_finding_fingerprints...
+[2026-10-17T14:43:32.811Z] [INFO] Applying migration v5: 005_endpoint_inventory...
+[2026-10-17T14:43:32.812Z] [INFO] Migrations finished. Applied 5 migration(s). Current DB version: v5
+[2026-10-17T14:43:32.815Z] [INFO] Migrating old JSON scan history to SQLite...
+[2026-10-17T14:43:32.816Z] [INFO] Migration complete.
+[2026-10-17T14:43:34.980Z] [INFO] Settings saved
+[2026-10-17T14:43:34.982Z] [ERROR] Failed to start scan - Configure the Active Testing plan before starting.
+[2026-10-17T14:43:35.019Z] [INFO] Created scan directory for 127_0_0_1_20261017_224334_16c674a6
+✔ active plan rejects absent scope, wrong origin, missing parameters and invalid limits (25.6424ms)
+✔ SQLmap differentiates confirmed, negative, truncated and error output (0.7968ms)
+✔ Nikto supports both report shapes and rejects malformed/out of scope/failed reports (21.1452ms)
+✔ runtime and argv preserve paths as arguments without shell (38.5121ms)
+[2026-10-17T14:43:35.369Z] [INFO] sqlmap process for 127_0_0_1_20261017_224334_16c674a6 closed with code 0
+[2026-10-17T14:43:35.780Z] [INFO] Created scan directory for 127_0_0_1_20261017_224335_2593124a
+[2026-10-17T14:43:36.130Z] [INFO] sqlmap process for 127_0_0_1_20261017_224335_2593124a closed with code 0
+[2026-10-17T14:43:36.131Z] [ERROR] Error parsing findings for sqlmap: SQLmap did not produce a conclusive result in the supported output format. - SQLmap did not produce a conclusive result in the supported output format.
+[2026-10-17T14:43:36.172Z] [INFO] Settings saved
+[2026-10-17T14:43:36.183Z] [INFO] Created scan directory for 127_0_0_1_20261017_224336_8a3d35e0
+[2026-10-17T14:43:36.281Z] [INFO] nikto process for 127_0_0_1_20261017_224336_8a3d35e0 closed with code 0
+[2026-10-17T14:43:36.304Z] [INFO] Created scan directory for 127_0_0_1_20261017_224336_560168d4
+[2026-10-17T14:43:36.398Z] [INFO] nikto process for 127_0_0_1_20261017_224336_560168d4 closed with code 0
+[2026-10-17T14:43:36.420Z] [ERROR] Error parsing findings for nikto: Unexpected token 'i', "invalid json" is not valid JSON - Unexpected token 'i', "invalid json" is not valid JSON
+[2026-10-17T14:43:36.429Z] [INFO] Created scan directory for 127_0_0_1_20261017_224336_221ac221
+[2026-10-17T14:43:37.294Z] [INFO] Scan 127_0_0_1_20261017_224336_221ac221 stopped by user
+[2026-10-17T14:43:37.295Z] [INFO] nikto process for 127_0_0_1_20261017_224336_221ac221 closed with code 1
+[2026-10-17T14:43:37.300Z] [ERROR] Error parsing findings for nikto: Tool produced no result artifact; assessment is inconclusive. - Tool produced no result artifact; assessment is inconclusive.
+✔ runner persists success/failure and rejects missing active plan before launch (7574.9093ms)
+[2026-10-17T14:43:48.114Z] [INFO] Applying migration v5: 005_endpoint_inventory...
+[2026-10-17T14:43:48.117Z] [INFO] Migrations finished. Applied 1 migration(s). Current DB version: v5
+[2026-10-17T14:43:48.193Z] [INFO] Settings saved
+[2026-10-17T14:43:48.198Z] [INFO] Created scan directory for 127_0_0_1_20261017_224348_d5714573
+✔ v5 migrates an existing database without deleting findings; reapplying is safe (46.4232ms)
+✔ discovery adapters extract full URL lists, methods and Arjun hidden parameters (22.7045ms)
+✔ inventory deduplication retains sources and scope; launch rejects forged provenance (34.5544ms)
+[2026-10-17T14:43:48.301Z] [INFO] katana process for 127_0_0_1_20261017_224348_d5714573 closed with code 0
+[2026-10-17T14:43:48.318Z] [INFO] Created scan directory for 127_0_0_1_20261017_224348_1c28ba6e
+[2026-10-17T14:43:48.411Z] [INFO] sqlmap process for 127_0_0_1_20261017_224348_1c28ba6e closed with code 0
+[2026-10-17T14:43:48.446Z] [INFO] Created scan directory for 127_0_0_1_20261017_224348_f6ee0dca
+[2026-10-17T14:43:48.539Z] [INFO] sqlmap process for 127_0_0_1_20261017_224348_f6ee0dca closed with code 0
+[2026-10-17T14:43:48.568Z] [INFO] Created scan directory for 127_0_0_1_20261017_224348_fc1792fe
+[2026-10-17T14:43:48.666Z] [INFO] sqlmap process for 127_0_0_1_20261017_224348_fc1792fe closed with code 0
+[2026-10-17T14:43:48.670Z] [INFO] Created scan directory for 127_0_0_1_20261017_224348_2da455ed
+[2026-10-17T14:43:48.779Z] [INFO] sqlmap process for 127_0_0_1_20261017_224348_2da455ed closed with code 0
+[2026-10-17T14:43:48.780Z] [ERROR] Error parsing findings for sqlmap: SQLmap did not produce a conclusive result in the supported output format. - SQLmap did not produce a conclusive result in the supported output format.
+[2026-10-17T14:43:48.792Z] [INFO] Created scan directory for 127_0_0_1_20261017_224348_b7e3322c
+[2026-10-17T14:43:48.901Z] [INFO] sqlmap process for 127_0_0_1_20261017_224348_b7e3322c closed with code 0
+✔ fake-process workflow persists discovery -> selected test -> linked retests without network (713.0379ms)
+[2026-10-17T14:43:59.533Z] [INFO] Created scan directory for race_test_local_20261017_224359_11a0d7ab
+▶ Gate Phase 0: Nuclei JSONL and JSON Array parsing integrity
+  ✔ parses standard JSONL format correctly (9.0797ms)
+  ✔ parses pretty JSON Array format (-je) correctly (30.1379ms)
+  ✔ resilient against malformed lines in JSONL (61.183ms)
+✔ Gate Phase 0: Nuclei JSONL and JSON Array parsing integrity (103.1359ms)
+✔ Gate Phase 0: Observation vs Vulnerability separation (R15) (33.1507ms)
+▶ Gate Phase 0: Report assessment honesty & score assurance (R02, R21)
+  ✔ failed scan with 0 findings does not receive Grade A (0.1719ms)
+  ✔ stopped scan with 0 findings does not receive Grade A (0.0773ms)
+  ✔ completed scan with critical finding receives Grade F (0.0949ms)
+  ✔ unknown scan ID throws error rather than fabricating fake completed report (0.5597ms)
+✔ Gate Phase 0: Report assessment honesty & score assurance (R02, R21) (1.4009ms)
+[2026-10-17T14:43:59.617Z] [INFO] Created scan directory for example_com_20261017_224359_59a70cb4
+[2026-10-17T14:43:59.620Z] [INFO] Created scan directory for example_com_20261017_224359_79bbbd6b
+✔ Gate Phase 0: Cancellation race & non-overwrite guarantee (R03, R04) (84.0986ms)
+▶ Gate Phase 0: Scan ID uniqueness & empty tools rejection (R05)
+  ✔ createScanDirectory generates distinct scanIds within the same second (5.2044ms)
+  ✔ Empty tools list is rejected immediately with error (0.7308ms)
+✔ Gate Phase 0: Scan ID uniqueness & empty tools rejection (R05) (6.2779ms)
+[2026-10-17T14:43:59.926Z] [WARN] Found 2 dangling scan(s) from previous session. Recovering...
+[2026-10-17T14:43:59.928Z] [INFO] Reconciling dangling scan crash-1 (RUNNING -> INTERRUPTED)
+[2026-10-17T14:43:59.928Z] [INFO] Reconciling dangling scan crash-2 (VALIDATING -> INTERRUPTED)
+▶ Gate Phase 1: Unified Tool Catalog Integrity
+  ✔ contains all managed and commercial tools (1.2047ms)
+  ✔ commercial tools are unchecked by default (0.2055ms)
+  ✔ WhatWeb upstream provenance is corrected (not python pip homonym) (0.3529ms)
+  ✔ validates target types accurately per tool capability (0.1162ms)
+  ✔ interprets exit code semantics correctly (0.1492ms)
+✔ Gate Phase 1: Unified Tool Catalog Integrity (3.8038ms)
+▶ Gate Phase 1: State Machine Transitions & Aggregate Computations
+  ✔ enforces legal transitions and rejects illegal backwards transitions (0.1756ms)
+  ✔ identifies terminal states properly (0.1487ms)
+  ✔ computes aggregate state accurately (0.2373ms)
+  ✔ recovers dangling scans left behind by crashes (3.2809ms)
+✔ Gate Phase 1: State Machine Transitions & Aggregate Computations (4.4364ms)
+▶ Gate Phase 1: Standardized Scan Profiles and Passive Isolation
+  ✔ passive-discovery profile contains no active probing tools (0.1569ms)
+  ✔ all tools in profiles exist in toolCatalog (0.106ms)
+✔ Gate Phase 1: Standardized Scan Profiles and Passive Isolation (0.5466ms)
+[2026-10-17T14:44:00.518Z] [WARN] SafeStorage unavailable: 'acunetixApiKey' kept in session memory only (fail-closed)
+[2026-10-17T14:44:00.520Z] [WARN] SafeStorage unavailable: 'aiApiKey' kept in session memory only (fail-closed)
+[2026-10-17T14:44:00.520Z] [INFO] Settings saved
+[2026-10-17T14:44:00.521Z] [WARN] SafeStorage unavailable: 'acunetixApiKey' kept in session memory only (fail-closed)
+[2026-10-17T14:44:00.521Z] [WARN] SafeStorage unavailable: 'aiApiKey' kept in session memory only (fail-closed)
+[2026-10-17T14:44:00.528Z] [INFO] Settings saved
+▶ Gate Phase 2: External URL Protocol Allowlisting & Boundary Enforcement
+  ✔ permits valid http and https URLs (0.6385ms)
+  ✔ strictly blocks file:// scheme (0.2687ms)
+  ✔ strictly blocks javascript: pseudo-protocol (0.1039ms)
+  ✔ strictly blocks arbitrary shell or data protocols (0.1272ms)
+  ✔ rejects empty or non-string inputs (0.156ms)
+✔ Gate Phase 2: External URL Protocol Allowlisting & Boundary Enforcement (2.2972ms)
+▶ Gate Phase 2: Secrets Vault, Masked Reads, and Fail-Closed Storage
+  ✔ saves secret and retrieves masked value via getPublic() (2.9097ms)
+  ✔ preserves existing secret when UI returns sentinel without changes (7.501ms)
+✔ Gate Phase 2: Secrets Vault, Masked Reads, and Fail-Closed Storage (10.7215ms)
+▶ Gate Phase 2: AI Isolation & Local-First Model Enforcement
+  ✔ identifies loopback endpoints correctly (15.8583ms)
+  ✔ rejects external/remote endpoints from loopback check (0.1068ms)
+  ✔ default AI settings are local-first with offline model (0.0931ms)
+✔ Gate Phase 2: AI Isolation & Local-First Model Enforcement (16.4845ms)
+▶ Gate Phase 2: Acunetix Hardening & Commercial Credential Safety
+  ✔ runner script contains NO hardcoded passwords or emails (0.1551ms)
+  ✔ runner script contains NO static developer container IDs (0.0526ms)
+  ✔ runner script verifies TLS certificates by default (0.195ms)
+✔ Gate Phase 2: Acunetix Hardening & Commercial Credential Safety (15.1068ms)
+[2026-10-17T14:44:00.766Z] [INFO] Applying migration v1: 001_initial_schema...
+[2026-10-17T14:44:00.768Z] [INFO] Applying migration v2: 002_query_indexes...
+[2026-10-17T14:44:00.768Z] [INFO] Applying migration v3: 003_enterprise_domains...
+[2026-10-17T14:44:00.769Z] [INFO] Applying migration v4: 004_finding_fingerprints...
+[2026-10-17T14:44:00.769Z] [INFO] Applying migration v5: 005_endpoint_inventory...
+[2026-10-17T14:44:00.770Z] [INFO] Migrations finished. Applied 5 migration(s). Current DB version: v5
+[2026-10-17T14:44:00.773Z] [INFO] Applying migration v1: 001_initial_schema...
+[2026-10-17T14:44:00.773Z] [INFO] Applying migration v2: 002_query_indexes...
+[2026-10-17T14:44:00.774Z] [INFO] Applying migration v3: 003_enterprise_domains...
+[2026-10-17T14:44:00.775Z] [INFO] Applying migration v4: 004_finding_fingerprints...
+[2026-10-17T14:44:00.775Z] [INFO] Applying migration v5: 005_endpoint_inventory...
+[2026-10-17T14:44:00.776Z] [INFO] Migrations finished. Applied 5 migration(s). Current DB version: v5
+▶ Gate Phase 3: Versioned Schema Migrations & Ledger Idempotency
+  ✔ applies all pending migrations on fresh database (5.9419ms)
+  ✔ migration execution is strictly idempotent (0.1767ms)
+✔ Gate Phase 3: Versioned Schema Migrations & Ledger Idempotency (10.2359ms)
+▶ Gate Phase 3: Deterministic Versioned Finding Fingerprints
+  ✔ generates identical fingerprint for same flaw and location (0.2015ms)
+  ✔ generates distinct fingerprints for different endpoints or parameters (0.1328ms)
+✔ Gate Phase 3: Deterministic Versioned Finding Fingerprints (0.5585ms)
+▶ Gate Phase 3: Baseline Comparison Engine & Resolution Safety
+  ✔ detects new, persistent, and resolved findings accurately on completed run (0.3553ms)
+  ✔ failsafe: incomplete or failed scan NEVER marks missing findings as resolved (0.3403ms)
+  ✔ identifies reopened findings previously resolved in triage (0.2717ms)
+✔ Gate Phase 3: Baseline Comparison Engine & Resolution Safety (5.1532ms)
+[2026-10-17T14:44:01.290Z] [INFO] Exported SARIF Report at C:\Users\angki\AppData\Local\Temp\recon-tests-3Eeg2I\Documents\SecOpsScans\reports\test_sarif_scan_1792248241277\findings_test_sarif_scan_1792248241277.sarif
+▶ Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance
+  ✔ generates valid SARIF 2.1.0 document matching OASIS specification (16.8575ms)
+[2026-10-17T14:44:01.317Z] [INFO] Generated HTML Report at C:\Users\angki\AppData\Local\Temp\recon-tests-3Eeg2I\Documents\SecOpsScans\reports\test_sarif_scan_1792248241277\Executive_Report_test_sarif_scan_1792248241277.html
+  ✔ HTML report includes @media print CSS layout and methodology disclosures (48.2901ms)
+[2026-10-17T14:44:01.351Z] [INFO] Generated Markdown Report at C:\Users\angki\AppData\Local\Temp\recon-tests-3Eeg2I\Documents\SecOpsScans\reports\test_sarif_scan_1792248241277\SECURITY_REPORT_test_sarif_scan_1792248241277.md
+[2026-10-17T14:44:01.353Z] [INFO] Exported JSON Report at C:\Users\angki\AppData\Local\Temp\recon-tests-3Eeg2I\Documents\SecOpsScans\reports\test_sarif_scan_1792248241277\findings_test_sarif_scan_1792248241277.json
+  ✔ Markdown and JSON exports include score heuristic disclosures (13.8002ms)
+  ✔ Non-existent scan throws clear error instead of fabricating clean report (0.5859ms)
+✔ Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance (87.1338ms)
+▶ Gate Phase 4: UX Defaults & Commercial Tool Separation
+  ✔ Default selected tools is conservative and excludes commercial tools (0.1186ms)
+  ✔ Catalog default selected tools excludes all commercial tools (0.1015ms)
+✔ Gate Phase 4: UX Defaults & Commercial Tool Separation (0.4462ms)
+[2026-10-17T14:44:01.675Z] [ERROR] Failed to parse ZAP output: SyntaxError: Expected property name or '}' in JSON at position 2 (line 1 column 3)
+▶ Gate Phase 5: Deepened OWASP ZAP Adapter & Automation Framework
+  ✔ generates Automation Framework args when zapAutomationPlan is specified (2.6315ms)
+  ✔ generates OpenAPI import args when openapiUrl is specified (1.272ms)
+  ✔ parses multi-site, multi-instance alerts with CWE and confidence (2.8776ms)
+  ✔ handles empty and malformed ZAP json gracefully (4.3687ms)
+✔ Gate Phase 5: Deepened OWASP ZAP Adapter & Automation Framework (12.65ms)
+▶ Gate Phase 5: SSLyze TLS Audit Adapter
+  ✔ generates expected command line arguments (0.7334ms)
+  ✔ parses expired certificates, insecure protocols, and ROBOT attacks (7.6634ms)
+  ✔ handles empty output cleanly without errors (1.9769ms)
+✔ Gate Phase 5: SSLyze TLS Audit Adapter (11.0379ms)
+▶ Gate Phase 5: Gitleaks Secret Auditing Adapter
+  ✔ enforces --redact flag in command line to protect secrets in flight (1.0399ms)
+  ✔ parses exposed secrets and preserves redaction in descriptions (6.9505ms)
+  ✔ exit code 1 is treated as successful scan completion (leaks found) (0.8062ms)
+✔ Gate Phase 5: Gitleaks Secret Auditing Adapter (9.3147ms)
+▶ Gate Phase 5: Semgrep Static Code Analysis Adapter
+  ✔ parses SAST vulnerabilities with CWE metadata and file locations (11.4366ms)
+✔ Gate Phase 5: Semgrep Static Code Analysis Adapter (11.6125ms)
+▶ Gate Phase 5: Trivy Dependency & Misconfiguration Adapter
+  ✔ parses package CVEs and IaC misconfigurations (8.3896ms)
+✔ Gate Phase 5: Trivy Dependency & Misconfiguration Adapter (8.6682ms)
+▶ Gate Phase 5: Tool Catalog Manifests Verification
+  ✔ all Phase 5 tools are declared in tool catalog with complete manifests (0.2161ms)
+✔ Gate Phase 5: Tool Catalog Manifests Verification (0.4664ms)
+▶ Gate Phase 6: Operational Logging, Redaction & Diagnostics
+  ✔ strictly redacts sensitive Bearer tokens, Basic auth, and API keys from logs (0.9639ms)
+  ✔ structured operations log formats audit entries accurately (8.1805ms)
+  ✔ diagnostics summary provides non-sensitive system environment metrics (0.9823ms)
+✔ Gate Phase 6: Operational Logging, Redaction & Diagnostics (10.8488ms)
+[2026-10-17T14:44:02.262Z] [INFO] Database backup created: C:\Users\angki\AppData\Local\Temp\test_recon_backup_1792248242209\backups\test_backup.sqlite (8192 bytes)
+[2026-10-17T14:44:02.271Z] [INFO] Retention pruned backup: old_backup.sqlite (116 bytes)
+[2026-10-17T14:44:02.298Z] [INFO] Created scan directory for deltest_local_20261017_224402_14d9c301
+[2026-10-17T14:44:02.305Z] [INFO] Deleted scan artifact directory: C:\Users\angki\AppData\Local\Temp\recon-tests-3Eeg2I\Documents\SecOpsScans\reports\deltest_local_20261017_224402_14d9c301
+[2026-10-17T14:44:02.307Z] [INFO] Created scan directory for batch1_local_20261017_224402_bd4a152a
+[2026-10-17T14:44:02.309Z] [INFO] Created scan directory for batch2_local_20261017_224402_4254c13c
+[2026-10-17T14:44:02.324Z] [INFO] Cleared all scan artifact directories
+▶ Gate Phase 6: Database Backup, Verification & Retention Engine
+  ✔ creates a valid SQLite backup with official file header (40.9457ms)
+  ✔ validateBackupFile rejects corrupt or non-sqlite files (5.5469ms)
+  ✔ enforceRetention prunes expired or excess backups safely (2.0278ms)
+✔ Gate Phase 6: Database Backup, Verification & Retention Engine (48.7444ms)
+▶ Gate Phase 6: Schemathesis API Fuzzer Integration
+  ✔ manifest is declared in catalog with pip and api-fuzz capability (0.2132ms)
+  ✔ generates expected CLI arguments with safety controls (0.1563ms)
+  ✔ exit code 1 is treated as successful fuzzing completion (0.0783ms)
+  ✔ parses 5xx crashes as high severity and schema mismatches as low severity (7.3805ms)
+✔ Gate Phase 6: Schemathesis API Fuzzer Integration (8.0074ms)
+▶ Gate Phase 6: Desktop Packaged Paths & Non-Admin Resilience
+  ✔ ToolManager resolveToolPath checks process.resourcesPath when present (7.4253ms)
+  ✔ AppData directory path handles paths with spaces and Unicode cleanly (8.682ms)
+✔ Gate Phase 6: Desktop Packaged Paths & Non-Admin Resilience (16.2378ms)
+▶ Gate Phase 6: Scan Results Deletion & Clear All Engine
+  ✔ deleteScan permanently removes scan from DB and deletes artifact directory (10.7144ms)
+  ✔ clearAllScans wipes all scan records and purges all artifact folders (19.0953ms)
+✔ Gate Phase 6: Scan Results Deletion & Clear All Engine (29.9068ms)
+ℹ tests 105
+ℹ suites 5
+ℹ pass 105
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 33523.2593

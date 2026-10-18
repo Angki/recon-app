@@ -1,0 +1,37 @@
+[2026-10-16T03:36:54.845Z] [INFO] Applying migration v1: 001_initial_schema...
+[2026-10-16T03:36:54.848Z] [INFO] Applying migration v2: 002_query_indexes...
+[2026-10-16T03:36:54.849Z] [INFO] Applying migration v3: 003_enterprise_domains...
+[2026-10-16T03:36:54.850Z] [INFO] Applying migration v4: 004_finding_fingerprints...
+[2026-10-16T03:36:54.851Z] [INFO] Migrations finished. Applied 4 migration(s). Current DB version: v4
+[2026-10-16T03:36:54.961Z] [INFO] Migrating old JSON scan history to SQLite...
+[2026-10-16T03:36:54.962Z] [INFO] Migration complete.
+GRADES {"COMPLETED":"A","PARTIAL":"A","RUNNING":"A","INTERRUPTED":"A","FAILED":"N/A"}
+BASELINE PARTIAL {"newCount":0,"persistentCount":0,"resolvedCount":1,"reopenedCount":0}
+BASELINE RUNNING {"newCount":0,"persistentCount":0,"resolvedCount":1,"reopenedCount":0}
+BASELINE COMPLETED {"newCount":0,"persistentCount":0,"resolvedCount":1,"reopenedCount":0}
+AGGREGATE COMPLETED
+[2026-10-16T03:36:54.979Z] [INFO] Created scan directory for review_invalid_20261016_113654_40ec3583
+STOP_CONSISTENCY STOPPED RUNNING
+FINGERPRINT_CASE_COLLISION true
+FINGERPRINT_LINE_COLLISION true
+SEMGREP_URL_ARGS [
+  'scan',
+  '--config',
+  'auto',
+  '--json',
+  '--output',
+  'C:\\Users\\angki\\AppData\\Local\\Temp\\recon-review-20261016-af5152867ff04fa1aa62eb9f2f5bbd14\\run-VmsuMp\\Documents\\SecOpsScans\\reports\\review_invalid_20261016_113654_40ec3583\\out.json',
+  '--disable-version-check',
+  'C:\\Users\\angki\\AppData\\Local\\Temp\\recon-review-20261016-af5152867ff04fa1aa62eb9f2f5bbd14\\run-VmsuMp\\Documents\\SecOpsScans\\reports\\review_invalid_20261016_113654_40ec3583'
+]
+SEMGREP_ERROR2_SUCCESS true
+SSLYZE_UPSTREAM_SHAPE_COUNT 0
+[2026-10-16T03:36:55.001Z] [INFO] Retention pruned backup: new.sqlite (100 bytes)
+BACKUP_SURVIVOR [ 'old.sqlite' ]
+[2026-10-16T03:36:55.003Z] [INFO] Settings saved
+MOCK_AI_PAYLOAD example:cloud
+AI_RESULT No response generated.
+LOCAL_POLICY_ALLOWED_CLOUD_MODEL true
+
+
+Exit: 0

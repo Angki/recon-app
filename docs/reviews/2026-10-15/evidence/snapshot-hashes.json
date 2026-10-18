@@ -1,0 +1,166 @@
+[
+  {
+    "file": "src\\App.css",
+    "Hash": "050EFFE31DF82F5BF52196D91F81956A128A6A4213080F1F30FF191CD44A7A1E"
+  },
+  {
+    "file": "src\\App.tsx",
+    "Hash": "FBDC47AC5FFBF9A00799EB507CCF561A9ACA7FFDAB5E7FF01EC11C6D252AB97E"
+  },
+  {
+    "file": "src\\index.css",
+    "Hash": "5C16C2EE5886132B7D495710F88ACB159EFA90F323014E9C822ED88B45D4C413"
+  },
+  {
+    "file": "src\\main.tsx",
+    "Hash": "57C73431B81FF4B4671AF690E73E0328AC8CFF9F213A694A787D743F546B75B2"
+  },
+  {
+    "file": "src\\assets\\hero.png",
+    "Hash": "881FFBCAAFC212E49ADDAD08846A5B82761355FA20624253AF3477BA33262C5C"
+  },
+  {
+    "file": "src\\assets\\react.svg",
+    "Hash": "35EF61ED53B323AE94A16A8EC659B3D0AF3880698791133F23B084085AB1C2E5"
+  },
+  {
+    "file": "src\\assets\\vite.svg",
+    "Hash": "5BE21ACD42EB7B896E517F4E0F0F11EB5C5D9E54FBBCEBE9453F033008FCCA6F"
+  },
+  {
+    "file": "src\\components\\CommandHeader.tsx",
+    "Hash": "14705B4BCB52DDE515B5D83D83A80BF3E0302A4FA73110C97CEBE870C4C1950A"
+  },
+  {
+    "file": "src\\components\\ExportReportModal.tsx",
+    "Hash": "1D92B8FFFEB7A69DBEF2452130DEAF94BAE56BE4BF053A36A74D17F083757D84"
+  },
+  {
+    "file": "src\\components\\FindingsSummary.tsx",
+    "Hash": "0BF5C8B48B7D6B89B6A908554BBF90F6C5DE7FCDFAA59AEF1B944E82FB4C9C9B"
+  },
+  {
+    "file": "src\\components\\ScannerControls.tsx",
+    "Hash": "99F9C7269912B237476A808E56D1E8225F7B4A3EE76DB2DF63A9F0E1E561DB33"
+  },
+  {
+    "file": "src\\components\\TerminalPane.tsx",
+    "Hash": "C0E41FF6D823D2C61133A23FDFDE5DC01A54F41D1701D31ED9F609862B3A19B5"
+  },
+  {
+    "file": "src\\components\\ThemeSwitcher.tsx",
+    "Hash": "FEB95D301692481F1307A502913D22D6E94FD4864E81AC55243E907A48E1B617"
+  },
+  {
+    "file": "src\\components\\ToolSelection.tsx",
+    "Hash": "B78FDBE303E93D8DF858485551DA8DDDCB1F2E4233793DB51BEB39B0D8C7374C"
+  },
+  {
+    "file": "src\\components\\ToolsHubModal.tsx",
+    "Hash": "374589D9510A35D4610ADF365D725746871CBDC09C8FE00F8AA10EC6E9062F3E"
+  },
+  {
+    "file": "src\\components\\VulnerabilityTable.tsx",
+    "Hash": "F9E1386C7334E67F75C6D6D0F981497A866587C38597BE0171F63A8C1F170237"
+  },
+  {
+    "file": "src\\pages\\Dashboard.tsx",
+    "Hash": "A0F19C46FD8A7B9001FCC60D3DCBA1A4348F5F773A207AE99E706DDB99FEC9F5"
+  },
+  {
+    "file": "src\\pages\\History.tsx",
+    "Hash": "12F18A7DF4E6EC628174A99F0F8E016C6ED096A93B71B1A6763539377994A2D9"
+  },
+  {
+    "file": "src\\pages\\Settings.tsx",
+    "Hash": "6A7AA36D070390147564888B5471042C8650BDDDD1C6B6C823FCC9918E1B33C5"
+  },
+  {
+    "file": "src\\stores\\useConfigStore.ts",
+    "Hash": "9538713CC49DA9F3ACA14D1443F75F919C80397278C81E394094BFD3B5CD9831"
+  },
+  {
+    "file": "src\\stores\\useLogStore.ts",
+    "Hash": "8DF6CB99EEFA63F6846C061F345BC6499CE8C41168FE8B25A6EFD9AFBF51CC3A"
+  },
+  {
+    "file": "src\\stores\\useScanStore.ts",
+    "Hash": "AAB13EC42B82DD708C813034F36668033C1174FE44E0F7B08E85DE22A166BC44"
+  },
+  {
+    "file": "src\\stores\\useThemeStore.ts",
+    "Hash": "B6AA46B29BC02F428F6BF646A6EDAB51C5452FECA0A07DA9344DB348B4CCB24F"
+  },
+  {
+    "file": "src\\types\\global.d.ts",
+    "Hash": "78ECF099C178FB6B0EDB85AB664CF196374678A75FF21C437088028FED973F18"
+  },
+  {
+    "file": "src\\types\\vulnerability.ts",
+    "Hash": "5CBE56116E9A225AAB46ECF9C04FC3CA06B9F993CB9A054E5F304C57BF73A6DF"
+  },
+  {
+    "file": "electron\\ipc.ts",
+    "Hash": "84CC5E996DCAC3AC7CFE032C2A21ADC09A865751BEEB474C8D2F0332443741B6"
+  },
+  {
+    "file": "electron\\main.ts",
+    "Hash": "AF079AE84B583899D509781B6318CE6255A383354FE496337807FC0017169E67"
+  },
+  {
+    "file": "electron\\preload.ts",
+    "Hash": "0CB1FF61472D9E2F21E488DB9A2D0FA56BD2A2147FC0A6446ECB2AD794C32700"
+  },
+  {
+    "file": "electron\\scripts\\acunetix_runner.js",
+    "Hash": "42E568653591A0F67C4B236F5E37555F1CAFF75D9EB976F5A6EDDD64EB4BDF9B"
+  },
+  {
+    "file": "electron\\services\\aiService.ts",
+    "Hash": "B9E88A4D75E6948E0800F04D5A67EA13748F43D9A6FF2DB37318F779C0525E39"
+  },
+  {
+    "file": "electron\\services\\database.ts",
+    "Hash": "66CE8D415B12BB8EDEED11785168D957A666A0E9B72C71A9B2B4ADEF87A4A106"
+  },
+  {
+    "file": "electron\\services\\dependencyManager.ts",
+    "Hash": "F7615D6A1F45DF0BE08D8AD891CCB335A7C3CD3CDC4D68AC5B98948844B2BF80"
+  },
+  {
+    "file": "electron\\services\\logger.ts",
+    "Hash": "79A9851A7856D47171D027C59130F98AFD9674B61A5ED25312257B88FBDA7D8B"
+  },
+  {
+    "file": "electron\\services\\reportService.ts",
+    "Hash": "5BF75D7E2C27795AF68CEBC903CC236967925ED8D8C3CD3DE16C71BB32F304A0"
+  },
+  {
+    "file": "electron\\services\\scanner.ts",
+    "Hash": "145006CA36F061BA2D502AAEBE346A5396D511BA345603010DA0F83801B6B603"
+  },
+  {
+    "file": "electron\\services\\settings.ts",
+    "Hash": "B65737C3210B2D84E45816D64886F3EB2572678ADBFC4BD7A2A39309E07B7546"
+  },
+  {
+    "file": "electron\\services\\storage.ts",
+    "Hash": "69088C1F988183EC00781E951406483BDC41F3B262E6DB337625492E43BCF622"
+  },
+  {
+    "file": "electron\\services\\toolManager.ts",
+    "Hash": "997FDBA7FC9FF4309A3847791998E84B629B7BE4D8764FB0857B13CAD1EC686C"
+  },
+  {
+    "file": "electron\\services\\updater.ts",
+    "Hash": "4667D3E6EEA040979F5B1D7E87E5C47F9489BD6D9FBA6134595CC40D2E6FF4DC"
+  },
+  {
+    "file": "electron\\services\\scanners\\registry.ts",
+    "Hash": "FF8BB04BF287AFE78CD818E46CEBB57E013534AD220E0C8D6B9BDC40DC2B3A36"
+  },
+  {
+    "file": "electron\\services\\scanners\\types.ts",
+    "Hash": "2015416F7E7F97F58BBDCE685E99C02E81F15FBE7867C003FD82183CEF8E9CA2"
+  }
+]

@@ -1,0 +1,57 @@
+{
+  "sourceRoot": "C:\\Users\\angki\\AppData\\Local\\Temp\\recon-app-review-20261015",
+  "mode": "Synthetic fixtures; mocked I/O; no scanner/network/user data access",
+  "adapterCount": 24,
+  "nuclei": {
+    "compactJsonArray": [
+      {
+        "id": "nuclei-finding",
+        "name": "Unknown",
+        "severity": "info",
+        "scanner": "nuclei",
+        "url": "",
+        "description": "",
+        "timestamp": "2026-10-15T13:10:10.994Z",
+        "extractedResults": [],
+        "curlCommand": "",
+        "references": []
+      }
+    ],
+    "prettyJsonArray": [],
+    "jsonl": [
+      {
+        "id": "fixture-high",
+        "name": "Fixture high finding",
+        "severity": "high",
+        "scanner": "nuclei",
+        "url": "https://example.test/a",
+        "description": "",
+        "timestamp": "2026-10-15T13:10:10.995Z",
+        "extractedResults": [],
+        "curlCommand": "",
+        "references": []
+      }
+    ]
+  },
+  "report": {
+    "unknownScanStatus": "COMPLETED",
+    "emptyFindingStats": {
+      "critical": 0,
+      "high": 0,
+      "medium": 0,
+      "low": 0,
+      "info": 0,
+      "total": 0,
+      "riskScore": 0,
+      "grade": "A",
+      "gradeColor": "#10b981"
+    }
+  },
+  "secrets": {
+    "plaintextFallback": true
+  },
+  "cancel": {
+    "afterStop": "STOPPED",
+    "afterLateExit": "FAILED"
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "files": [
+    {
+      "file": "electron/services/activeToolInstaller.ts",
+      "sha256": "989c0ec4e58bf76de372ed4f3a82ceb461e82678a8a7da65f2feeb003fc36575"
+    },
+    {
+      "file": "electron/services/scanners/activeValidation.ts",
+      "sha256": "9c27f14b2ef6c21bd18eedd1942623fbc8610899fff4dd6ded6faf6f45934154"
+    },
+    {
+      "file": "electron/services/toolManager.ts",
+      "sha256": "eaf7fdec61c5c01a2e299523a1eb0eadd4bf20ea43b6972068da78b1c7c9d433"
+    },
+    {
+      "file": "electron/services/dependencyManager.ts",
+      "sha256": "6d518941a33e13199e4d5a7f2abe4fde1d8d4a4035f74901820f03240f9f2f15"
+    },
+    {
+      "file": "electron/services/catalog/manifests.ts",
+      "sha256": "2a3786e9b7a338f96c321991c909a06983d6fa4f51930b3a3daae814ada1a7da"
+    },
+    {
+      "file": "src/components/ActiveTestingPanel.tsx",
+      "sha256": "e5c1dc3233abad8291538094d388f3f410987178b4e008a80aa2afb759cf4f62"
+    },
+    {
+      "file": "src/stores/useScanStore.ts",
+      "sha256": "2f1c96a5e47ccb263e5d66ddd98236acc12ac2f4db653267a5c8d92fa4a2ba93"
+    },
+    {
+      "file": "tests/active-testing.test.ts",
+      "sha256": "44e057bd9edd5279b5df58b7859f047a8b21082591854f3457eb747d1c90d723"
+    }
+  ]
+}

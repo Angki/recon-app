@@ -1,0 +1,89 @@
+{
+  "mode": "Renderer only, mocked read-only IPC; no scanner or provider requests",
+  "diagnosticPatch": "Temporary snapshot only: added missing useLogStore import in TerminalPane.tsx. Original snapshot crashed without this import. Screenshots are diagnostic layout previews, not proof the original UI passes.",
+  "measures": [
+    {
+      "viewport": [
+        1400,
+        900
+      ],
+      "xterms": 18,
+      "terminals": [
+        {
+          "width": 1086,
+          "height": 355.5
+        },
+        {
+          "width": 1086,
+          "height": 355.5
+        }
+      ],
+      "main": {
+        "height": 828,
+        "scrollHeight": 828
+      }
+    },
+    {
+      "viewport": [
+        1366,
+        768
+      ],
+      "xterms": 18,
+      "terminals": [
+        {
+          "width": 1052,
+          "height": 223.5
+        },
+        {
+          "width": 1052,
+          "height": 223.5
+        }
+      ],
+      "main": {
+        "height": 696,
+        "scrollHeight": 696
+      }
+    },
+    {
+      "viewport": [
+        1920,
+        1080
+      ],
+      "xterms": 18,
+      "terminals": [
+        {
+          "width": 1606,
+          "height": 535.5
+        },
+        {
+          "width": 1606,
+          "height": 535.5
+        }
+      ],
+      "main": {
+        "height": 1008,
+        "scrollHeight": 1008
+      }
+    }
+  ],
+  "errors": [
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')",
+    "Cannot read properties of undefined (reading 'dimensions')"
+  ]
+}
