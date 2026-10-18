@@ -313,6 +313,27 @@ export default function TerminalPane({
     xtermRef.current?.clear();
     writeBuffer.current = '';
 
+    // Replay previously buffered scanner logs so switching tabs never presents an empty terminal
+    const store = useLogStore.getState();
+    const isPdiscovery = scanner === 'pdiscovery';
+    const initialLogs: string[] = isPdiscovery
+      ? ['subfinder', 'httpx', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].flatMap(s => 
+          (store.scannerLogs[s] || []).map(line => `\x1b[36m[${s}]\x1b[0m ${line}`)
+        )
+      : (store.scannerLogs[scanner] || []);
+
+    if (initialLogs.length > 0) {
+      const historyText = initialLogs.join('');
+      if (!xtermRef.current || !xtermRef.current.element || xtermRef.current.element.clientWidth === 0) {
+        writeBuffer.current += historyText;
+      } else {
+        xtermRef.current.write(historyText);
+        if (autoScrollRef.current) {
+          xtermRef.current.scrollToBottom();
+        }
+      }
+    }
+
     const removeListener = window.api.onScanOutput((_event, data) => {
       if (data.scanId === scanId) {
         const shouldWrite = scanner === 'pdiscovery' 

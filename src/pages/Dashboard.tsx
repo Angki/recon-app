@@ -270,8 +270,8 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
   // Tool categories for console filtering
   const toolCategories = {
-    dast: ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool', 'interactsh', 'nuclei', 'wapiti', 'dalfox', 'corsy', 'cmseek', 'crlfsuite', 'zap', 'appscan', 'netsparker', 'acunetix'],
-    recon: ['subfinder', 'httpx', 'katana', 'dnsx', 'alterx', 'tlsx', 'gau', 'whatweb', 'wafw00f', 'wpscan', 'pdiscovery', 'sslyze'],
+    dast: ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool', 'interactsh', 'nuclei', 'wapiti', 'dalfox', 'corsy', 'cmseek', 'crlfsuite', 'zap', 'appscan', 'netsparker', 'acunetix', 'arjun'],
+    recon: ['subfinder', 'httpx', 'katana', 'dnsx', 'alterx', 'tlsx', 'gau', 'whatweb', 'wafw00f', 'wpscan', 'pdiscovery', 'sslyze', 'arjun'],
     network: ['naabu', 'nmap', 'ffuf', 'arjun', 'schemathesis'],
     secops: ['gitleaks', 'semgrep', 'trivy', 'syft']
   };

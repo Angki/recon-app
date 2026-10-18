@@ -904,10 +904,21 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
 
   arjun: {
     getCommandArgs(ctx) {
-      return ['-u', ctx.targetUrl, '-oJ', ctx.jsonFile, '--stable', '-t', '5'];
+      const args = ['-u', ctx.targetUrl, '-oJ', ctx.jsonFile, '-t', '5'];
+      if (ctx.config?.activeValidation?.delaySeconds) {
+        args.push('-d', String(ctx.config.activeValidation.delaySeconds));
+      }
+      return args;
     },
     isSuccessExitCode(code: number | null) {
       return code === 0 || code === 1;
+    },
+    getEnv(ctx, env) {
+      return {
+        ...env,
+        PYTHONUNBUFFERED: '1',
+        PYTHONIOENCODING: 'utf-8',
+      };
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];

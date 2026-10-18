@@ -446,7 +446,11 @@ export class ScannerService {
     try {
     const args = adapter.getCommandArgs(context);
     
-    let env = { ...process.env };
+    let env = { 
+      ...process.env,
+      PYTHONUNBUFFERED: '1',
+      PYTHONIOENCODING: 'utf-8'
+    };
     if (adapter.getEnv) {
       env = adapter.getEnv(context, env);
     }
@@ -515,6 +519,10 @@ export class ScannerService {
     void storage.updateStatus(scanId, scannerName, 'RUNNING');
     const scanSession = this.activeScans.get(scanId);
     if (scanSession) scanSession[scannerName] = processInstance;
+
+    const startMsg = `[SYSTEM] Engine initialized: ${path.basename(executable)} ${spawnArgs.join(' ')}\n`;
+    safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stdout', message: startMsg });
+    try { fs.appendFileSync(outputFile, startMsg); } catch { /* ignore */ }
 
     if (executable.toLowerCase().includes('docker') || spawnArgs.some(a => typeof a === 'string' && a.toLowerCase().includes('docker'))) {
       const nameIdx = spawnArgs.indexOf('--name');

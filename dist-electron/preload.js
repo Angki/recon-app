@@ -1,1 +1,129 @@
-let e=require("electron");e.ipcRenderer.setMaxListeners(50),e.contextBridge.exposeInMainWorld(`api`,{startScan:(t,n)=>e.ipcRenderer.invoke(`scan:start`,t,n),stopScan:t=>e.ipcRenderer.invoke(`scan:stop`,t),onScanOutput:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`scan:output`,n),()=>{e.ipcRenderer.removeListener(`scan:output`,n)}},onScanStatus:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`scan:status`,n),()=>{e.ipcRenderer.removeListener(`scan:status`,n)}},onScanFindings:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`scan:findings`,n),()=>{e.ipcRenderer.removeListener(`scan:findings`,n)}},onScanStats:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`scan:stats`,n),()=>{e.ipcRenderer.removeListener(`scan:stats`,n)}},onScanEndpointsDiscovered:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`scan:endpoints-discovered`,n),()=>{e.ipcRenderer.removeListener(`scan:endpoints-discovered`,n)}},getEndpoints:(t,n)=>e.ipcRenderer.invoke(`inventory:list`,t,n),prepareTestingWorkflow:(t,n)=>e.ipcRenderer.invoke(`inventory:prepare`,t,n),getWorkflowRuns:t=>e.ipcRenderer.invoke(`inventory:runs`,t),getHistory:()=>e.ipcRenderer.invoke(`storage:getHistory`),getFindingsPaginated:(t,n)=>e.ipcRenderer.invoke(`storage:getFindingsPaginated`,t,n),openReportFolder:t=>e.ipcRenderer.invoke(`storage:openFolder`,t),deleteScan:t=>e.ipcRenderer.invoke(`storage:deleteScan`,t),clearAllScans:()=>e.ipcRenderer.invoke(`storage:clearAllScans`),exportReport:(t,n)=>e.ipcRenderer.invoke(`report:export`,t,n),getReportStats:t=>e.ipcRenderer.invoke(`report:getStats`,t),getSettings:()=>e.ipcRenderer.invoke(`settings:get`),saveSettings:t=>e.ipcRenderer.invoke(`settings:save`,t),analyzeLogs:(t,n)=>e.ipcRenderer.invoke(`ai:analyzeLogs`,t,n),getOllamaModels:t=>e.ipcRenderer.invoke(`ai:getOllamaModels`,t),testAiConnection:(t,n)=>e.ipcRenderer.invoke(`ai:testConnection`,t,n),analyzeScan:(t,n,r)=>e.ipcRenderer.invoke(`ai:analyzeScan`,t,n,r),chatCopilot:(t,n,r)=>e.ipcRenderer.invoke(`ai:chatCopilot`,t,n,r),getAiAnalyses:t=>e.ipcRenderer.invoke(`ai:getAnalyses`,t),getLatestAiAnalysis:(t,n)=>e.ipcRenderer.invoke(`ai:getLatestAnalysis`,t,n),onAiProgress:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`ai:progress`,n),()=>{e.ipcRenderer.removeListener(`ai:progress`,n)}},getToolsHealth:()=>e.ipcRenderer.invoke(`tools:get-health`),updateTool:t=>e.ipcRenderer.invoke(`tools:update-single`,t),updateAllTools:()=>e.ipcRenderer.invoke(`tools:update-all`),preflightSmoke:t=>e.ipcRenderer.invoke(`tools:preflight-smoke`,t),rollbackTool:t=>e.ipcRenderer.invoke(`tools:rollback`,t),uninstallTool:t=>e.ipcRenderer.invoke(`tools:uninstall`,t),isToolLocked:t=>e.ipcRenderer.invoke(`tools:is-locked`,t),onToolUpdateProgress:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`tools:update-progress`,n),()=>{e.ipcRenderer.removeListener(`tools:update-progress`,n)}},onToolUpdateStatus:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`tools:update-status`,n),()=>{e.ipcRenderer.removeListener(`tools:update-status`,n)}},checkDependencies:()=>e.ipcRenderer.invoke(`dependency:check`),installDependencies:()=>e.ipcRenderer.invoke(`dependency:installAll`),onInstallProgress:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`dependency:installProgress`,n),()=>{e.ipcRenderer.removeListener(`dependency:installProgress`,n)}},updateTools:()=>e.ipcRenderer.invoke(`tools:update`),onUpdateOutput:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`update:output`,n),()=>{e.ipcRenderer.removeListener(`update:output`,n)}},onUpdateStatus:t=>{let n=(e,n)=>t(null,n);return e.ipcRenderer.on(`update:status`,n),()=>{e.ipcRenderer.removeListener(`update:status`,n)}},openExternal:t=>e.ipcRenderer.invoke(`shell:openExternal`,t),getDiagnostics:()=>e.ipcRenderer.invoke(`system:getDiagnostics`),getRecentLogs:t=>e.ipcRenderer.invoke(`system:getRecentLogs`,t),createBackup:()=>e.ipcRenderer.invoke(`db:createBackup`),listBackups:()=>e.ipcRenderer.invoke(`db:listBackups`),enforceRetention:(t,n)=>e.ipcRenderer.invoke(`db:enforceRetention`,t,n),importRawHttp:(t,n)=>e.ipcRenderer.invoke(`workspace:importRawHttp`,t,n),importHar:t=>e.ipcRenderer.invoke(`workspace:importHar`,t),importOpenApi:(t,n)=>e.ipcRenderer.invoke(`workspace:importOpenApi`,t,n),inspectParameters:t=>e.ipcRenderer.invoke(`workspace:inspectParameters`,t),buildToolPreview:(t,n,r)=>e.ipcRenderer.invoke(`workspace:buildToolPreview`,t,n,r),createAuthProfile:t=>e.ipcRenderer.invoke(`auth:createProfile`,t),validateAuthSession:t=>e.ipcRenderer.invoke(`auth:validateSession`,t),evaluateScopeUrl:(t,n)=>e.ipcRenderer.invoke(`scope:evaluateUrl`,t,n),getAppVersion:()=>e.ipcRenderer.invoke(`app:getVersion`)});
+let electron = require("electron");
+//#region electron/preload.ts
+electron.ipcRenderer.setMaxListeners(50);
+electron.contextBridge.exposeInMainWorld("api", {
+	startScan: (targetUrl, config) => electron.ipcRenderer.invoke("scan:start", targetUrl, config),
+	stopScan: (scanId) => electron.ipcRenderer.invoke("scan:stop", scanId),
+	onScanOutput: (callback) => {
+		const handler = (_event, data) => callback(null, data);
+		electron.ipcRenderer.on("scan:output", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("scan:output", handler);
+		};
+	},
+	onScanStatus: (callback) => {
+		const handler = (_event, data) => callback(null, data);
+		electron.ipcRenderer.on("scan:status", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("scan:status", handler);
+		};
+	},
+	onScanFindings: (callback) => {
+		const handler = (_event, data) => callback(null, data);
+		electron.ipcRenderer.on("scan:findings", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("scan:findings", handler);
+		};
+	},
+	onScanStats: (callback) => {
+		const handler = (_event, data) => callback(null, data);
+		electron.ipcRenderer.on("scan:stats", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("scan:stats", handler);
+		};
+	},
+	onScanEndpointsDiscovered: (callback) => {
+		const handler = (_event, data) => callback(null, data);
+		electron.ipcRenderer.on("scan:endpoints-discovered", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("scan:endpoints-discovered", handler);
+		};
+	},
+	getEndpoints: (scanId, options) => electron.ipcRenderer.invoke("inventory:list", scanId, options),
+	prepareTestingWorkflow: (reference, tool) => electron.ipcRenderer.invoke("inventory:prepare", reference, tool),
+	getWorkflowRuns: (scanId) => electron.ipcRenderer.invoke("inventory:runs", scanId),
+	getHistory: () => electron.ipcRenderer.invoke("storage:getHistory"),
+	getFindingsPaginated: (scanId, options) => electron.ipcRenderer.invoke("storage:getFindingsPaginated", scanId, options),
+	openReportFolder: (scanId) => electron.ipcRenderer.invoke("storage:openFolder", scanId),
+	deleteScan: (scanId) => electron.ipcRenderer.invoke("storage:deleteScan", scanId),
+	clearAllScans: () => electron.ipcRenderer.invoke("storage:clearAllScans"),
+	exportReport: (scanId, format) => electron.ipcRenderer.invoke("report:export", scanId, format),
+	getReportStats: (scanId) => electron.ipcRenderer.invoke("report:getStats", scanId),
+	getSettings: () => electron.ipcRenderer.invoke("settings:get"),
+	saveSettings: (settings) => electron.ipcRenderer.invoke("settings:save", settings),
+	analyzeLogs: (logs, prompt) => electron.ipcRenderer.invoke("ai:analyzeLogs", logs, prompt),
+	getOllamaModels: (customBaseUrl) => electron.ipcRenderer.invoke("ai:getOllamaModels", customBaseUrl),
+	testAiConnection: (provider, customBaseUrl) => electron.ipcRenderer.invoke("ai:testConnection", provider, customBaseUrl),
+	analyzeScan: (scanId, preset, customPrompt) => electron.ipcRenderer.invoke("ai:analyzeScan", scanId, preset, customPrompt),
+	chatCopilot: (scanId, history, message) => electron.ipcRenderer.invoke("ai:chatCopilot", scanId, history, message),
+	getAiAnalyses: (scanId) => electron.ipcRenderer.invoke("ai:getAnalyses", scanId),
+	getLatestAiAnalysis: (scanId, preset) => electron.ipcRenderer.invoke("ai:getLatestAnalysis", scanId, preset),
+	onAiProgress: (callback) => {
+		const handler = (_event, msg) => callback(null, msg);
+		electron.ipcRenderer.on("ai:progress", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("ai:progress", handler);
+		};
+	},
+	getToolsHealth: () => electron.ipcRenderer.invoke("tools:get-health"),
+	updateTool: (toolName) => electron.ipcRenderer.invoke("tools:update-single", toolName),
+	updateAllTools: () => electron.ipcRenderer.invoke("tools:update-all"),
+	preflightSmoke: (toolId) => electron.ipcRenderer.invoke("tools:preflight-smoke", toolId),
+	rollbackTool: (toolName) => electron.ipcRenderer.invoke("tools:rollback", toolName),
+	uninstallTool: (toolName) => electron.ipcRenderer.invoke("tools:uninstall", toolName),
+	isToolLocked: (toolName) => electron.ipcRenderer.invoke("tools:is-locked", toolName),
+	onToolUpdateProgress: (callback) => {
+		const handler = (_event, data) => callback(null, data);
+		electron.ipcRenderer.on("tools:update-progress", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("tools:update-progress", handler);
+		};
+	},
+	onToolUpdateStatus: (callback) => {
+		const handler = (_event, status) => callback(null, status);
+		electron.ipcRenderer.on("tools:update-status", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("tools:update-status", handler);
+		};
+	},
+	checkDependencies: () => electron.ipcRenderer.invoke("dependency:check"),
+	installDependencies: () => electron.ipcRenderer.invoke("dependency:installAll"),
+	onInstallProgress: (callback) => {
+		const handler = (_event, msg) => callback(null, msg);
+		electron.ipcRenderer.on("dependency:installProgress", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("dependency:installProgress", handler);
+		};
+	},
+	updateTools: () => electron.ipcRenderer.invoke("tools:update"),
+	onUpdateOutput: (callback) => {
+		const handler = (_event, msg) => callback(null, msg);
+		electron.ipcRenderer.on("update:output", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("update:output", handler);
+		};
+	},
+	onUpdateStatus: (callback) => {
+		const handler = (_event, status) => callback(null, status);
+		electron.ipcRenderer.on("update:status", handler);
+		return () => {
+			electron.ipcRenderer.removeListener("update:status", handler);
+		};
+	},
+	openExternal: (url) => electron.ipcRenderer.invoke("shell:openExternal", url),
+	getDiagnostics: () => electron.ipcRenderer.invoke("system:getDiagnostics"),
+	getRecentLogs: (maxLines) => electron.ipcRenderer.invoke("system:getRecentLogs", maxLines),
+	createBackup: () => electron.ipcRenderer.invoke("db:createBackup"),
+	listBackups: () => electron.ipcRenderer.invoke("db:listBackups"),
+	enforceRetention: (maxDays, maxTotalBytes) => electron.ipcRenderer.invoke("db:enforceRetention", maxDays, maxTotalBytes),
+	importRawHttp: (rawText, defaultHost) => electron.ipcRenderer.invoke("workspace:importRawHttp", rawText, defaultHost),
+	importHar: (harContent) => electron.ipcRenderer.invoke("workspace:importHar", harContent),
+	importOpenApi: (specContent, defaultBaseUrl) => electron.ipcRenderer.invoke("workspace:importOpenApi", specContent, defaultBaseUrl),
+	inspectParameters: (req) => electron.ipcRenderer.invoke("workspace:inspectParameters", req),
+	buildToolPreview: (tool, req, authHeader) => electron.ipcRenderer.invoke("workspace:buildToolPreview", tool, req, authHeader),
+	createAuthProfile: (params) => electron.ipcRenderer.invoke("auth:createProfile", params),
+	validateAuthSession: (profileId) => electron.ipcRenderer.invoke("auth:validateSession", profileId),
+	evaluateScopeUrl: (url, scope) => electron.ipcRenderer.invoke("scope:evaluateUrl", url, scope),
+	getAppVersion: () => electron.ipcRenderer.invoke("app:getVersion")
+});
+//#endregion
