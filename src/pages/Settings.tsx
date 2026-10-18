@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Settings as SettingsIcon, Save, ShieldAlert, Cpu, Network, Database, 
-  Wrench, Globe, TerminalSquare, Key, Sparkles 
+  Wrench, Globe, TerminalSquare, Key, Sparkles, RefreshCw, CheckCircle2, XCircle, Activity, Bot
 } from 'lucide-react';
 import { ToolsHubModal } from '../components/ToolsHubModal';
 
@@ -54,10 +54,50 @@ export default function SettingsPage() {
   const [acunetixProfileId, setAcunetixProfileId] = useState('11111111-1111-1111-1111-111111111111');
   const [wordlistPath, setWordlistPath] = useState('');
   const [aiProvider, setAiProvider] = useState('ollama');
+  const [aiBaseUrl, setAiBaseUrl] = useState('http://127.0.0.1:11434');
+  const [aiModel, setAiModel] = useState('qwen2.5:7b');
+  const [aiPolicy, setAiPolicy] = useState<'local-only' | 'hybrid' | 'cloud-allowed'>('local-only');
+  const [aiUseStructuredFindings, setAiUseStructuredFindings] = useState(true);
   const [aiApiKey, setAiApiKey] = useState('');
   const [wpscanApiToken, setWpscanApiToken] = useState('');
+  const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [testingConnection, setTestingConnection] = useState(false);
+  const [connectionStatus, setConnectionStatus] = useState<{ success?: boolean; message?: string; latencyMs?: number; modelCount?: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [showToolsHub, setShowToolsHub] = useState(false);
+
+  const fetchOllamaModels = async (baseUrl?: string) => {
+    if (!window.api?.getOllamaModels) return;
+    setLoadingModels(true);
+    try {
+      const res = await window.api.getOllamaModels(baseUrl || aiBaseUrl);
+      if (res.success && res.models && res.models.length > 0) {
+        setAvailableModels(res.models);
+      }
+    } catch {
+      // ignore
+    } finally {
+      setLoadingModels(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    if (!window.api?.testAiConnection) return;
+    setTestingConnection(true);
+    setConnectionStatus(null);
+    try {
+      const res = await window.api.testAiConnection(aiProvider, aiBaseUrl);
+      setConnectionStatus(res);
+      if (res.success && aiProvider === 'ollama') {
+        fetchOllamaModels(aiBaseUrl);
+      }
+    } catch (e: any) {
+      setConnectionStatus({ success: false, message: e.message || 'Connection failed' });
+    } finally {
+      setTestingConnection(false);
+    }
+  };
 
   useEffect(() => {
     if (window.api) {
@@ -84,8 +124,16 @@ export default function SettingsPage() {
         if (settings.acunetixProfileId) setAcunetixProfileId(settings.acunetixProfileId);
         if (settings.wordlistPath) setWordlistPath(settings.wordlistPath);
         if (settings.aiProvider) setAiProvider(settings.aiProvider);
+        if (settings.aiBaseUrl) setAiBaseUrl(settings.aiBaseUrl);
+        if (settings.aiModel) setAiModel(settings.aiModel);
+        if (settings.aiPolicy) setAiPolicy(settings.aiPolicy);
+        if (settings.aiUseStructuredFindings !== undefined) setAiUseStructuredFindings(settings.aiUseStructuredFindings);
         if (settings.aiApiKey) setAiApiKey(settings.aiApiKey);
         if (settings.wpscanApiToken !== undefined) setWpscanApiToken(settings.wpscanApiToken);
+
+        if (settings.aiProvider === 'ollama' || !settings.aiProvider) {
+          fetchOllamaModels(settings.aiBaseUrl);
+        }
       });
     }
   }, []);
@@ -98,11 +146,12 @@ export default function SettingsPage() {
         httpxPath, nmapPath, zapPath, katanaPath, ffufPath, 
         naabuPath, dnsxPath, tlsxPath, alterxPath, appscanPath, netsparkerPath,
         acunetixUrl, acunetixApiKey, acunetixEmail, acunetixPassword, acunetixProfileId, wordlistPath, 
-        aiProvider, aiApiKey, wpscanApiToken
+        aiProvider, aiBaseUrl, aiModel, aiPolicy, aiUseStructuredFindings, aiApiKey, wpscanApiToken
       });
     }
     setTimeout(() => setSaving(false), 500);
   };
+
 
   return (
     <div className="flex flex-col h-full max-w-5xl mx-auto space-y-6 pb-12">
@@ -236,29 +285,116 @@ export default function SettingsPage() {
         <div className="lg:col-span-4 space-y-6">
           <div className="theme-card p-5 rounded-2xl relative overflow-hidden">
             <div className="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
-            <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] mb-4 flex items-center gap-2">
-              <Sparkles className="w-4 h-4 text-purple-400" />
-              AI Executive Analysis
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-purple-400" />
+                AI Security Suite
+              </h2>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-400 border border-purple-500/20 font-semibold">
+                {aiProvider === 'ollama' ? 'Local Engine' : 'Cloud Provider'}
+              </span>
+            </div>
+
             <div className="space-y-4">
+              {/* Security Policy */}
               <div className="flex flex-col space-y-1.5">
                 <label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
-                  AI Provider
+                  Data Privacy Policy
+                </label>
+                <select
+                  value={aiPolicy}
+                  onChange={(e) => setAiPolicy(e.target.value as any)}
+                  className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] text-xs font-medium focus:outline-none focus:border-[var(--accent-primary)] cursor-pointer"
+                >
+                  <option value="local-only">🛡️ Local-Only (Air-Gapped / Blocks Cloud)</option>
+                  <option value="hybrid">⚖️ Hybrid (Local Default, Cloud Optional)</option>
+                  <option value="cloud-allowed">🌐 Cloud Allowed</option>
+                </select>
+                <p className="text-[11px] text-[var(--text-muted)]">
+                  {aiPolicy === 'local-only' 
+                    ? 'Guarantees scan findings never leave localhost (127.0.0.1).'
+                    : 'Permits advisory queries to configured cloud endpoints.'}
+                </p>
+              </div>
+
+              {/* Provider */}
+              <div className="flex flex-col space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)]">
+                  AI Provider Engine
                 </label>
                 <select
                   value={aiProvider}
-                  onChange={(e) => setAiProvider(e.target.value)}
+                  onChange={(e) => {
+                    const p = e.target.value;
+                    setAiProvider(p);
+                    setConnectionStatus(null);
+                    if (p === 'ollama') fetchOllamaModels();
+                  }}
                   className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] text-xs font-medium focus:outline-none focus:border-[var(--accent-primary)] cursor-pointer"
                 >
-                  <option value="ollama">Ollama (Local / Privacy First)</option>
-                  <option value="openai">OpenAI (Cloud GPT-4o)</option>
-                  <option value="gemini">Google Gemini (Cloud)</option>
-                  <option value="anthropic">Anthropic Claude (Cloud)</option>
+                  <option value="ollama">Ollama (Local / Privacy-First)</option>
+                  <option value="openai" disabled={aiPolicy === 'local-only'}>OpenAI (Cloud GPT-4o)</option>
+                  <option value="gemini" disabled={aiPolicy === 'local-only'}>Google Gemini (Cloud)</option>
+                  <option value="anthropic" disabled={aiPolicy === 'local-only'}>Anthropic Claude (Cloud)</option>
                 </select>
-                <p className="text-[11px] text-[var(--text-muted)]">
-                  Ollama runs locally on your machine with zero external cloud telemetry.
-                </p>
               </div>
+
+              {aiProvider === 'ollama' && (
+                <>
+                  <InputField 
+                    label="Ollama Base URL" 
+                    value={aiBaseUrl} 
+                    onChange={(val) => { setAiBaseUrl(val); setConnectionStatus(null); }} 
+                    placeholder="http://127.0.0.1:11434" 
+                    icon={Globe} 
+                    hint="Default is http://127.0.0.1:11434"
+                  />
+
+                  {/* Model Selector with Auto-Discovery */}
+                  <div className="flex flex-col space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs font-semibold uppercase tracking-wider text-[var(--text-secondary)] flex items-center gap-1.5">
+                        <Bot className="w-3.5 h-3.5 text-[var(--accent-primary)]" />
+                        Active Model
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => fetchOllamaModels()}
+                        disabled={loadingModels}
+                        className="text-[11px] text-[var(--accent-primary)] hover:underline flex items-center gap-1 cursor-pointer disabled:opacity-50"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${loadingModels ? 'animate-spin' : ''}`} />
+                        Refresh Models
+                      </button>
+                    </div>
+
+                    {availableModels.length > 0 ? (
+                      <select
+                        value={aiModel}
+                        onChange={(e) => setAiModel(e.target.value)}
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] font-mono text-xs focus:outline-none focus:border-[var(--accent-primary)] cursor-pointer"
+                      >
+                        {availableModels.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        type="text"
+                        value={aiModel}
+                        onChange={(e) => setAiModel(e.target.value)}
+                        placeholder="qwen2.5:7b"
+                        className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] font-mono text-xs focus:outline-none focus:border-[var(--accent-primary)]"
+                      />
+                    )}
+                    <p className="text-[11px] text-[var(--text-muted)]">
+                      {availableModels.length > 0 
+                        ? `${availableModels.length} models detected in local Ollama daemon.`
+                        : 'Installed models (e.g. qwen2.5:7b, sast-qwen) or click Refresh.'}
+                    </p>
+                  </div>
+                </>
+              )}
 
               {aiProvider !== 'ollama' && (
                 <InputField 
@@ -267,13 +403,67 @@ export default function SettingsPage() {
                   onChange={setAiApiKey} 
                   placeholder="sk-..." 
                   icon={Key} 
-                  hint="Stored locally in secure settings" 
+                  hint="Stored locally in encrypted app configuration" 
                 />
               )}
+
+              {/* RAG-Lite Structured Findings Toggle */}
+              <div className="pt-2 border-t border-[var(--border-card)]">
+                <label className="flex items-start gap-2.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={aiUseStructuredFindings}
+                    onChange={(e) => setAiUseStructuredFindings(e.target.checked)}
+                    className="mt-0.5 rounded border-[var(--border-card)] text-[var(--accent-primary)] focus:ring-[var(--accent-primary)] bg-[var(--bg-app)]"
+                  />
+                  <div>
+                    <span className="text-xs font-semibold text-[var(--text-primary)] block">
+                      Structured Findings Context (RAG-lite)
+                    </span>
+                    <span className="text-[11px] text-[var(--text-muted)] block mt-0.5">
+                      Synthesizes high-fidelity SQLite findings and attack surface endpoints instead of raw terminal noise.
+                    </span>
+                  </div>
+                </label>
+              </div>
+
+              {/* Connection Diagnostics Button & Pill */}
+              <div className="pt-2">
+                <button
+                  type="button"
+                  onClick={handleTestConnection}
+                  disabled={testingConnection}
+                  className="w-full flex items-center justify-center gap-2 py-2 px-3 rounded-xl bg-[var(--bg-app)] hover:bg-[var(--accent-primary)]/10 text-[var(--text-primary)] border border-[var(--border-card)] hover:border-[var(--accent-primary)] text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Activity className={`w-3.5 h-3.5 text-[var(--accent-primary)] ${testingConnection ? 'animate-pulse' : ''}`} />
+                  {testingConnection ? 'Testing Connection...' : `Test ${aiProvider.toUpperCase()} Connection`}
+                </button>
+
+                {connectionStatus && (
+                  <div className={`mt-2 p-2.5 rounded-xl text-xs flex items-center gap-2 border ${
+                    connectionStatus.success 
+                      ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400' 
+                      : 'bg-rose-500/10 border-rose-500/20 text-rose-400'
+                  }`}>
+                    {connectionStatus.success ? (
+                      <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                    ) : (
+                      <XCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                    )}
+                    <div className="truncate">
+                      <span className="font-semibold">{connectionStatus.message}</span>
+                      {connectionStatus.latencyMs !== undefined && connectionStatus.latencyMs > 0 && (
+                        <span className="ml-1 opacity-75">({connectionStatus.latencyMs}ms)</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
       </div>
+
 
       {showToolsHub && (
         <ToolsHubModal isOpen={showToolsHub} onClose={() => setShowToolsHub(false)} />

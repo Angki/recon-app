@@ -40,6 +40,7 @@ export interface AppSettings {
   aiModel: string;
   aiPolicy: 'local-only' | 'hybrid' | 'cloud-allowed';
   aiApiKey: string;
+  aiUseStructuredFindings?: boolean;
   nucleiTemplatesPath?: string;
   wpscanApiToken?: string;
 }
@@ -78,6 +79,7 @@ const DEFAULTS: AppSettings = {
   aiModel: 'qwen2.5:7b',
   aiPolicy: 'local-only',
   aiApiKey: '',
+  aiUseStructuredFindings: true,
   wpscanApiToken: '',
 };
 
