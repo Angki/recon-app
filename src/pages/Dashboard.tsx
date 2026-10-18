@@ -1,9 +1,10 @@
 import { useEffect, useState, useMemo } from 'react';
-import {Link} from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { 
   RefreshCw, X, ShieldAlert, Loader2, Sparkles, Terminal, 
   CheckCircle2, AlertCircle, Timer, Radio, Cpu, Maximize2, Minimize2,
-  ChevronDown, Layers
+  ChevronDown, ChevronUp, Layers, Send, Bot, Copy, Check, MessageSquare,
+  Shield, Workflow, FileText
 } from 'lucide-react';
 import TerminalPane from '../components/TerminalPane';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -19,7 +20,115 @@ import type { ScannerType, ScannerStatus } from '../stores/useScanStore';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useLogStore } from '../stores/useLogStore';
 
+const FormattedMarkdown = ({ content }: { content: string }) => {
+  const parts = content.split(/(```[\s\S]*?```)/g);
+
+  return (
+    <div className="space-y-3 text-xs leading-relaxed text-[var(--text-secondary)] font-sans">
+      {parts.map((part, pIdx) => {
+        if (part.startsWith('```')) {
+          const lines = part.slice(3, -3).trim().split('\n');
+          const lang = lines[0].match(/^[a-zA-Z0-9_-]+$/) ? lines.shift() : '';
+          const code = lines.join('\n');
+          return (
+            <div key={pIdx} className="my-2 rounded-xl overflow-hidden border border-[var(--border-card)] bg-black/40">
+              <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-app)] border-b border-[var(--border-card)] text-[10px] font-mono text-[var(--text-muted)]">
+                <span>{lang || 'code'}</span>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(code)}
+                  className="hover:text-[var(--text-primary)] cursor-pointer"
+                >
+                  Copy
+                </button>
+              </div>
+              <pre className="p-3 overflow-x-auto font-mono text-xs text-emerald-400">
+                <code>{code}</code>
+              </pre>
+            </div>
+          );
+        }
+
+        return (
+          <div key={pIdx} className="space-y-2">
+            {part.split('\n\n').map((block, bIdx) => {
+              const trimmed = block.trim();
+              if (!trimmed) return null;
+
+              if (trimmed.startsWith('### ')) {
+                return (
+                  <h4 key={bIdx} className="text-sm font-bold text-purple-300 mt-3 mb-1 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-purple-400" />
+                    {trimmed.slice(4)}
+                  </h4>
+                );
+              }
+              if (trimmed.startsWith('## ')) {
+                return (
+                  <h3 key={bIdx} className="text-base font-bold text-[var(--text-primary)] border-b border-[var(--border-card)] pb-1 mt-4 mb-2">
+                    {trimmed.slice(3)}
+                  </h3>
+                );
+              }
+              if (trimmed.startsWith('# ')) {
+                return (
+                  <h2 key={bIdx} className="text-lg font-bold text-[var(--accent-primary)] mt-4 mb-2">
+                    {trimmed.slice(2)}
+                  </h2>
+                );
+              }
+              if (trimmed.startsWith('> ')) {
+                return (
+                  <blockquote key={bIdx} className="p-2.5 rounded-xl bg-purple-500/10 border-l-2 border-purple-400 text-purple-300 my-2">
+                    {trimmed.slice(2)}
+                  </blockquote>
+                );
+              }
+
+              if (trimmed.includes('\n- ') || trimmed.startsWith('- ') || trimmed.startsWith('* ')) {
+                const items = trimmed.split(/\n(?=[-*]\s|\d+\.\s)/);
+                return (
+                  <ul key={bIdx} className="space-y-1.5 my-1.5 pl-2">
+                    {items.map((item, iIdx) => {
+                      const cleanItem = item.replace(/^[-*]\s+|\d+\.\s+/, '');
+                      return (
+                        <li key={iIdx} className="flex items-start gap-2">
+                          <span className="text-[var(--accent-primary)] mt-1">•</span>
+                          <div>
+                            {cleanItem.split(/(\*\*.*?\*\*)/).map((seg, sIdx) => {
+                              if (seg.startsWith('**') && seg.endsWith('**')) {
+                                return <strong key={sIdx} className="text-[var(--text-primary)] font-semibold">{seg.slice(2, -2)}</strong>;
+                              }
+                              return <span key={sIdx}>{seg}</span>;
+                            })}
+                          </div>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                );
+              }
+
+              return (
+                <p key={bIdx} className="leading-relaxed">
+                  {trimmed.split(/(\*\*.*?\*\*)/).map((seg, sIdx) => {
+                    if (seg.startsWith('**') && seg.endsWith('**')) {
+                      return <strong key={sIdx} className="text-[var(--text-primary)] font-semibold">{seg.slice(2, -2)}</strong>;
+                    }
+                    return <span key={sIdx}>{seg}</span>;
+                  })}
+                </p>
+              );
+            })}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
 export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => void } = {}) {
+
   const {
     targetUrl, setTargetUrl,
     scanId, setScanId,
@@ -57,6 +166,24 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [activePlan, setActivePlan] = useState<ActivePlan>({ scopeOrigin:'', parameters:[], timeoutMinutes:10, delaySeconds:1 });
+  const [selectedPreset, setSelectedPreset] = useState<'executive' | 'attack_path' | 'remediation' | 'verification'>('executive');
+  const [activeAiModel, setActiveAiModel] = useState<string>('qwen2.5:7b');
+  const [activeAiProvider, setActiveAiProvider] = useState<string>('ollama');
+  const [copiedReport, setCopiedReport] = useState<boolean>(false);
+  const [copilotMessages, setCopilotMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
+  const [copilotInput, setCopilotInput] = useState<string>('');
+  const [isCopilotThinking, setIsCopilotThinking] = useState<boolean>(false);
+  const [showCopilotDrawer, setShowCopilotDrawer] = useState<boolean>(true);
+
+  useEffect(() => {
+    if (window.api?.getSettings) {
+      window.api.getSettings().then(s => {
+        if (s.aiModel) setActiveAiModel(s.aiModel);
+        if (s.aiProvider) setActiveAiProvider(s.aiProvider);
+      });
+    }
+  }, []);
+
   useEffect(() => {
     if (!testingDraft) return;
     const target = new URL(testingDraft.target);
@@ -411,24 +538,34 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     alert('Full scan logs copied! You can now paste this to your AI agent.');
   };
 
-  const handleAnalyzeAI = async () => {
-    const logs = useLogStore.getState().rawLogs;
-    if (!logs) {
-      alert('No logs available to analyze.');
-      return;
-    }
+  const handleCopyAiReport = () => {
+    if (!aiResponse) return;
+    navigator.clipboard.writeText(aiResponse);
+    setCopiedReport(true);
+    setTimeout(() => setCopiedReport(false), 2000);
+  };
+
+  const handleAnalyzeAI = async (presetOverride?: 'executive' | 'attack_path' | 'remediation' | 'verification') => {
+    const preset = presetOverride || selectedPreset;
+    if (presetOverride) setSelectedPreset(presetOverride);
     setActiveTab('ai');
     setIsAnalyzing(true);
     setAiResponse('');
-    setAiProgressMsg('Synthesizing engine findings with AI Security Analyst...');
+    setAiProgressMsg(`Synthesizing scan intelligence (${preset.toUpperCase()})...`);
 
     try {
-      const prompt = `You are a Principal Cyber Security Analyst. Analyze these automated scan logs for ${targetUrl}. Summarize the vulnerabilities, prioritize top critical risks, and suggest concrete remediation steps. Provide a clear, actionable executive report.`;
-      const response = await window.api.analyzeLogs(logs, prompt);
-      setAiResponse(response);
+      if (window.api?.analyzeScan && scanId) {
+        const response = await window.api.analyzeScan(scanId, preset);
+        setAiResponse(response);
+      } else {
+        const logs = useLogStore.getState().rawLogs;
+        const prompt = `You are a Principal Cyber Security Analyst. Analyze these scan logs for ${targetUrl}. Summarize the vulnerabilities, prioritize top critical risks, and suggest concrete remediation steps.`;
+        const response = await window.api.analyzeLogs(logs || 'No logs', prompt);
+        setAiResponse(response);
+      }
     } catch (err: unknown) {
       let msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes('Is Ollama running?')) {
+      if (msg.includes('Is Ollama running?') || msg.includes('ECONNREFUSED')) {
         msg = `Could not connect to Ollama. Please ensure Ollama is running locally, or configure an alternative AI Provider in Settings.\n\nTechnical details: ${(err as Error).message}`;
       } else {
         msg = `Error during AI Analysis:\n\n${(err as Error).message}\n\nPlease check your configuration in Settings.`;
@@ -438,6 +575,31 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       setIsAnalyzing(false);
     }
   };
+
+  const handleSendCopilot = async (overrideMessage?: string) => {
+    const query = (overrideMessage || copilotInput).trim();
+    if (!query || isCopilotThinking) return;
+
+    const newHistory = [...copilotMessages, { role: 'user' as const, content: query }];
+    setCopilotMessages(newHistory);
+    setCopilotInput('');
+    setIsCopilotThinking(true);
+
+    try {
+      if (window.api?.chatCopilot && scanId) {
+        const reply = await window.api.chatCopilot(scanId, copilotMessages, query);
+        setCopilotMessages([...newHistory, { role: 'assistant', content: reply }]);
+      } else {
+        setCopilotMessages([...newHistory, { role: 'assistant', content: 'Scan context is unavailable. Start a scan or select a completed scan to chat with Copilot.' }]);
+      }
+    } catch (err: unknown) {
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      setCopilotMessages([...newHistory, { role: 'assistant', content: `[Copilot Error]: ${errorMsg}` }]);
+    } finally {
+      setIsCopilotThinking(false);
+    }
+  };
+
 
   const handleUpdateTools = async () => {
     if (onOpenToolsHub) {
@@ -745,43 +907,279 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
         {/* AI Security Analyst View */}
         {activeTab === 'ai' && (
-          <div className="h-full w-full p-6 overflow-y-auto">
-            <div className="max-w-4xl mx-auto space-y-6">
-              <div className="flex items-center space-x-3 pb-4 border-b border-[var(--border-card)]">
-                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.2)]">
-                  <Sparkles className="w-6 h-6 animate-pulse" />
+          <div className="h-full w-full p-6 overflow-y-auto space-y-6">
+            <div className="max-w-5xl mx-auto space-y-6">
+              {/* Hub Header */}
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-[var(--border-card)]">
+                <div className="flex items-center space-x-3">
+                  <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+                    <Sparkles className="w-6 h-6 animate-pulse" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
+                      AI Security Intelligence Suite
+                    </h2>
+                    <p className="text-xs text-[var(--text-muted)]">
+                      Local LLM reasoning, threat path chaining, and guided technical remediation
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
-                    AI Security Analyst Engine
-                  </h2>
-                  <p className="text-xs text-[var(--text-muted)]">Automated correlation, threat intelligence analysis, and guided remediation matrix</p>
+
+                <div className="flex items-center gap-2.5">
+                  <span className="text-[11px] font-mono px-3 py-1 rounded-xl bg-[var(--bg-app)] border border-[var(--border-card)] text-[var(--text-secondary)] flex items-center gap-1.5 shadow-inner">
+                    <Bot className="w-3.5 h-3.5 text-purple-400" />
+                    <span>{activeAiModel}</span>
+                    <span className="opacity-50">({activeAiProvider.toUpperCase()})</span>
+                  </span>
+
+                  {aiResponse && (
+                    <button
+                      type="button"
+                      onClick={handleCopyAiReport}
+                      className="px-3 py-1.5 rounded-xl bg-[var(--bg-app)] hover:bg-[var(--accent-primary)]/10 text-[var(--text-primary)] border border-[var(--border-card)] hover:border-[var(--accent-primary)] text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                    >
+                      {copiedReport ? (
+                        <>
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-emerald-400">Copied!</span>
+                        </>
+                      ) : (
+                        <>
+                          <Copy className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                          <span>Copy Report</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </div>
 
+              {/* Presets Selector Toolbar */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                {[
+                  { id: 'executive' as const, name: 'Executive Summary', icon: Shield, desc: 'Overall risk posture & impact' },
+                  { id: 'attack_path' as const, name: 'Attack Paths', icon: Workflow, desc: 'Exploit chaining narrative' },
+                  { id: 'remediation' as const, name: 'Remediation Playbook', icon: FileText, desc: 'Technical patches & headers' },
+                  { id: 'verification' as const, name: 'Manual Verification', icon: CheckCircle2, desc: 'Safe PoC reproduction' }
+                ].map(p => {
+                  const Icon = p.icon;
+                  const isSelected = selectedPreset === p.id;
+                  return (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => handleAnalyzeAI(p.id)}
+                      disabled={isAnalyzing}
+                      className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer disabled:opacity-50 relative overflow-hidden group ${
+                        isSelected
+                          ? 'bg-purple-600/15 border-purple-500/50 shadow-md shadow-purple-900/20'
+                          : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-app)] border-[var(--border-card)] hover:border-[var(--border-glow)]'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 mb-1.5">
+                        <div className={`p-1.5 rounded-lg ${isSelected ? 'bg-purple-500/30 text-purple-300' : 'bg-white/5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`}>
+                          <Icon className="w-4 h-4" />
+                        </div>
+                        <span className={`text-xs font-bold ${isSelected ? 'text-purple-300' : 'text-[var(--text-primary)]'}`}>
+                          {p.name}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[var(--text-muted)] leading-tight">
+                        {p.desc}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Analysis Output Section */}
               {isAnalyzing ? (
-                <div className="flex items-center space-x-3 text-purple-400 p-8 bg-[var(--bg-surface)] rounded-2xl border border-purple-500/30 shadow-lg">
-                  <Loader2 className="w-6 h-6 animate-spin shrink-0 text-purple-400" />
-                  <span className="animate-pulse text-sm font-medium">{aiProgressMsg}</span>
-                </div>
-              ) : aiResponse ? (
-                <div className="prose prose-invert max-w-none">
-                  <pre className="whitespace-pre-wrap bg-[var(--bg-surface)] p-6 rounded-2xl text-[var(--text-secondary)] font-mono text-xs border border-[var(--border-card)] shadow-inner leading-relaxed">
-                    {aiResponse}
-                  </pre>
-                </div>
-              ) : (
-                <div className="text-center py-12 px-4 rounded-2xl bg-[var(--bg-surface)]/50 border border-dashed border-[var(--border-card)]">
-                  <Sparkles className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3 opacity-40" />
-                  <p className="text-sm font-medium text-[var(--text-secondary)]">Ready for Intelligence Analysis</p>
-                  <p className="text-xs text-[var(--text-muted)] mt-1 max-w-md mx-auto">
-                    Run a multi-tool scan and click <span className="text-[var(--accent-primary)] font-semibold">"AI Analyst"</span> in the command bar to synthesize findings into actionable triage reports.
+                <div className="flex flex-col items-center justify-center p-12 bg-[var(--bg-surface)] rounded-2xl border border-purple-500/30 shadow-lg text-center space-y-3">
+                  <div className="relative">
+                    <Loader2 className="w-8 h-8 animate-spin text-purple-400" />
+                    <Sparkles className="w-4 h-4 text-pink-400 absolute -top-1 -right-1 animate-pulse" />
+                  </div>
+                  <span className="text-sm font-semibold text-purple-300 animate-pulse">{aiProgressMsg}</span>
+                  <p className="text-xs text-[var(--text-muted)] max-w-md">
+                    Local Ollama models run entirely on your hardware. If loading a 7B-9B model into VRAM for the first time, initial response may take 10-30 seconds.
                   </p>
                 </div>
+              ) : aiResponse ? (
+                <div className="theme-card p-6 rounded-2xl border border-[var(--border-card)] shadow-lg">
+                  {aiResponse.startsWith('[ERROR]') ? (
+                    <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 space-y-2">
+                      <div className="flex items-center gap-2 font-bold text-sm text-rose-400">
+                        <AlertCircle className="w-4 h-4" />
+                        <span>AI Analysis Could Not Complete</span>
+                      </div>
+                      <pre className="whitespace-pre-wrap font-mono text-xs text-rose-200/80">
+                        {aiResponse.replace('[ERROR]\n', '')}
+                      </pre>
+                      <div className="pt-2 text-xs text-rose-300/80">
+                        💡 Tip: Open <strong className="text-white">Settings</strong> to verify your Ollama Base URL (default <code className="bg-black/30 px-1 py-0.5 rounded">http://127.0.0.1:11434</code>) and click "Test Connection".
+                      </div>
+                    </div>
+                  ) : (
+                    <FormattedMarkdown content={aiResponse} />
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-12 px-4 rounded-2xl bg-[var(--bg-surface)]/50 border border-dashed border-[var(--border-card)] space-y-3">
+                  <Sparkles className="w-10 h-10 text-purple-400 mx-auto opacity-50" />
+                  <p className="text-sm font-bold text-[var(--text-primary)]">Ready for Security Intelligence Analysis</p>
+                  <p className="text-xs text-[var(--text-muted)] max-w-lg mx-auto">
+                    Click any preset above (<strong className="text-purple-400">Executive Summary</strong>, <strong className="text-purple-400">Attack Paths</strong>, <strong className="text-purple-400">Remediation</strong>, or <strong className="text-purple-400">Verification</strong>) to synthesize scan findings into deep advisory intelligence.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => handleAnalyzeAI('executive')}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer"
+                  >
+                    <Shield className="w-4 h-4" />
+                    <span>Generate Executive Risk Summary</span>
+                  </button>
+                </div>
               )}
+
+              {/* Interactive Security Copilot Drawer */}
+              <div className="theme-card rounded-2xl border border-[var(--border-card)] shadow-lg overflow-hidden">
+                <div 
+                  className="flex items-center justify-between p-4 bg-[var(--bg-surface)] border-b border-[var(--border-card)] cursor-pointer select-none"
+                  onClick={() => setShowCopilotDrawer(!showCopilotDrawer)}
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-1.5 rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--border-glow)]">
+                      <MessageSquare className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h3 className="text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider flex items-center gap-2">
+                        <span>Security Copilot Chat</span>
+                        <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 font-normal">
+                          Live RAG Grounded
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-[var(--text-muted)]">
+                        Ask questions grounded directly in this target's findings, endpoints, and attack surface
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {copilotMessages.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); setCopilotMessages([]); }}
+                        className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-primary)] px-2 py-1 rounded-lg hover:bg-white/5 cursor-pointer"
+                      >
+                        Clear Chat
+                      </button>
+                    )}
+                    {showCopilotDrawer ? <ChevronUp className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" />}
+                  </div>
+                </div>
+
+                {showCopilotDrawer && (
+                  <div className="p-4 space-y-4">
+                    {/* Quick Suggestion Chips */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-[10px] font-mono uppercase text-[var(--text-muted)] font-bold">Suggested:</span>
+                      {[
+                        '🧪 How do I safely verify the critical findings?',
+                        '🔧 Write an Nginx/Apache configuration patch',
+                        '📊 What is the business impact if an attacker exploits this?',
+                        '🛡️ Recommend WAF and defensive header rules'
+                      ].map((chip, idx) => (
+                        <button
+                          key={idx}
+                          type="button"
+                          onClick={() => handleSendCopilot(chip)}
+                          disabled={isCopilotThinking}
+                          className="px-2.5 py-1 rounded-lg bg-[var(--bg-app)] hover:bg-[var(--accent-primary)]/10 text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-card)] hover:border-[var(--accent-primary)] text-[11px] transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+
+                    {/* Chat Messages Stream */}
+                    <div className="space-y-3 max-h-96 overflow-y-auto p-2 scrollbar-thin">
+                      {copilotMessages.length === 0 ? (
+                        <div className="text-center py-6 text-xs text-[var(--text-muted)]">
+                          💬 No chat history yet. Ask a question or click a suggestion chip above.
+                        </div>
+                      ) : (
+                        copilotMessages.map((msg, idx) => (
+                          <div
+                            key={idx}
+                            className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                          >
+                            {msg.role === 'assistant' && (
+                              <div className="w-6 h-6 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0 mt-0.5 border border-purple-500/30">
+                                <Bot className="w-3.5 h-3.5" />
+                              </div>
+                            )}
+                            <div
+                              className={`p-3 rounded-2xl max-w-[85%] text-xs ${
+                                msg.role === 'user'
+                                  ? 'bg-[var(--accent-primary)]/15 border border-[var(--accent-primary)]/30 text-[var(--text-primary)] rounded-tr-sm'
+                                  : 'bg-[var(--bg-app)] border border-[var(--border-card)] text-[var(--text-secondary)] rounded-tl-sm'
+                              }`}
+                            >
+                              {msg.role === 'assistant' ? (
+                                <FormattedMarkdown content={msg.content} />
+                              ) : (
+                                <p className="leading-relaxed whitespace-pre-wrap">{msg.content}</p>
+                              )}
+                            </div>
+                          </div>
+                        ))
+                      )}
+
+                      {isCopilotThinking && (
+                        <div className="flex gap-2.5 justify-start">
+                          <div className="w-6 h-6 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center shrink-0 border border-purple-500/30">
+                            <Bot className="w-3.5 h-3.5 animate-pulse" />
+                          </div>
+                          <div className="p-3 rounded-2xl bg-[var(--bg-app)] border border-[var(--border-card)] text-xs text-purple-300 flex items-center gap-2">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            <span>Copilot is reasoning over scan findings...</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Chat Input Bar */}
+                    <form
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        handleSendCopilot();
+                      }}
+                      className="flex items-center gap-2 pt-2 border-t border-[var(--border-card)]"
+                    >
+                      <input
+                        type="text"
+                        value={copilotInput}
+                        onChange={(e) => setCopilotInput(e.target.value)}
+                        placeholder="Ask Copilot about vulnerability verification, exploit vectors, or patches..."
+                        disabled={isCopilotThinking}
+                        className="flex-1 bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] text-xs focus:outline-none focus:border-[var(--accent-primary)] font-sans transition-all placeholder:[var(--text-muted)]"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isCopilotThinking || !copilotInput.trim()}
+                        className="px-4 py-2 rounded-xl bg-[var(--accent-primary)] hover:bg-[var(--accent-hover)] text-white text-xs font-bold transition-all disabled:opacity-50 flex items-center gap-1.5 cursor-pointer shadow-sm shadow-[var(--accent-glow)]"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>Send</span>
+                      </button>
+                    </form>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
+
 
         {/* Active Console View: Dynamically and cleanly mounts ONLY the currently viewed console */}
         {activeTab !== 'findings' && activeTab !== 'ai' && (
