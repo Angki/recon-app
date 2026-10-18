@@ -163,11 +163,15 @@ export class AIService {
       ? `/no_think\n${advisoryHeader}${prompt}${disclosure}\n\nLogs:\n${truncatedLogs}`
       : `${advisoryHeader}${prompt}${disclosure}\n\nLogs:\n${truncatedLogs}`;
 
+    const OLLAMA_TIMEOUT_MS = 120_000; // 120s allows local cold-boot of 7B-9B models into VRAM
+
     const payload = {
       model: model,
       prompt: finalPrompt,
       stream: true
     };
+
+    sender.send('ai:progress', `Querying local Ollama model (${model})...`);
 
     let response;
     try {
@@ -175,12 +179,12 @@ export class AIService {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(15000)
+        signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS)
       });
     } catch (e: unknown) {
       const err = e as Error & { code?: string };
       if (err.name === 'TimeoutError') {
-         throw new Error(`Connection to Ollama at ${baseUrl} timed out after 15s. Is the IP correct and firewall open?`, { cause: e });
+         throw new Error(`Connection to Ollama at ${baseUrl} timed out after ${OLLAMA_TIMEOUT_MS / 1000}s. When loading a model (${model}) into VRAM/RAM for the first time, check system resources or verify Ollama status.`, { cause: e });
       }
       if (err.message?.includes('fetch failed') || err.code === 'ECONNREFUSED') {
         if (baseUrl.includes('127.0.0.1') || baseUrl.includes('localhost')) {
@@ -194,7 +198,7 @@ export class AIService {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload),
-              signal: AbortSignal.timeout(15000)
+              signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS)
             });
           } catch {
             throw new Error(`Ollama is not running locally and could not be started. Please install it from https://ollama.com`);
@@ -254,7 +258,8 @@ export class AIService {
           response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(OLLAMA_TIMEOUT_MS)
           });
           
           if (!response.ok) {

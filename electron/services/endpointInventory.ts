@@ -33,12 +33,29 @@ export function parseDiscovery(tool: string, text: string): { endpoints: Candida
     } catch { rejected++; }
   };
   if (tool === 'arjun') {
-    for (const [url, value] of Object.entries(record(JSON.parse(text)))) {
-      try {
-        const data = Array.isArray(value) ? {params:value,method:'GET'} : record(value);
-        if (!Array.isArray(data.params)) throw new Error('Missing Arjun parameter list');
-        add(url,data.method ?? 'GET',data.params);
-      } catch { rejected++; }
+    let rawObj: unknown = null;
+    try {
+      rawObj = JSON.parse(text);
+    } catch {
+      // Isolate outermost JSON object if stdout decorations or ASCII banner precede it
+      const start = text.indexOf('{');
+      const end = text.lastIndexOf('}');
+      if (start !== -1 && end > start) {
+        try {
+          rawObj = JSON.parse(text.slice(start, end + 1));
+        } catch {
+          rejected++;
+        }
+      }
+    }
+    if (rawObj && typeof rawObj === 'object' && !Array.isArray(rawObj)) {
+      for (const [url, value] of Object.entries(record(rawObj))) {
+        try {
+          const data = Array.isArray(value) ? {params:value,method:'GET'} : record(value);
+          if (!Array.isArray(data.params)) throw new Error('Missing Arjun parameter list');
+          add(url,data.method ?? 'GET',data.params);
+        } catch { rejected++; }
+      }
     }
   } else if (tool === 'katana' || tool === 'gau') {
     for (const line of text.split(/\r?\n/).filter(line => line.trim())) {
@@ -59,7 +76,8 @@ export class EndpointInventory {
   capture(ctx: ScannerContext) {
     // Explicit result artifacts only: terminal diagnostics must not become endpoint data.
     if (!fs.existsSync(ctx.jsonFile)) {
-      if (fs.existsSync(ctx.outputFile)) {
+      // Arjun stdout is terminal banner and diagnostic text, not JSON endpoint data
+      if (ctx.scannerName !== 'arjun' && fs.existsSync(ctx.outputFile)) {
         const text = fs.readFileSync(ctx.outputFile, 'utf8');
         const result = parseDiscovery(ctx.scannerName, text);
         this.insert(ctx.scanId, ctx.targetUrl, ctx.scannerName, result.endpoints);

@@ -101,6 +101,10 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     getCommandArgs(ctx) {
       return [
         '-u', ctx.targetUrl,
+        '-d', '1',
+        '--max-files-per-dir', '10',
+        '--max-links-per-page', '20',
+        '--scope', 'folder',
         '-l', '2',
         '-v', '2',
         '-f', 'json',
@@ -111,11 +115,11 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         '--no-bugreport',
         '--max-attack-time', '180',
         '--timeout', '8',
-        '--max-scan-time', '600'
+        '--max-scan-time', '300'
       ];
     },
     isSuccessExitCode(code: number | null) {
-      return code === 0 || code === 2;
+      return code === 0 || code === 1 || code === 2;
     },
     getEnv(ctx, env) {
       return { ...env, PYTHONIOENCODING: 'utf-8' };
@@ -891,20 +895,31 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
       const findings: Record<string, unknown>[] = [];
       try {
-        const data = JSON.parse(content);
-        for (const [url, params] of Object.entries(data)) {
-          const paramList = Array.isArray(params) ? params : [];
-          if (paramList.length > 0) {
-            findings.push({
-              id: 'arjun-hidden-params',
-              name: `Hidden Parameters Discovered (${paramList.length})`,
-              severity: 'info',
-              scanner: 'arjun',
-              url,
-              description: `Discovered parameters: ${paramList.join(', ')}`,
-              timestamp: new Date().toISOString(),
-              rawJson: JSON.stringify({ url, params }),
-            });
+        let data: unknown;
+        try {
+          data = JSON.parse(content);
+        } catch {
+          const start = content.indexOf('{');
+          const end = content.lastIndexOf('}');
+          if (start !== -1 && end > start) {
+            data = JSON.parse(content.slice(start, end + 1));
+          }
+        }
+        if (data && typeof data === 'object') {
+          for (const [url, params] of Object.entries(data as Record<string, unknown>)) {
+            const paramList = Array.isArray(params) ? params : [];
+            if (paramList.length > 0) {
+              findings.push({
+                id: 'arjun-hidden-params',
+                name: `Hidden Parameters Discovered (${paramList.length})`,
+                severity: 'info',
+                scanner: 'arjun',
+                url,
+                description: `Discovered parameters: ${paramList.join(', ')}`,
+                timestamp: new Date().toISOString(),
+                rawJson: JSON.stringify({ url, params }),
+              });
+            }
           }
         }
       } catch { /* ignore */ }

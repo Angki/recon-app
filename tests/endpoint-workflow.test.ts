@@ -32,6 +32,16 @@ test('discovery adapters extract full URL lists, methods and Arjun hidden parame
   assert.equal(gau.endpoints.length,30,'do not truncate to the previous 20-line summary');
   const arjun = parseDiscovery('arjun',JSON.stringify({[target]:{method:'GET',params:['debug','id'],headers:{}}}));
   assert.deepEqual(arjun.endpoints[0].parameters,['debug','id']);
+  const bannerWithJson = `    _
+   /_| _ _ |_ _
+  (  |/ (_||_(-
+${JSON.stringify({[target]:{method:'GET',params:['debug','token']}})}`;
+  const arjunWithBanner = parseDiscovery('arjun', bannerWithJson);
+  assert.equal(arjunWithBanner.endpoints.length, 1);
+  assert.deepEqual(arjunWithBanner.endpoints[0].parameters, ['debug', 'id', 'token']);
+  const arjunBannerOnly = parseDiscovery('arjun', `    _\n   /_| _ _ |_ _\n  (  |/ (_||_(-`);
+  assert.equal(arjunBannerOnly.endpoints.length, 0);
+  assert.equal(arjunBannerOnly.rejected, 0);
   assert.equal(parseDiscovery('gau',`${target}\nmalformed\nfile:///etc/passwd`).rejected,2);
   assert.throws(()=>normalizeEndpoint('http://user:secret@localhost/','GET'));
   assert.notEqual(normalizeEndpoint('http://localhost/Admin','GET').url,normalizeEndpoint('http://localhost/admin','GET').url);

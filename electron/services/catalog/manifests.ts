@@ -307,7 +307,7 @@ export const TOOL_MANIFESTS: Record<string, ToolManifest> = {
       exeName: 'wapiti.exe'
     },
     exitCodeSemantics: { successCodes: [0, 1, 2] }, // Wapiti exit 0=clean, 1=non-fatal warnings, 2=vulns found
-    defaultTimeoutMs: 40 * 60 * 1000,
+    defaultTimeoutMs: 15 * 60 * 1000,
     sourceUrl: 'https://wapiti.sourceforge.io'
   },
 
