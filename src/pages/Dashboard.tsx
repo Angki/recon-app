@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { 
   RefreshCw, X, ShieldAlert, Loader2, Sparkles, Terminal, 
   CheckCircle2, AlertCircle, Timer, Radio, Cpu, Maximize2, Minimize2,
-  ChevronDown, ChevronUp, Layers, Send, Bot, Copy, Check, MessageSquare,
+  ChevronDown, ChevronUp, Send, Bot, Copy, Check, MessageSquare,
   Shield, Workflow, FileText, Download, Search, Wrench, ExternalLink
 } from 'lucide-react';
 import TerminalPane from '../components/TerminalPane';
@@ -258,6 +258,9 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+  const [mainTab, setMainTab] = useState<'config' | 'live' | 'findings' | 'ai'>(() => {
+    return status === 'RUNNING' ? 'live' : allFindings.length > 0 ? 'findings' : 'config';
+  });
 
   const allToolsArray = allTools;
   const tabs = [
@@ -573,6 +576,10 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     appendRawLogs(`Scan started against ${finalUrl} at ${new Date().toISOString()}\n\n`);
 
     setStatus('STARTING');
+    setMainTab('live');
+    if (['findings', 'ai'].includes(activeTab)) {
+      setActiveTab((toolsToRun[0] as ScannerType) || 'subfinder');
+    }
     const initialStatus: Record<ScannerType, ScannerStatus> = { ...initialScannerStatus };
     
     toolsToRun.forEach((tool, idx) => {
@@ -706,6 +713,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     const preset = presetOverride || selectedPreset;
     if (presetOverride) setSelectedPreset(presetOverride);
     setActiveTab('ai');
+    setMainTab('ai');
     setIsAnalyzing(true);
     setAiResponse('');
     setAiProgressMsg(`Synthesizing scan intelligence (${preset.toUpperCase()})...`);
@@ -812,198 +820,60 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         executionMode={executionMode} setExecutionMode={setExecutionMode}
       />
 
-      {/* Tool Selection Section (Collapsible & Compact) */}
-      {testingDraft && <div className="theme-card rounded-xl p-3 text-sm shrink-0 border border-[var(--border-card)]">
-        <strong>{testingDraft.workflow.kind === 'retest' ? 'Linked retest' : 'Selected endpoint test'}</strong> · Source: {testingDraft.workflow.sourceScanId}
-        <p className="text-xs mt-1">Review the URL and parameters, then use Start Scan. Fill sample values for newly discovered parameters. Nikto tests the whole origin.</p>
-        <div className="flex gap-4 mt-2"><Link className="underline" to="/endpoints">View inventory and linked results</Link><button disabled={['STARTING','RUNNING','STOPPING'].includes(status)} onClick={()=>setTestingDraft(null)} className="underline disabled:opacity-40">Detach draft</button></div>
-      </div>}
-      {selectedTools.some(tool => ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool'].includes(tool)) && (
-        <div className="space-y-2">
-          <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-orange-950/20 border border-orange-500/30 text-xs">
-            <div className="flex items-center gap-2">
-              <span className={`w-2 h-2 rounded-full ${autoCascadeEnabled ? 'bg-orange-400 animate-pulse' : 'bg-zinc-500'}`} />
-              <span className="font-semibold text-orange-200">Dynamic Endpoint Cascading</span>
-              <span className="text-[11px] text-[var(--text-muted)] hidden sm:inline">
-                {autoCascadeEnabled
-                  ? '⚡ Auto-chain aktif: URL & parameter crawler otomatis dialirkan ke active engine'
-                  : 'Manual: Parameter hanya menggunakan konfigurasi statis'}
-              </span>
-            </div>
-            <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-orange-300 font-mono">
-              <input
-                type="checkbox"
-                checked={autoCascadeEnabled}
-                onChange={e => setAutoCascadeEnabled(e.target.checked)}
-                className="rounded border-orange-500/50 bg-black/40 text-orange-500 focus:ring-0"
-              />
-              Auto-Chain Live
-            </label>
-          </div>
-          <ActiveTestingPanel
-            target={targetUrl}
-            tools={selectedTools}
-            value={activePlan}
-            onChange={setActivePlan}
-            disabled={['STARTING', 'RUNNING', 'STOPPING'].includes(status)}
-            discoveredEndpoints={discoveredEndpoints}
-            onSelectEndpoint={(url, params) => {
-              try {
-                const parsed = new URL(url);
-                setTargetUrl(url);
-                setActivePlan(prev => ({
-                  ...prev,
-                  scopeOrigin: parsed.origin,
-                  parameters: params
-                }));
-              } catch {
-                // keep URL
-              }
-            }}
-            discoveredJwt={discoveredJwt}
-          />
-        </div>
-      )}
-      {incompatibleTools.length > 0 && (
-        <div className="theme-card p-2 px-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between text-xs text-amber-300 shrink-0 animate-fade-in shadow-sm">
-          <div className="flex items-center gap-2">
-            <span className="text-sm">⚠️</span>
-            <span>
-              Target adalah Web URL. Tool kode lokal / direktori <strong>({incompatibleTools.join(', ')})</strong> tidak dapat memindai website live dan otomatis dilewati saat pemindaian.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => setSelectedTools(prev => prev.filter(t => !incompatibleTools.includes(t)))}
-            className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[10px] font-mono cursor-pointer shrink-0 ml-2 border border-amber-500/30 transition-all font-semibold"
-          >
-            Hapus Dari Pilihan
-          </button>
-        </div>
-      )}
-      {dashboardView?.showToolSelection ? (
-        <ToolSelection
-          allTools={allToolsArray} selectedTools={selectedTools}
-          setSelectedTools={setSelectedTools} status={status}
-          targetUrl={targetUrl}
-        />
-      ) : (
-        <div className="theme-card p-2 px-3.5 rounded-xl border border-[var(--border-card)] shadow-sm shrink-0 flex items-center justify-between text-xs">
-          <div className="flex items-center gap-2">
-            <Layers className="w-3.5 h-3.5 text-cyan-400" />
-            <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-bold">Suite Tools:</span>
-            <span className="font-bold text-xs text-[var(--text-primary)] font-mono">{selectedTools.length} Armed</span>
-            <span className="text-[10px] font-mono text-cyan-400 hidden sm:inline">
-              ({selectedTools.slice(0, 5).join(', ')}{selectedTools.length > 5 ? ` +${selectedTools.length - 5} lainnya` : ''})
-            </span>
-          </div>
-          <button
-            onClick={() => setDashboardView(prev => ({ ...prev, showToolSelection: true }))}
-            className="text-[11px] text-[var(--accent-primary)] hover:underline cursor-pointer flex items-center gap-1 font-semibold"
-          >
-            <span>Buka Panel Tools</span>
-            <ChevronDown className="w-3 h-3" />
-          </button>
-        </div>
-      )}
-
-      {/* Cyber Operations Telemetry HUD */}
-      {dashboardView?.showTelemetry && (
-        <div className="theme-card relative z-0 p-2 px-3.5 rounded-xl border border-[var(--border-card)] shadow-sm shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
-        {/* Left: Pipeline Phase Stepper */}
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
-          <div className="flex items-center gap-1.5 mr-2 shrink-0">
-            <Radio className={`w-3.5 h-3.5 ${status === 'RUNNING' ? 'text-emerald-400 animate-pulse' : 'text-[var(--text-muted)]'}`} />
-            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[var(--text-muted)]">
-              Pipeline:
-            </span>
-          </div>
-
-          <div className="flex items-center gap-1 shrink-0">
-            {pipelineTelemetry.phases.map((phase, idx) => {
-              const isPhaseRunning = phase.state === 'RUNNING';
-              const isPhaseDone = phase.state === 'COMPLETED';
-              const isPhaseDisabled = phase.state === 'DISABLED';
-
-              return (
-                <div key={phase.id} className="flex items-center gap-1">
-                  <div
-                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-mono transition-all border ${
-                      isPhaseRunning
-                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-bold'
-                        : isPhaseDone
-                          ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border-[var(--border-glow)]'
-                          : isPhaseDisabled
-                            ? 'opacity-40 text-[var(--text-muted)] border-transparent'
-                            : 'text-[var(--text-muted)] border-[var(--border-card)] bg-black/20'
-                    }`}
-                  >
-                    {isPhaseRunning ? (
-                      <span className="relative flex h-2 w-2">
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                      </span>
-                    ) : isPhaseDone ? (
-                      <CheckCircle2 className="w-3 h-3 text-[var(--accent-primary)]" />
-                    ) : (
-                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] opacity-50" />
-                    )}
-                    <span>{phase.name}</span>
-                  </div>
-                  {idx < pipelineTelemetry.phases.length - 1 && (
-                    <span className="text-[var(--text-muted)] text-[10px] opacity-40">→</span>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Right: Telemetry Counter Chips */}
-        <div className="flex items-center gap-2 flex-wrap shrink-0">
-          {/* Active Engines Badge */}
-          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-card)] text-[10px] font-mono">
-            <Cpu className="w-3 h-3 text-cyan-400" />
-            <span className="text-cyan-400 font-bold tabular-nums">{pipelineTelemetry.runningCount} Active</span>
-            <span className="text-[var(--text-muted)]">•</span>
-            <span className="text-emerald-400 font-bold tabular-nums">{pipelineTelemetry.completedCount} Done</span>
-            {pipelineTelemetry.failedCount > 0 && (
-              <>
-                <span className="text-[var(--text-muted)]">•</span>
-                <span className="text-rose-400 font-bold tabular-nums">{pipelineTelemetry.failedCount} Failed</span>
-              </>
-            )}
-          </div>
-
-          {/* Live Elapsed Duration */}
-          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-card)] text-[10px] font-mono font-bold text-[var(--text-primary)]">
-            <Timer className={`w-3 h-3 ${status === 'RUNNING' ? 'text-amber-400 animate-spin' : 'text-[var(--text-muted)]'}`} />
-            <span className="tabular-nums">{formatDuration(elapsedSeconds)}</span>
-          </div>
-
-          {/* Target Domain Badge */}
-          {targetUrl && (
-            <div className="text-[10px] font-mono text-[var(--text-muted)] max-w-[180px] truncate hidden lg:inline" title={targetUrl}>
-              🎯 {targetUrl.replace(/^https?:\/\//, '')}
-            </div>
-          )}
-        </div>
-      </div>
-      )}
-
-      {/* Master Workspace Bar: Primary Tabs + Live Console Switcher */}
+      {/* Primary Cyber Command Workspace Tabs */}
       <div className="theme-card relative z-0 p-1.5 px-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-2 shadow-sm border border-[var(--border-card)] shrink-0">
-        {/* Left: Primary Workspaces */}
+        {/* Left: Phased Workspace Tabs */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
-            onClick={() => setActiveTab('findings')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'findings'
-                ? 'bg-[var(--accent-primary)] text-white shadow-md shadow-[var(--accent-glow)]'
+            onClick={() => setMainTab('config')}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              mainTab === 'config'
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-md shadow-cyan-900/30 font-extrabold'
                 : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
             }`}
           >
-            <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+            <Wrench className="w-3.5 h-3.5 text-cyan-300" />
+            <span>Target & Suite Setup</span>
+            <span className="text-[10px] font-mono px-1.5 py-0.2 rounded-full bg-cyan-950/60 text-cyan-300 border border-cyan-500/30 font-semibold">
+              {selectedTools.length} Armed
+            </span>
+          </button>
+
+          <button
+            onClick={() => {
+              setMainTab('live');
+              if (['findings', 'ai'].includes(activeTab)) {
+                setActiveTab((selectedTools[0] as ScannerType) || 'subfinder');
+              }
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              mainTab === 'live'
+                ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-900/30 font-extrabold'
+                : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Terminal className="w-3.5 h-3.5 text-emerald-300" />
+            <span>Live Console & Progress</span>
+            {status === 'RUNNING' && (
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => {
+              setMainTab('findings');
+              setActiveTab('findings');
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              mainTab === 'findings'
+                ? 'bg-gradient-to-r from-rose-600 to-orange-600 text-white shadow-md shadow-rose-900/30 font-extrabold'
+                : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-rose-300" />
             <span>Findings & Vulns</span>
             {allFindings.length > 0 && (
               <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold shadow-sm tabular-nums">
@@ -1013,18 +883,57 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
           </button>
 
           <button
-            onClick={() => setActiveTab('ai')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-              activeTab === 'ai'
-                ? 'bg-purple-600 text-white shadow-md shadow-purple-900/40'
+            onClick={() => {
+              setMainTab('ai');
+              setActiveTab('ai');
+            }}
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              mainTab === 'ai'
+                ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md shadow-purple-900/30 font-extrabold'
                 : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
             }`}
           >
             <Sparkles className="w-3.5 h-3.5 text-purple-300" />
-            <span>AI Analyst</span>
+            <span>AI Security Analyst</span>
           </button>
+        </div>
 
-          {/* Quick Focus / Maximize Toggle */}
+        {/* Right: Quick actions & Focus toggle */}
+        <div className="flex items-center gap-2">
+          {mainTab === 'live' && (
+            <div className="flex items-center gap-1 bg-[var(--bg-surface)] p-0.5 rounded-lg border border-[var(--border-card)]">
+              <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-1.5 hidden sm:inline">Stream:</span>
+              {(['selected', 'dast', 'recon', 'network', 'secops', 'all'] as const).map(filterKey => (
+                <button
+                  key={filterKey}
+                  onClick={() => setConsoleFilter(filterKey)}
+                  className={`px-2 py-0.5 rounded-md text-[10px] font-mono uppercase tracking-wider transition-all cursor-pointer ${
+                    consoleFilter === filterKey
+                      ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] font-bold border border-[var(--border-glow)]'
+                      : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                  }`}
+                >
+                  {filterKey === 'selected' ? 'Active' : filterKey === 'secops' ? 'Secrets/Code' : filterKey}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {mainTab === 'config' && (
+            <button
+              onClick={() => {
+                setMainTab('live');
+                if (['findings', 'ai'].includes(activeTab)) {
+                  setActiveTab((selectedTools[0] as ScannerType) || 'subfinder');
+                }
+              }}
+              className="px-2.5 py-1 rounded-lg text-xs font-semibold bg-white/5 hover:bg-white/10 text-[var(--text-primary)] border border-[var(--border-card)] flex items-center gap-1.5 transition-all cursor-pointer"
+            >
+              <span>View Live Console</span>
+              <Terminal className="w-3 h-3 text-emerald-400" />
+            </button>
+          )}
+
           <button
             onClick={() => {
               const isFocus = dashboardView?.mode === 'focus';
@@ -1035,7 +944,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                 showSummaryCards: isFocus,
               });
             }}
-            title={dashboardView?.mode === 'focus' ? 'Kembali ke Tampilan Standar' : 'Fokus Hasil (Sembunyikan panel atas & maksimalkan ruang tabel temuan)'}
+            title={dashboardView?.mode === 'focus' ? 'Kembali ke Tampilan Standar' : 'Fokus Hasil (Maksimalkan ruang kerja)'}
             className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border ${
               dashboardView?.mode === 'focus'
                 ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/40 shadow-sm'
@@ -1050,72 +959,232 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
             ) : (
               <>
                 <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
-                <span className="hidden sm:inline">Fokus Hasil</span>
+                <span className="hidden sm:inline">Fokus</span>
               </>
             )}
           </button>
         </div>
+      </div>
 
-        {/* Right: Console Streams Filter & Navigation */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
-          <div className="flex items-center gap-1 bg-[var(--bg-surface)] p-0.5 rounded-lg border border-[var(--border-card)]">
-            <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-1.5 hidden sm:inline">Stream:</span>
-            
-            {(['selected', 'dast', 'recon', 'network', 'secops', 'all'] as const).map(filterKey => (
+      {/* Main Workspace View Container */}
+      {mainTab === 'config' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+          {testingDraft && (
+            <div className="theme-card rounded-xl p-3 text-sm shrink-0 border border-[var(--border-card)]">
+              <strong>{testingDraft.workflow.kind === 'retest' ? 'Linked retest' : 'Selected endpoint test'}</strong> · Source: {testingDraft.workflow.sourceScanId}
+              <p className="text-xs mt-1">Review the URL and parameters, then use Start Scan. Fill sample values for newly discovered parameters. Nikto tests the whole origin.</p>
+              <div className="flex gap-4 mt-2">
+                <Link className="underline" to="/endpoints">View inventory and linked results</Link>
+                <button disabled={['STARTING','RUNNING','STOPPING'].includes(status)} onClick={()=>setTestingDraft(null)} className="underline disabled:opacity-40">Detach draft</button>
+              </div>
+            </div>
+          )}
+
+          {selectedTools.some(tool => ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool'].includes(tool)) && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-orange-950/20 border border-orange-500/30 text-xs">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${autoCascadeEnabled ? 'bg-orange-400 animate-pulse' : 'bg-zinc-500'}`} />
+                  <span className="font-semibold text-orange-200">Dynamic Endpoint Cascading</span>
+                  <span className="text-[11px] text-[var(--text-muted)] hidden sm:inline">
+                    {autoCascadeEnabled
+                      ? '⚡ Auto-chain aktif: URL & parameter crawler otomatis dialirkan ke active engine'
+                      : 'Manual: Parameter hanya menggunakan konfigurasi statis'}
+                  </span>
+                </div>
+                <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-orange-300 font-mono">
+                  <input
+                    type="checkbox"
+                    checked={autoCascadeEnabled}
+                    onChange={e => setAutoCascadeEnabled(e.target.checked)}
+                    className="rounded border-orange-500/50 bg-black/40 text-orange-500 focus:ring-0"
+                  />
+                  Auto-Chain Live
+                </label>
+              </div>
+              <ActiveTestingPanel
+                target={targetUrl}
+                tools={selectedTools}
+                value={activePlan}
+                onChange={setActivePlan}
+                disabled={['STARTING', 'RUNNING', 'STOPPING'].includes(status)}
+                discoveredEndpoints={discoveredEndpoints}
+                onSelectEndpoint={(url, params) => {
+                  try {
+                    const parsed = new URL(url);
+                    setTargetUrl(url);
+                    setActivePlan(prev => ({
+                      ...prev,
+                      scopeOrigin: parsed.origin,
+                      parameters: params
+                    }));
+                  } catch {
+                    // keep URL
+                  }
+                }}
+                discoveredJwt={discoveredJwt}
+              />
+            </div>
+          )}
+
+          {incompatibleTools.length > 0 && (
+            <div className="theme-card p-2 px-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between text-xs text-amber-300 shrink-0 animate-fade-in shadow-sm">
+              <div className="flex items-center gap-2">
+                <span className="text-sm">⚠️</span>
+                <span>
+                  Target adalah Web URL. Tool kode lokal / direktori <strong>({incompatibleTools.join(', ')})</strong> tidak dapat memindai website live dan otomatis dilewati saat pemindaian.
+                </span>
+              </div>
               <button
-                key={filterKey}
-                onClick={() => setConsoleFilter(filterKey)}
-                className={`px-2 py-0.5 rounded-md text-[10px] font-mono uppercase tracking-wider transition-all cursor-pointer ${
-                  consoleFilter === filterKey
-                    ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] font-bold border border-[var(--border-glow)]'
-                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
-                }`}
+                type="button"
+                onClick={() => setSelectedTools(prev => prev.filter(t => !incompatibleTools.includes(t)))}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[10px] font-mono cursor-pointer shrink-0 ml-2 border border-amber-500/30 transition-all font-semibold"
               >
-                {filterKey === 'selected' ? 'Active' : filterKey === 'secops' ? 'Secrets/Code' : filterKey}
+                Hapus Dari Pilihan
               </button>
-            ))}
+            </div>
+          )}
+
+          <ToolSelection
+            allTools={allToolsArray} selectedTools={selectedTools}
+            setSelectedTools={setSelectedTools} status={status}
+            targetUrl={targetUrl}
+          />
+        </div>
+      ) : mainTab === 'live' ? (
+        <div className="flex-1 flex flex-col min-h-0 space-y-2">
+          {/* Cyber Operations Telemetry HUD */}
+          {dashboardView?.showTelemetry && (
+            <div className="theme-card relative z-0 p-2 px-3.5 rounded-xl border border-[var(--border-card)] shadow-sm shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+              {/* Left: Pipeline Phase Stepper */}
+              <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+                <div className="flex items-center gap-1.5 mr-2 shrink-0">
+                  <Radio className={`w-3.5 h-3.5 ${status === 'RUNNING' ? 'text-emerald-400 animate-pulse' : 'text-[var(--text-muted)]'}`} />
+                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    Pipeline:
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0">
+                  {pipelineTelemetry.phases.map((phase, idx) => {
+                    const isPhaseRunning = phase.state === 'RUNNING';
+                    const isPhaseDone = phase.state === 'COMPLETED';
+                    const isPhaseDisabled = phase.state === 'DISABLED';
+
+                    return (
+                      <div key={phase.id} className="flex items-center gap-1">
+                        <div
+                          className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-mono transition-all border ${
+                            isPhaseRunning
+                              ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-bold'
+                              : isPhaseDone
+                                ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border-[var(--border-glow)]'
+                                : isPhaseDisabled
+                                  ? 'opacity-40 text-[var(--text-muted)] border-transparent'
+                                  : 'text-[var(--text-muted)] border-[var(--border-card)] bg-black/20'
+                          }`}
+                        >
+                          {isPhaseRunning ? (
+                            <span className="relative flex h-2 w-2">
+                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                            </span>
+                          ) : isPhaseDone ? (
+                            <CheckCircle2 className="w-3 h-3 text-[var(--accent-primary)]" />
+                          ) : (
+                            <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] opacity-50" />
+                          )}
+                          <span>{phase.name}</span>
+                        </div>
+                        {idx < pipelineTelemetry.phases.length - 1 && (
+                          <span className="text-[var(--text-muted)] text-[10px] opacity-40">→</span>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Right: Telemetry Counter Chips */}
+              <div className="flex items-center gap-2 flex-wrap shrink-0">
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-card)] text-[10px] font-mono">
+                  <Cpu className="w-3 h-3 text-cyan-400" />
+                  <span className="text-cyan-400 font-bold tabular-nums">{pipelineTelemetry.runningCount} Active</span>
+                  <span className="text-[var(--text-muted)]">•</span>
+                  <span className="text-emerald-400 font-bold tabular-nums">{pipelineTelemetry.completedCount} Done</span>
+                  {pipelineTelemetry.failedCount > 0 && (
+                    <>
+                      <span className="text-[var(--text-muted)]">•</span>
+                      <span className="text-rose-400 font-bold tabular-nums">{pipelineTelemetry.failedCount} Failed</span>
+                    </>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-card)] text-[10px] font-mono font-bold text-[var(--text-primary)]">
+                  <Timer className={`w-3 h-3 ${status === 'RUNNING' ? 'text-amber-400 animate-spin' : 'text-[var(--text-muted)]'}`} />
+                  <span className="tabular-nums">{formatDuration(elapsedSeconds)}</span>
+                </div>
+
+                {targetUrl && (
+                  <div className="text-[10px] font-mono text-[var(--text-muted)] max-w-[180px] truncate hidden lg:inline" title={targetUrl}>
+                    🎯 {targetUrl.replace(/^https?:\/\//, '')}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Sub-bar: Active Engine Console Tabs */}
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin px-0.5 shrink-0">
+            {consoleTools.map(tab => {
+              const isActive = activeTab === tab;
+              const scannerStat = scannerStatus[tab as ScannerType];
+              const isRunning = scannerStat === 'RUNNING';
+              const isFailed = scannerStat === 'FAILED';
+              const isCompleted = scannerStat === 'COMPLETED';
+
+              return (
+                <button
+                  key={tab}
+                  onClick={() => setActiveTab(tab as ScannerType)}
+                  className={`px-2.5 py-1 rounded-lg font-mono text-[11px] uppercase tracking-wider font-semibold transition-all flex items-center gap-1.5 border whitespace-nowrap cursor-pointer ${
+                    isActive
+                      ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] border-[var(--border-glow)] shadow-sm'
+                      : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-card)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)]'
+                  }`}
+                >
+                  {isRunning && (
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                    </span>
+                  )}
+                  {isCompleted && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                  {isFailed && <AlertCircle className="w-3 h-3 text-rose-400" />}
+                  {!isRunning && !isCompleted && !isFailed && <Terminal className="w-3 h-3 opacity-50" />}
+                  <span>{tab}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Expansive Full-Height Terminal Pane */}
+          <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner">
+            <ErrorBoundary key={activeTab} fallbackTitle={`${activeTab.toUpperCase()} Console Interrupted`}>
+              <TerminalPane
+                key={activeTab}
+                title={`${activeTab.toUpperCase()} Live Console`}
+                scanner={activeTab as ScannerType}
+                scanId={scanId}
+                status={scannerStatus[activeTab as ScannerType]}
+                isVisible={true}
+              />
+            </ErrorBoundary>
           </div>
         </div>
-      </div>
-
-      {/* Sub-bar: Active Engine Console Tabs */}
-      <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin px-0.5 shrink-0">
-        {consoleTools.map(tab => {
-          const isActive = activeTab === tab;
-          const scannerStat = scannerStatus[tab as ScannerType];
-          const isRunning = scannerStat === 'RUNNING';
-          const isFailed = scannerStat === 'FAILED';
-          const isCompleted = scannerStat === 'COMPLETED';
-
-          return (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab as ScannerType)}
-              className={`px-2.5 py-1 rounded-lg font-mono text-[11px] uppercase tracking-wider font-semibold transition-all flex items-center gap-1.5 border whitespace-nowrap cursor-pointer ${
-                isActive
-                  ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] border-[var(--border-glow)] shadow-sm'
-                  : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-card)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)]'
-              }`}
-            >
-              {isRunning && (
-                <span className="relative flex h-2 w-2">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-                </span>
-              )}
-              {isCompleted && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
-              {isFailed && <AlertCircle className="w-3 h-3 text-rose-400" />}
-              {!isRunning && !isCompleted && !isFailed && <Terminal className="w-3 h-3 opacity-50" />}
-              <span>{tab}</span>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Workspaces & Scanners Tab View Area (Fills 100% remaining height) */}
-      <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner">
-        {/* Findings View */}
-        {activeTab === 'findings' && (
+      ) : mainTab === 'findings' ? (
+        /* Findings Workspace View */
+        <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner">
           <div className="h-full w-full">
             <VulnerabilityTable 
               scanId={scanId} 
@@ -1125,10 +1194,10 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
               onSeverityFilterChange={setSeverityFilter}
             />
           </div>
-        )}
-
-        {/* AI Security Analyst View */}
-        {activeTab === 'ai' && (
+        </div>
+      ) : (
+        /* AI Security Analyst View */
+        <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner">
           <div className="h-full w-full p-6 overflow-y-auto space-y-6">
             <div className="max-w-5xl mx-auto space-y-6">
               {/* Hub Header */}
@@ -1400,25 +1469,8 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
               </div>
             </div>
           </div>
-        )}
-
-
-        {/* Active Console View: Dynamically and cleanly mounts ONLY the currently viewed console */}
-        {activeTab !== 'findings' && activeTab !== 'ai' && (
-          <div className="h-full w-full">
-            <ErrorBoundary key={activeTab} fallbackTitle={`${activeTab.toUpperCase()} Console Interrupted`}>
-              <TerminalPane
-                key={activeTab}
-                title={`${activeTab.toUpperCase()} Live Console`}
-                scanner={activeTab as ScannerType}
-                scanId={scanId}
-                status={scannerStatus[activeTab as ScannerType]}
-                isVisible={true}
-              />
-            </ErrorBoundary>
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Findings Summary Area */}
       <FindingsSummary 
