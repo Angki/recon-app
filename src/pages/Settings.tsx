@@ -306,14 +306,14 @@ export default function SettingsPage() {
                   onChange={(e) => setAiPolicy(e.target.value as any)}
                   className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] text-xs font-medium focus:outline-none focus:border-[var(--accent-primary)] cursor-pointer"
                 >
-                  <option value="local-only">🛡️ Local-Only (Air-Gapped / Blocks Cloud)</option>
-                  <option value="hybrid">⚖️ Hybrid (Local Default, Cloud Optional)</option>
+                  <option value="local-only">🛡️ Local-Only (Air-Gapped 127.0.0.1 / Blocks Remote)</option>
+                  <option value="hybrid">⚖️ Hybrid (Local & Tailnet Mesh Allowed, Cloud Optional)</option>
                   <option value="cloud-allowed">🌐 Cloud Allowed</option>
                 </select>
                 <p className="text-[11px] text-[var(--text-muted)]">
                   {aiPolicy === 'local-only' 
                     ? 'Guarantees scan findings never leave localhost (127.0.0.1).'
-                    : 'Permits advisory queries to configured cloud endpoints.'}
+                    : 'Permits advisory queries to local endpoints, private Tailscale mesh nodes, or cloud.'}
                 </p>
               </div>
 
@@ -332,7 +332,7 @@ export default function SettingsPage() {
                   }}
                   className="w-full bg-[var(--bg-app)] border border-[var(--border-card)] rounded-xl px-3.5 py-2 text-[var(--text-primary)] text-xs font-medium focus:outline-none focus:border-[var(--accent-primary)] cursor-pointer"
                 >
-                  <option value="ollama">Ollama (Local / Privacy-First)</option>
+                  <option value="ollama">Ollama (Local / Tailnet Mesh / Privacy-First)</option>
                   <option value="openai" disabled={aiPolicy === 'local-only'}>OpenAI (Cloud GPT-4o)</option>
                   <option value="gemini" disabled={aiPolicy === 'local-only'}>Google Gemini (Cloud)</option>
                   <option value="anthropic" disabled={aiPolicy === 'local-only'}>Anthropic Claude (Cloud)</option>
@@ -341,14 +341,54 @@ export default function SettingsPage() {
 
               {aiProvider === 'ollama' && (
                 <>
-                  <InputField 
-                    label="Ollama Base URL" 
-                    value={aiBaseUrl} 
-                    onChange={(val) => { setAiBaseUrl(val); setConnectionStatus(null); }} 
-                    placeholder="http://127.0.0.1:11434" 
-                    icon={Globe} 
-                    hint="Default is http://127.0.0.1:11434"
-                  />
+                  <div className="space-y-2">
+                    <InputField 
+                      label="Ollama Base URL" 
+                      value={aiBaseUrl} 
+                      onChange={(val) => { setAiBaseUrl(val); setConnectionStatus(null); }} 
+                      placeholder="http://127.0.0.1:11434" 
+                      icon={Globe} 
+                      hint="Default is http://127.0.0.1:11434 or your Tailscale node"
+                    />
+
+                    {/* Quick Endpoint Presets */}
+                    <div className="flex flex-wrap items-center gap-2 pt-0.5">
+                      <span className="text-[10px] text-[var(--text-muted)] font-medium">Quick Endpoints:</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = 'http://127.0.0.1:11434';
+                          setAiBaseUrl(url);
+                          setConnectionStatus(null);
+                          fetchOllamaModels(url);
+                        }}
+                        className={`text-[10px] px-2.5 py-1 rounded-lg border font-mono transition-all cursor-pointer flex items-center gap-1 ${
+                          aiBaseUrl.includes('127.0.0.1') || aiBaseUrl.includes('localhost')
+                            ? 'bg-blue-500/15 border-blue-500/40 text-blue-400 font-semibold'
+                            : 'bg-[var(--bg-app)] border-[var(--border-card)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--border-glow)]'
+                        }`}
+                      >
+                        💻 Localhost
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const url = 'http://100.119.195.119:11434';
+                          setAiBaseUrl(url);
+                          setConnectionStatus(null);
+                          if (aiPolicy === 'local-only') setAiPolicy('hybrid');
+                          fetchOllamaModels(url);
+                        }}
+                        className={`text-[10px] px-2.5 py-1 rounded-lg border font-mono transition-all cursor-pointer flex items-center gap-1 ${
+                          aiBaseUrl.includes('100.119.195.119')
+                            ? 'bg-purple-500/15 border-purple-500/40 text-purple-400 font-semibold shadow-sm'
+                            : 'bg-[var(--bg-app)] border-[var(--border-card)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-purple-500/30'
+                        }`}
+                      >
+                        ⚡ Tailscale (DESKTOP-KHEN4R1)
+                      </button>
+                    </div>
+                  </div>
 
                   {/* Model Selector with Auto-Discovery */}
                   <div className="flex flex-col space-y-1.5">

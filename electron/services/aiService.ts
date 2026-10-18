@@ -14,6 +14,27 @@ export function isLoopbackHost(urlStr: string): boolean {
   }
 }
 
+export function isTailscaleOrPrivateHost(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    const host = parsed.hostname.toLowerCase();
+    if (isLoopbackHost(urlStr)) return true;
+    if (host.endsWith('.ts.net') || host.endsWith('.local') || host.endsWith('.internal')) return true;
+    const parts = host.split('.').map(Number);
+    if (parts.length === 4 && parts.every(p => !isNaN(p) && p >= 0 && p <= 255)) {
+      // Tailscale CGNAT 100.64.0.0/10 (100.64.0.0 to 100.127.255.255)
+      if (parts[0] === 100 && parts[1] >= 64 && parts[1] <= 127) return true;
+      // RFC 1918 Private LAN
+      if (parts[0] === 10) return true;
+      if (parts[0] === 172 && parts[1] >= 16 && parts[1] <= 31) return true;
+      if (parts[0] === 192 && parts[1] === 168) return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
 export function processStreamChunks(
   buffer: string,
   newChunk: string,
@@ -98,12 +119,14 @@ export class AIService {
     baseUrl = baseUrl.replace('http://localhost', 'http://127.0.0.1');
 
     if (settings.aiPolicy === 'local-only' && !isLoopbackHost(baseUrl)) {
-      return { success: false, models: [], error: `AI Policy Violation: 'local-only' policy forbids external endpoint '${baseUrl}'.` };
+      const isTailnet = isTailscaleOrPrivateHost(baseUrl);
+      const tip = isTailnet ? " Switch Data Privacy Policy to 'Hybrid' to allow private Tailnet/LAN endpoints." : "";
+      return { success: false, models: [], error: `AI Policy Violation: 'local-only' policy forbids external endpoint '${baseUrl}'.${tip}` };
     }
 
     try {
       const res = await fetch(`${baseUrl}/api/tags`, {
-        signal: AbortSignal.timeout(3000)
+        signal: AbortSignal.timeout(8000)
       });
       if (!res.ok) {
         return { success: false, models: [], error: `Ollama returned HTTP ${res.status}` };
@@ -129,7 +152,9 @@ export class AIService {
         return { success: false, latencyMs: 0, message: `AI Policy Violation: Policy is set to 'local-only'. Cloud provider '${provider}' is blocked.` };
       }
       if (!isLoopbackHost(baseUrl)) {
-        return { success: false, latencyMs: 0, message: `AI Policy Violation: 'local-only' policy forbids external endpoint '${baseUrl}'.` };
+        const isTailnet = isTailscaleOrPrivateHost(baseUrl);
+        const tip = isTailnet ? " Switch Data Privacy Policy in Settings to 'Hybrid' to allow private Tailnet/LAN endpoints." : "";
+        return { success: false, latencyMs: 0, message: `AI Policy Violation: 'local-only' policy forbids external endpoint '${baseUrl}'.${tip}` };
       }
     }
 
@@ -137,7 +162,7 @@ export class AIService {
     try {
       if (provider === 'ollama') {
         const res = await fetch(`${baseUrl}/api/tags`, {
-          signal: AbortSignal.timeout(4000)
+          signal: AbortSignal.timeout(8000)
         });
         const latencyMs = Date.now() - startTime;
         if (!res.ok) {
@@ -392,8 +417,10 @@ export class AIService {
         throw new Error(`Ollama chat error: HTTP ${res.status}`);
       }
 
-      const data = (await res.json()) as { message?: { content?: string } };
-      return data.message?.content || 'No response generated.';
+      const data = (await res.json()) as { message?: { content?: string; thinking?: string } };
+      let content = data.message?.content || '';
+      content = content.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+      return content || data.message?.content || 'No response generated.';
     } catch (err: unknown) {
       const error = err as Error;
       throw new Error(`Copilot chat failed: ${error.message || 'Unknown error'}`, { cause: err });
@@ -735,7 +762,8 @@ export class AIService {
       fullText = data.response || 'No response generated.';
     }
 
-    return fullText || 'No response generated.';
+    const cleanReport = fullText.replace(/<think>[\s\S]*?<\/think>\s*/gi, '').trim();
+    return cleanReport || fullText || 'No response generated.';
   }
 }
 
