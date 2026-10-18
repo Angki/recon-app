@@ -1208,8 +1208,10 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
   semgrep: {
     getCommandArgs(ctx) {
       const isRemoteUrl = ctx.targetUrl.startsWith('http://') || ctx.targetUrl.startsWith('https://');
-      const scanTarget = isRemoteUrl ? ctx.outDir : ctx.targetUrl;
-      return ['scan', '--config', 'auto', '--json', '--output', ctx.jsonFile, '--disable-version-check', scanTarget];
+      if (isRemoteUrl) {
+        throw new Error('Semgrep requires a local source directory and cannot scan remote web URLs or fallback to the scan output directory.');
+      }
+      return ['scan', '--config', 'auto', '--json', '--output', ctx.jsonFile, '--disable-version-check', ctx.targetUrl];
     },
     isSuccessExitCode(code: number | null) {
       return code === 0 || code === 1 || code === 2;

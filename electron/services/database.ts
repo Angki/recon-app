@@ -26,7 +26,54 @@ export class DatabaseService {
   private initSchema() {
     this.db.pragma('journal_mode = WAL');
     MigrationManager.runMigrations(this.db);
+    this.initWorkspaceSchema();
     ScanStateMachine.recoverDanglingScans(this);
+  }
+
+  private initWorkspaceSchema() {
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS engagements (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        targetType TEXT NOT NULL,
+        targetCanonical TEXT NOT NULL,
+        scopeJson TEXT NOT NULL,
+        budgetJson TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS requests_workspace (
+        id TEXT PRIMARY KEY,
+        engagementId TEXT,
+        scanId TEXT,
+        name TEXT NOT NULL,
+        method TEXT NOT NULL,
+        url TEXT NOT NULL,
+        queryJson TEXT,
+        headersJson TEXT,
+        cookiesJson TEXT,
+        contentType TEXT,
+        body TEXT,
+        authProfileId TEXT,
+        testParametersJson TEXT,
+        provenanceJson TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS auth_profiles (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        authType TEXT NOT NULL,
+        secretRef TEXT NOT NULL,
+        headerName TEXT,
+        expiresAt TEXT,
+        sessionHealthJson TEXT,
+        csrfConfigJson TEXT,
+        refreshConfigJson TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      );
+    `);
   }
 
   getRawDatabase(): Database.Database {

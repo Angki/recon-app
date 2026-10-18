@@ -7,6 +7,9 @@ import { aiService } from './services/aiService';
 import { dependencyService, DEPENDENCIES } from './services/dependencyManager';
 import { toolManager } from './services/toolManager';
 import { endpointInventory } from './services/endpointInventory';
+import { RequestWorkspace, type RequestDefinition } from './services/workspace/requestWorkspace';
+import { authService } from './services/workspace/authService';
+import { ScopeEnforcer, type EngagementScope } from './services/workspace/scopeEnforcement';
 
 export function validateExternalUrl(rawUrl: string): string {
   if (!rawUrl || typeof rawUrl !== 'string') {
@@ -188,6 +191,44 @@ export function registerIpcHandlers() {
   ipcMain.handle('shell:openExternal', async (event, url: string) => {
     const safeUrl = validateExternalUrl(url);
     await shell.openExternal(safeUrl);
+  });
+
+  // Request Workspace & Dataflow IPC
+  ipcMain.handle('workspace:importRawHttp', (event, rawText: string, defaultHost?: string) => {
+    return RequestWorkspace.importRawHttp(rawText, defaultHost);
+  });
+
+  ipcMain.handle('workspace:importHar', (event, harContent: string) => {
+    return RequestWorkspace.importHar(harContent);
+  });
+
+  ipcMain.handle('workspace:importOpenApi', (event, specContent: string, defaultBaseUrl?: string) => {
+    return RequestWorkspace.importOpenApi(specContent, defaultBaseUrl);
+  });
+
+  ipcMain.handle('workspace:inspectParameters', (event, req: RequestDefinition) => {
+    return RequestWorkspace.inspectParameters(req);
+  });
+
+  ipcMain.handle('workspace:buildToolPreview', (event, tool: string, req: RequestDefinition, authHeader?: string) => {
+    return RequestWorkspace.buildSafePreview(tool, req, authHeader);
+  });
+
+  // Auth Profile & Vault IPC
+  ipcMain.handle('auth:createProfile', (event, params: Parameters<typeof authService.createProfile>[0]) => {
+    const profile = authService.createProfile(params);
+    return authService.getPublicProfile(profile);
+  });
+
+  ipcMain.handle('auth:validateSession', async (event, profileId: string) => {
+    const profile = authService.getProfile(profileId);
+    if (!profile) throw new Error(`Profile ${profileId} not found`);
+    return await authService.validateSessionForLaunch(profile);
+  });
+
+  // Scope Enforcement IPC
+  ipcMain.handle('scope:evaluateUrl', (event, url: string, scope: EngagementScope) => {
+    return ScopeEnforcer.isUrlInScope(url, scope);
   });
 
   // App Version

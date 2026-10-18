@@ -14,6 +14,10 @@ import { toolCatalog } from './catalog';
 import { ScanStateMachine } from './runner/stateMachine';
 import { activeRuntime, isActiveValidationTool, validateActiveConfig } from './scanners/activeValidation';
 import { endpointInventory, DISCOVERY_TOOLS } from './endpointInventory';
+import { resolveTarget, validateToolsForTarget } from './target/targetValidator';
+import { ScopeEnforcer, type EngagementScope } from './workspace/scopeEnforcement';
+import { authService } from './workspace/authService';
+import { ProvenanceTracker, type InputProvenance } from './workspace/provenance';
 
 /** Safely send IPC to renderer — no-op if the window was already closed */
 function safeSend(sender: Electron.WebContents, channel: string, data: unknown) {
@@ -177,6 +181,49 @@ export class ScannerService {
         return { success: false, error: 'No tools selected for scanning. Please select at least one scanner engine.' };
       }
       if (requestedTools.some(t => typeof t !== 'string' || !toolCatalog.get(t))) throw new Error('Unknown scanner requested.');
+
+      // Typed target union & tool capability validation
+      const resolvedTarget = resolveTarget(targetUrl);
+      const targetValidation = validateToolsForTarget(resolvedTarget, requestedTools);
+      if (!targetValidation.valid) {
+        return {
+          success: false,
+          error: targetValidation.rejectedTools.map(t => t.reason).join('\n')
+        };
+      }
+
+      // Engagement scope enforcement
+      if (config.scope && typeof config.scope === 'object') {
+        const scopeEval = ScopeEnforcer.isUrlInScope(targetUrl, config.scope as EngagementScope);
+        if (!scopeEval.inScope) {
+          return {
+            success: false,
+            error: `Target URL is outside authorized engagement scope: ${scopeEval.reason}`
+          };
+        }
+      }
+
+      // Authentication session health validation
+      if (config.authProfileId && typeof config.authProfileId === 'string') {
+        const profile = authService.getProfile(config.authProfileId);
+        if (!profile) {
+          return {
+            success: false,
+            error: `Authentication profile '${config.authProfileId}' not found.`
+          };
+        }
+        try {
+          const authLaunch = await authService.validateSessionForLaunch(profile);
+          config.resolvedAuthHeader = authLaunch.resolvedHeader;
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          return {
+            success: false,
+            error: `Authentication check failed: ${msg}`
+          };
+        }
+      }
+
       endpointInventory.validateLaunch(targetUrl,config);
       const activeTools = requestedTools.filter(isActiveValidationTool);
       const activeRuntimes: Record<string, ReturnType<typeof activeRuntime>> = {};
@@ -549,8 +596,21 @@ export class ScannerService {
         }
         const findings = adapter.parseFindings(context);
         if (findings && findings.length > 0) {
+          const provenance: InputProvenance = {
+            sourceScanId: context.scanId,
+            endpointId: (context.config?.workflow as any)?.endpointId,
+            discoveredByTools: [context.scannerName],
+            requestMethod: (context.config?.requestDefinition as any)?.method || 'GET',
+            requestUrl: context.targetUrl,
+            parameterTested: (context.config?.activeValidation as any)?.parameters?.[0],
+            scannerEngine: context.scannerName,
+            timestamp: new Date().toISOString()
+          };
+          const findingsWithProv = findings.map(f =>
+            ProvenanceTracker.attachFindingProvenance(f as Record<string, unknown>, provenance)
+          );
           try {
-            dbService.insertFindings(context.scanId, context.scannerName, findings as Record<string, unknown>[]);
+            dbService.insertFindings(context.scanId, context.scannerName, findingsWithProv);
           } catch(e) {
             logger.error(`Error inserting findings to DB for ${context.scannerName}`, e);
             return false;

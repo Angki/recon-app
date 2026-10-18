@@ -68,6 +68,20 @@ declare global {
       listBackups: () => Promise<{ filename: string; path: string; sizeBytes: number; createdAt: string }[]>;
       enforceRetention: (maxDays?: number, maxTotalBytes?: number) => Promise<{ deletedFiles: number; reclaimedBytes: number }>;
 
+      // Request Workspace & Dataflow
+      importRawHttp: (rawText: string, defaultHost?: string) => Promise<any>;
+      importHar: (harContent: string) => Promise<any[]>;
+      importOpenApi: (specContent: string, defaultBaseUrl?: string) => Promise<any[]>;
+      inspectParameters: (req: any) => Promise<any>;
+      buildToolPreview: (tool: string, req: any, authHeader?: string) => Promise<string[]>;
+
+      // Auth Profiles & Vault
+      createAuthProfile: (params: any) => Promise<any>;
+      validateAuthSession: (profileId: string) => Promise<any>;
+
+      // Engagement Scope
+      evaluateScopeUrl: (url: string, scope: any) => Promise<{ inScope: boolean; reason?: string }>;
+
       // Application Version
       getAppVersion: () => Promise<string>;
     }

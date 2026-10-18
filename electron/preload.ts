@@ -109,6 +109,20 @@ contextBridge.exposeInMainWorld('api', {
   listBackups: () => ipcRenderer.invoke('db:listBackups'),
   enforceRetention: (maxDays?: number, maxTotalBytes?: number) => ipcRenderer.invoke('db:enforceRetention', maxDays, maxTotalBytes),
 
+  // Request Workspace & Dataflow
+  importRawHttp: (rawText: string, defaultHost?: string) => ipcRenderer.invoke('workspace:importRawHttp', rawText, defaultHost),
+  importHar: (harContent: string) => ipcRenderer.invoke('workspace:importHar', harContent),
+  importOpenApi: (specContent: string, defaultBaseUrl?: string) => ipcRenderer.invoke('workspace:importOpenApi', specContent, defaultBaseUrl),
+  inspectParameters: (req: Record<string, unknown>) => ipcRenderer.invoke('workspace:inspectParameters', req),
+  buildToolPreview: (tool: string, req: Record<string, unknown>, authHeader?: string) => ipcRenderer.invoke('workspace:buildToolPreview', tool, req, authHeader),
+
+  // Auth Profiles & Vault
+  createAuthProfile: (params: Record<string, unknown>) => ipcRenderer.invoke('auth:createProfile', params),
+  validateAuthSession: (profileId: string) => ipcRenderer.invoke('auth:validateSession', profileId),
+
+  // Engagement Scope
+  evaluateScopeUrl: (url: string, scope: Record<string, unknown>) => ipcRenderer.invoke('scope:evaluateUrl', url, scope),
+
   // Application Version
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
 });
