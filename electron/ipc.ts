@@ -171,6 +171,17 @@ export function registerIpcHandlers() {
     const safeUrl = validateExternalUrl(url);
     await shell.openExternal(safeUrl);
   });
+
+  // App Version
+  ipcMain.handle('app:getVersion', () => {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { app } = require('electron');
+      return app?.getVersion ? app.getVersion() : '1.0.0';
+    } catch {
+      return '1.0.0';
+    }
+  });
 }
 
 // Auto-register when running in main process

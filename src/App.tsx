@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Shield, History, Settings as SettingsIcon, Cpu, Layers } from 'lucide-react';
 import Dashboard from './pages/Dashboard';
@@ -12,6 +12,13 @@ import './App.css';
 function App() {
   const location = useLocation();
   const [showToolsHub, setShowToolsHub] = useState(false);
+  const [appVersion, setAppVersion] = useState('1.0.0');
+
+  useEffect(() => {
+    window.api?.getAppVersion?.().then((v) => {
+      if (v) setAppVersion(v);
+    }).catch(() => {});
+  }, []);
 
   const getNavClass = (path: string) => {
     const isActive = location.pathname === path;
@@ -35,7 +42,7 @@ function App() {
               SecOps Recon
             </h1>
             <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)]">
-              Cyber Command v1.1
+              Cyber Command v{appVersion}
             </span>
           </div>
         </div>

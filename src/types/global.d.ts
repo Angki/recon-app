@@ -62,6 +62,9 @@ declare global {
       createBackup: () => Promise<{ backupPath: string; timestamp: string; sizeBytes: number }>;
       listBackups: () => Promise<{ filename: string; path: string; sizeBytes: number; createdAt: string }[]>;
       enforceRetention: (maxDays?: number, maxTotalBytes?: number) => Promise<{ deletedFiles: number; reclaimedBytes: number }>;
+
+      // Application Version
+      getAppVersion: () => Promise<string>;
     }
   }
 }

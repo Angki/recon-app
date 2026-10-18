@@ -103,4 +103,7 @@ contextBridge.exposeInMainWorld('api', {
   createBackup: () => ipcRenderer.invoke('db:createBackup'),
   listBackups: () => ipcRenderer.invoke('db:listBackups'),
   enforceRetention: (maxDays?: number, maxTotalBytes?: number) => ipcRenderer.invoke('db:enforceRetention', maxDays, maxTotalBytes),
+
+  // Application Version
+  getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
 });
