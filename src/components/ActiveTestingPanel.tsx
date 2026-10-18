@@ -33,12 +33,16 @@ export default function ActiveTestingPanel({ target, tools, value, onChange, dis
     }).catch(() => { if (mounted) setMessage('Could not load runtime settings.'); });
     return () => { mounted = false; };
   }, []);
-  let parameters:string[] = [];
+  let parameters: string[] = [];
   let origin = '';
   try {
     const url = new URL(target.startsWith('http') ? target : `https://${target}`);
     origin = url.origin;
-    parameters = [...new Set(url.searchParams.keys())];
+    const foundParams: string[] = [];
+    url.searchParams.forEach((_, key) => {
+      if (!foundParams.includes(key)) foundParams.push(key);
+    });
+    parameters = foundParams;
   } catch { /* URL input may be incomplete */ }
 
   useEffect(() => {

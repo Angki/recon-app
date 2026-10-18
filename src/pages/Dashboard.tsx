@@ -245,9 +245,14 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     if (testingDraft.workflow.kind === 'endpoint') {
       for (const parameter of testingDraft.parameters) if (!target.searchParams.has(parameter)) target.searchParams.set(parameter,'');
     }
-    setTargetUrl(target.href);
-    setSelectedTools([testingDraft.tool]);
-    setActivePlan({scopeOrigin:testingDraft.scopeOrigin,parameters:testingDraft.parameters,timeoutMinutes:10,delaySeconds:1});
+    const href = target.href;
+    const tool = testingDraft.tool;
+    const plan: ActivePlan = { scopeOrigin: testingDraft.scopeOrigin, parameters: testingDraft.parameters, timeoutMinutes: 10, delaySeconds: 1 };
+    queueMicrotask(() => {
+      setTargetUrl(href);
+      setSelectedTools([tool]);
+      setActivePlan(plan);
+    });
   }, [testingDraft, setTargetUrl, setSelectedTools]);
   const [consoleFilter, setConsoleFilter] = useState<'selected' | 'dast' | 'recon' | 'network' | 'secops' | 'all'>('selected');
   const [severityFilter, setSeverityFilter] = useState<string>('all');
@@ -283,7 +288,14 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
     const handleStats = (_event: unknown, data: { scanId: string; stats: { nuclei: Record<string, number>, wapiti: { vulns: number, pages: number } } }) => {
       if (data.scanId !== scanId) return;
-      useScanStore.getState().setNucleiFindings(data.stats.nuclei as any);
+      const nStats = data.stats.nuclei || {};
+      useScanStore.getState().setNucleiFindings({
+        info: nStats.info || 0,
+        low: nStats.low || 0,
+        medium: nStats.medium || 0,
+        high: nStats.high || 0,
+        critical: nStats.critical || 0,
+      });
       useScanStore.getState().setWapitiVulns(data.stats.wapiti.vulns);
       useScanStore.getState().setWapitiPages(data.stats.wapiti.pages);
     };
@@ -404,7 +416,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       });
       if (terminal.includes(String(scan.status)) && !['STOPPED','STOPPING'].includes(useScanStore.getState().status)) useScanStore.getState().setStatus(String(scan.status));
     }).catch(() => {});
-  }, [scanId]);
+  }, [scanId, setAllFindings]);
 
   // Updater listeners
   useEffect(() => {
@@ -522,7 +534,10 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       return;
     }
     const targetOrigin = parsedUrl.origin;
-    const targetParams = [...new Set(parsedUrl.searchParams.keys())];
+    const targetParams: string[] = [];
+    parsedUrl.searchParams.forEach((_, key) => {
+      if (!targetParams.includes(key)) targetParams.push(key);
+    });
 
     const paramTestingTools = ['sqlmap', 'commix', 'sstimap'];
     const selectedParamTools = toolsToRun.filter(t => paramTestingTools.includes(t));

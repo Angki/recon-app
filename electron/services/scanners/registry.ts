@@ -49,19 +49,35 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (!content) return [];
       const findings: Record<string, unknown>[] = [];
 
-      const processItem = (data: Record<string, any>) => {
+      interface NucleiRawItem {
+        'template-id'?: string;
+        info?: {
+          name?: string;
+          severity?: string;
+          description?: string;
+          reference?: string[] | string;
+        };
+        'matched-at'?: string;
+        host?: string;
+        timestamp?: string;
+        'extracted-results'?: string[] | string;
+        'curl-command'?: string;
+      }
+
+      const processItem = (data: NucleiRawItem) => {
         if (!data || typeof data !== 'object') return;
+        const info = data.info;
         findings.push({
           id: data['template-id'] || 'nuclei-finding',
-          name: data.info?.name || 'Unknown',
-          severity: data.info?.severity || 'info',
+          name: info?.name || 'Unknown',
+          severity: info?.severity || 'info',
           scanner: 'nuclei',
           url: data['matched-at'] || data.host || '',
-          description: data.info?.description || '',
+          description: info?.description || '',
           timestamp: data.timestamp || new Date().toISOString(),
           extractedResults: Array.isArray(data['extracted-results']) ? data['extracted-results'] : (data['extracted-results'] ? [data['extracted-results']] : []),
           curlCommand: data['curl-command'] || '',
-          references: Array.isArray(data.info?.reference) ? data.info.reference : (data.info?.reference ? [data.info.reference] : [])
+          references: Array.isArray(info?.reference) ? info.reference : (info?.reference ? [info.reference] : [])
         });
       };
 
@@ -70,11 +86,11 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         const parsed = JSON.parse(content);
         if (Array.isArray(parsed)) {
           for (const item of parsed) {
-            processItem(item as Record<string, any>);
+            processItem(item as NucleiRawItem);
           }
           return findings;
         } else if (parsed && typeof parsed === 'object') {
-          processItem(parsed as Record<string, any>);
+          processItem(parsed as NucleiRawItem);
           return findings;
         }
       } catch {
@@ -87,9 +103,9 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         try {
           const item = JSON.parse(line.trim());
           if (Array.isArray(item)) {
-            for (const sub of item) processItem(sub as Record<string, any>);
+            for (const sub of item) processItem(sub as NucleiRawItem);
           } else {
-            processItem(item as Record<string, any>);
+            processItem(item as NucleiRawItem);
           }
         } catch { /* ignore invalid line */ }
       }
@@ -715,7 +731,9 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
   },
   acunetix: {
     getCommandArgs(ctx): string[] {
-      const isPackaged = typeof electron === 'object' && electron !== null && 'app' in electron ? (electron as any).app.isPackaged : false;
+      const isPackaged = typeof electron === 'object' && electron !== null && 'app' in electron
+        ? Boolean((electron as { app?: { isPackaged?: boolean } }).app?.isPackaged)
+        : false;
       const runnerPath = isPackaged
         ? path.join(process.resourcesPath, 'scripts', 'acunetix_runner.js')
         : path.join(process.cwd(), 'electron', 'scripts', 'acunetix_runner.js');
@@ -1386,7 +1404,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         const events = Array.isArray(data.events) ? data.events : [];
         for (const evt of events) {
           if (evt.status === 'failure' || evt.status === 'error') {
-            const is5xx = Array.isArray(evt.checks) && evt.checks.some((c: any) => c.name === 'not_a_server_error' && c.status === 'failure');
+            const is5xx = Array.isArray(evt.checks) && evt.checks.some((c: { name?: string; status?: string }) => c.name === 'not_a_server_error' && c.status === 'failure');
             const severity = is5xx ? 'high' : 'low';
             const issueType = is5xx ? 'Unhandled Server Error (5xx Crash)' : 'API Quality: Schema Conformity Failure';
 
@@ -1454,11 +1472,11 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
   interactsh: {
     getCommandArgs(ctx) {
       const args = ['-json', '-o', ctx.jsonFile, '-v'];
-      const server = (ctx.settings as any)?.interactshServer || (ctx.config?.interactshServer as string);
+      const server = (ctx.settings as Record<string, unknown>)?.interactshServer as string | undefined || (ctx.config?.interactshServer as string);
       if (server) {
         args.push('-server', server);
       }
-      const token = (ctx.settings as any)?.interactshToken || (ctx.config?.interactshToken as string);
+      const token = (ctx.settings as Record<string, unknown>)?.interactshToken as string | undefined || (ctx.config?.interactshToken as string);
       if (token) {
         args.push('-token', token);
       }
@@ -1481,7 +1499,18 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
 
 export function parseSyft(content: string, ctx: Pick<ScannerContext, 'targetUrl'>) {
   if (!content.trim()) return [];
-  let data: any;
+  let data: {
+    artifacts?: Array<{
+      name?: string;
+      version?: string;
+      purl?: string;
+      type?: string;
+      licenses?: unknown[];
+      license?: unknown;
+      locations?: unknown[];
+    }>;
+    source?: { target?: string };
+  };
   try {
     data = JSON.parse(content);
   } catch (err) {
@@ -1498,7 +1527,14 @@ export function parseSyft(content: string, ctx: Pick<ScannerContext, 'targetUrl'
     const version = pkg.version || 'unknown';
     const purl = pkg.purl || 'N/A';
     const licenses = Array.isArray(pkg.licenses) ? pkg.licenses : (pkg.license ? [pkg.license] : []);
-    const licenseNames = licenses.map((l: any) => typeof l === 'string' ? l : (l.value || l.spdxExpression || JSON.stringify(l))).filter(Boolean);
+    const licenseNames = licenses.map((l: unknown) => {
+      if (typeof l === 'string') return l;
+      if (l && typeof l === 'object') {
+        const obj = l as { value?: string; spdxExpression?: string };
+        return obj.value || obj.spdxExpression || JSON.stringify(l);
+      }
+      return '';
+    }).filter(Boolean);
 
     findings.push({
       id: `syft-pkg-${pkg.name}-${version}`,
@@ -1532,7 +1568,7 @@ export function parseInteractsh(content: string, ctx: Pick<ScannerContext, 'targ
   const findings: Record<string, unknown>[] = [];
 
   for (const line of lines) {
-    let item: any;
+    let item: Record<string, unknown>;
     try {
       item = JSON.parse(line);
     } catch (err) {
@@ -1574,7 +1610,7 @@ export function parseInteractsh(content: string, ctx: Pick<ScannerContext, 'targ
   return findings;
 }
 
-function genericJsonLinesParser(ctx: ScannerContext) {
+function _genericJsonLinesParser(ctx: ScannerContext) {
   if (!fs.existsSync(ctx.jsonFile)) return [];
   const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
   const findings: Record<string, unknown>[] = [];

@@ -36,7 +36,9 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
 
   useEffect(() => {
     if (isOpen) {
-      fetchHealth();
+      queueMicrotask(() => {
+        void fetchHealth();
+      });
     }
   }, [isOpen]);
 

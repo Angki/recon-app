@@ -2,16 +2,13 @@ import { spawn, ChildProcess, execSync } from 'child_process';
 import { logger, LoggerService } from './logger';
 import { storage } from './storage';
 import { settingsStore } from './settings';
-import { dependencyService } from './dependencyManager';
 import { toolManager } from './toolManager';
 import { dbService } from './database';
 import path from 'path';
 import { getAdapter } from './scanners/registry';
 import type { ScannerContext, IScannerAdapter } from './scanners/types';
 import fs from 'fs';
-import os from 'os';
 import { toolCatalog } from './catalog';
-import { ScanStateMachine } from './runner/stateMachine';
 import { activeRuntime, isActiveValidationTool, validateActiveConfig } from './scanners/activeValidation';
 import { endpointInventory, DISCOVERY_TOOLS } from './endpointInventory';
 import { resolveTarget, validateToolsForTarget } from './target/targetValidator';
@@ -701,13 +698,16 @@ export class ScannerService {
         }
         const findings = adapter.parseFindings(context);
         if (findings && findings.length > 0) {
+          const workflowObj = context.config?.workflow as { endpointId?: number } | undefined;
+          const reqDefObj = context.config?.requestDefinition as { method?: string } | undefined;
+          const activeValObj = context.config?.activeValidation as { parameters?: string[] } | undefined;
           const provenance: InputProvenance = {
             sourceScanId: context.scanId,
-            endpointId: (context.config?.workflow as any)?.endpointId,
+            endpointId: workflowObj?.endpointId,
             discoveredByTools: [context.scannerName],
-            requestMethod: (context.config?.requestDefinition as any)?.method || 'GET',
+            requestMethod: reqDefObj?.method || 'GET',
             requestUrl: context.targetUrl,
-            parameterTested: (context.config?.activeValidation as any)?.parameters?.[0],
+            parameterTested: activeValObj?.parameters?.[0],
             scannerEngine: context.scannerName,
             timestamp: new Date().toISOString()
           };
