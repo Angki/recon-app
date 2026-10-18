@@ -1148,7 +1148,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         return findings;
       } catch (err) {
         logger.error(`Failed to parse SSLyze output: ${err}`);
-        return [];
+        throw new Error(`Failed to parse SSLyze output: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
       }
     }
   },
@@ -1200,7 +1200,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         return findings;
       } catch (err) {
         logger.error(`Failed to parse Gitleaks output: ${err}`);
-        return [];
+        throw new Error(`Failed to parse Gitleaks output: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
       }
     }
   },
@@ -1270,7 +1270,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         return findings;
       } catch (err) {
         logger.error(`Failed to parse Semgrep output: ${err}`);
-        return [];
+        throw new Error(`Failed to parse Semgrep output: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
       }
     }
   },
@@ -1341,7 +1341,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         return findings;
       } catch (err) {
         logger.error(`Failed to parse Trivy output: ${err}`);
-        return [];
+        throw new Error(`Failed to parse Trivy output: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
       }
     }
   },
@@ -1429,7 +1429,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         return findings;
       } catch (err) {
         logger.error(`Failed to parse Schemathesis output: ${err}`);
-        return [];
+        throw new Error(`Failed to parse Schemathesis output: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
       }
     }
   }

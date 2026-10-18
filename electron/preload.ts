@@ -64,6 +64,10 @@ contextBridge.exposeInMainWorld('api', {
   getToolsHealth: () => ipcRenderer.invoke('tools:get-health'),
   updateTool: (toolName: string) => ipcRenderer.invoke('tools:update-single', toolName),
   updateAllTools: () => ipcRenderer.invoke('tools:update-all'),
+  preflightSmoke: (toolId: string) => ipcRenderer.invoke('tools:preflight-smoke', toolId),
+  rollbackTool: (toolName: string) => ipcRenderer.invoke('tools:rollback', toolName),
+  uninstallTool: (toolName: string) => ipcRenderer.invoke('tools:uninstall', toolName),
+  isToolLocked: (toolName: string) => ipcRenderer.invoke('tools:is-locked', toolName),
   onToolUpdateProgress: (callback: (event: unknown, data: { tool: string, message: string }) => void) => {
     const handler = (_event: IpcRendererEvent, data: { tool: string, message: string }) => callback(null, data);
     ipcRenderer.on('tools:update-progress', handler);

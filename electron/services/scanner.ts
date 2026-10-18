@@ -18,6 +18,8 @@ import { resolveTarget, validateToolsForTarget } from './target/targetValidator'
 import { ScopeEnforcer, type EngagementScope } from './workspace/scopeEnforcement';
 import { authService } from './workspace/authService';
 import { ProvenanceTracker, type InputProvenance } from './workspace/provenance';
+import { processLock } from './platform/processLock';
+import { containerLifecycle } from './platform/containerLifecycle';
 
 /** Safely send IPC to renderer — no-op if the window was already closed */
 function safeSend(sender: Electron.WebContents, channel: string, data: unknown) {
@@ -290,6 +292,13 @@ export class ScannerService {
 
       const { scanId, scanDir, nucleiDir, wapitiDir } = storage.createScanDirectory(domain);
       
+      const lockRes = processLock.acquireLocks(scanId, toolsToRun);
+      if (!lockRes.success) {
+        return {
+          success: false,
+          error: `Cannot start scan: tool '${lockRes.conflictedTool}' is currently locked by another active scan.`
+        };
+      }
       await storage.saveMetadata(scanId, {
         scanId,
         target: targetUrl,
@@ -368,6 +377,7 @@ export class ScannerService {
 
     let processInstance: ChildProcess;
     let executable = bin;
+    let spawnArgs: string[];
     try {
     const args = adapter.getCommandArgs(context);
     
@@ -378,7 +388,7 @@ export class ScannerService {
     
     let useShell = false;
     let cwd = outDir;
-    let spawnArgs = args;
+    spawnArgs = args;
 
     const isBat = bin.toLowerCase().endsWith('.bat') || bin.toLowerCase().endsWith('.cmd');
     if (isBat && process.platform === 'win32') {
@@ -440,6 +450,13 @@ export class ScannerService {
     void storage.updateStatus(scanId, scannerName, 'RUNNING');
     const scanSession = this.activeScans.get(scanId);
     if (scanSession) scanSession[scannerName] = processInstance;
+
+    if (executable.toLowerCase().includes('docker') || spawnArgs.some(a => typeof a === 'string' && a.toLowerCase().includes('docker'))) {
+      const nameIdx = spawnArgs.indexOf('--name');
+      if (nameIdx !== -1 && nameIdx + 1 < spawnArgs.length) {
+        containerLifecycle.registerContainer(scanId, String(spawnArgs[nameIdx + 1]));
+      }
+    }
 
     let finalized = false;
 
@@ -505,6 +522,8 @@ export class ScannerService {
       const allDone = ((!remaining || remaining.size === 0) && !anyProcRunning) || this.stoppedScans.has(scanId);
 
       if (allDone) {
+        processLock.releaseLocks(scanId);
+        void containerLifecycle.cleanupContainers(scanId);
         const interval = this.statEmitIntervals.get(scanId);
         if (interval) { clearInterval(interval); this.statEmitIntervals.delete(scanId); }
         this.activeScans.delete(scanId);
@@ -580,9 +599,13 @@ export class ScannerService {
       const interval = this.statEmitIntervals.get(scanId);
       if (interval) { clearInterval(interval); this.statEmitIntervals.delete(scanId); }
       storage.updateStatus(scanId, null, 'STOPPED');
+      processLock.releaseLocks(scanId);
+      void containerLifecycle.cleanupContainers(scanId);
       logger.info(`Scan ${scanId} stopped by user`);
       return { success: true };
     }
+    processLock.releaseLocks(scanId);
+    void containerLifecycle.cleanupContainers(scanId);
     return { success: false, error: 'Scan not found' };
   }
 
@@ -645,6 +668,8 @@ export class ScannerService {
     this.activeScans.clear();
     for (const interval of this.statEmitIntervals.values()) clearInterval(interval);
     this.statEmitIntervals.clear();
+    processLock.clearAll();
+    void containerLifecycle.cleanupAll();
   }
 
   /** Platform-safe process kill (Windows needs taskkill for tree-kill) */

@@ -11,6 +11,9 @@ import { RequestWorkspace, type RequestDefinition } from './services/workspace/r
 import { authService } from './services/workspace/authService';
 import { ScopeEnforcer, type EngagementScope } from './services/workspace/scopeEnforcement';
 
+import { preflightSmoke } from './services/platform/preflightSmoke';
+import { processLock } from './services/platform/processLock';
+
 export function validateExternalUrl(rawUrl: string): string {
   if (!rawUrl || typeof rawUrl !== 'string') {
     throw new Error('URL must be a non-empty string');
@@ -41,6 +44,22 @@ export function registerIpcHandlers() {
   // Legacy Tools Update
   ipcMain.handle('tools:update', async (event) => {
     return await toolManager.updateAll(event.sender);
+  });
+
+  ipcMain.handle('tools:preflight-smoke', async (_event, toolId: string) => {
+    return await preflightSmoke.evaluateStatus(toolId);
+  });
+
+  ipcMain.handle('tools:rollback', (_event, toolName: string) => {
+    return toolManager.rollbackTool(toolName);
+  });
+
+  ipcMain.handle('tools:uninstall', (event, toolName: string) => {
+    return toolManager.uninstallTool(toolName, event.sender);
+  });
+
+  ipcMain.handle('tools:is-locked', (_event, toolName: string) => {
+    return processLock.isToolLocked(toolName);
   });
 
   ipcMain.handle('dependency:check', async () => {

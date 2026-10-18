@@ -47,6 +47,10 @@ declare global {
       getToolsHealth: () => Promise<ToolHealthInfo[]>;
       updateTool: (toolName: string) => Promise<boolean>;
       updateAllTools: () => Promise<void>;
+      preflightSmoke: (toolId: string) => Promise<{ passed: boolean; status: string; version?: string; durationMs: number; details: string; error?: string }>;
+      rollbackTool: (toolName: string) => Promise<boolean>;
+      uninstallTool: (toolName: string) => Promise<boolean>;
+      isToolLocked: (toolName: string) => Promise<{ locked: boolean; activeScanId?: string }>;
       onToolUpdateProgress: (callback: (event: unknown, data: { tool: string, message: string }) => void) => () => void;
       onToolUpdateStatus: (callback: (event: unknown, status: string) => void) => () => void;
 

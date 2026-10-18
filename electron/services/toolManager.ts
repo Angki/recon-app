@@ -9,6 +9,9 @@ import { settingsStore } from './settings';
 import { activeRuntime, isActiveValidationTool } from './scanners/activeValidation';
 import type { ToolCategory } from './catalog/types';
 import { installActiveTool, supportsActiveInstall } from './activeToolInstaller';
+import { processLock } from './platform/processLock';
+import { StagingInstaller } from './platform/installer';
+import { pythonVenv } from './platform/pythonVenv';
 
 export interface ToolDef {
   name: string;
@@ -53,13 +56,19 @@ export const MANAGED_TOOLS: ToolDef[] = toolCatalog.getAll().map(tool => {
 
 export class ToolManager {
   private binDir: string;
+  private stagingInstaller: StagingInstaller;
   private versionCache: Map<string, { version: string; timestamp: number }> = new Map();
 
-  constructor() {
-    this.binDir = path.join(os.homedir(), 'AppData', 'Roaming', 'ReconApp', 'bin');
+  constructor(customBinDir?: string) {
+    this.binDir = customBinDir || path.join(os.homedir(), 'AppData', 'Roaming', 'ReconApp', 'bin');
     if (!fs.existsSync(this.binDir)) {
       fs.mkdirSync(this.binDir, { recursive: true });
     }
+    this.stagingInstaller = new StagingInstaller(this.binDir);
+  }
+
+  getStagingInstaller(): StagingInstaller {
+    return this.stagingInstaller;
   }
 
   getBinDir(): string {
@@ -89,6 +98,10 @@ export class ToolManager {
 
     const tool = MANAGED_TOOLS.find(t => t.name === toolName);
     const exeName = tool ? tool.exeName : (process.platform === 'win32' ? `${toolName}.exe` : toolName);
+
+    // 0. Check tool's isolated Python venv first if applicable
+    const inVenv = pythonVenv.getVenvExecutable(toolName, exeName);
+    if (fs.existsSync(inVenv)) return inVenv;
 
     // 1. Check packaged resources directory if running inside packaged electron app
     if (process.resourcesPath) {
@@ -299,6 +312,14 @@ export class ToolManager {
     };
 
     sendOutput(`[*] Starting update for ${toolName}...`);
+    try {
+      processLock.assertToolNotLocked(toolName);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      sendOutput(`[-] ${msg}`);
+      return false;
+    }
+
     if (supportsActiveInstall(toolName)) {
       try { return await installActiveTool(toolName,sendOutput); }
       catch (error) { sendOutput(`[-] Installation failed; previous runtime retained: ${error instanceof Error ? error.message : String(error)}`); return false; }
@@ -327,28 +348,35 @@ export class ToolManager {
       wafw00f: 'wafw00f',
       arjun: 'arjun',
       crlfsuite: 'crlfsuite',
+      semgrep: 'semgrep',
+      schemathesis: 'schemathesis',
+      sslyze: 'sslyze'
     };
 
     if (pipTools[toolName]) {
       const pkg = pipTools[toolName];
-      sendOutput(`[+] Upgrading ${toolName} (${pkg}) via pip...`);
-      const ok = await this.runProcess('pip', ['install', '--upgrade', pkg], sendOutput);
+      sendOutput(`[+] Installing/upgrading ${toolName} (${pkg}) in isolated virtualenv...`);
+      const manifest = toolCatalog.get(toolName);
+      const ok = await pythonVenv.installInVenv(toolName, pkg, manifest?.pinnedVersion, sendOutput);
       if (ok) {
-        // Copy freshly updated executable to binDir
-        const pyDirs = [
-          path.join(os.homedir(), 'AppData', 'Roaming', 'Python', 'Python314', 'Scripts'),
-          path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Python', 'Python312', 'Scripts'),
-          'C:\\Python314\\Scripts'
-        ];
-        for (const dir of pyDirs) {
-          const src = path.join(dir, `${toolName}.exe`);
-          const dst = path.join(this.binDir, `${toolName}.exe`);
-          if (fs.existsSync(src)) {
-            try { fs.copyFileSync(src, dst); } catch { /* ignore copy error */ }
+        const exeName = (manifest?.installStrategy as { exeName?: string })?.exeName || (process.platform === 'win32' ? `${toolName}.exe` : toolName);
+        const venvExe = pythonVenv.getVenvExecutable(toolName, exeName);
+        const dst = path.join(this.binDir, exeName);
+        if (fs.existsSync(venvExe)) {
+          try {
+            await this.stagingInstaller.atomicActivate(venvExe, dst, {
+              toolId: toolName,
+              version: manifest?.pinnedVersion || 'latest',
+              sourceUrl: manifest?.sourceUrl || `https://pypi.org/project/${pkg}`,
+              installType: 'python-venv',
+              binaryPath: dst
+            });
+          } catch {
+            try { fs.copyFileSync(venvExe, dst); } catch { /* ignore */ }
           }
         }
       }
-      sendOutput(ok ? `[+] ${toolName} updated successfully!` : `[-] Failed to upgrade ${toolName} via pip.`);
+      sendOutput(ok ? `[+] ${toolName} updated successfully in isolated virtualenv!` : `[-] Failed to install ${toolName} in virtualenv.`);
       return ok;
     }
 
@@ -517,9 +545,23 @@ export class ToolManager {
         throw new Error(`Executable ${tool.exeName} was not found inside the downloaded archive.`);
       }
 
-      // Atomic activation: copy verified binary to production bin directory
+      // Checksum verification if pinned in catalog
+      const manifest = toolCatalog.get(tool.name);
+      if (manifest?.checksumSha256) {
+        sendOutput(`[+] Verifying artifact SHA-256 checksum...`);
+        this.stagingInstaller.verifyChecksum(stagedBinary, manifest.checksumSha256);
+        sendOutput(`[+] Checksum verified successfully!`);
+      }
+
+      // Atomic activation: copy verified binary to production bin directory with rollback receipt
       const finalDest = path.join(this.binDir, tool.exeName);
-      await fsPromises.copyFile(stagedBinary, finalDest);
+      await this.stagingInstaller.atomicActivate(stagedBinary, finalDest, {
+        toolId: tool.name,
+        version: version || 'latest',
+        sourceUrl: assetDownloadUrl,
+        installType: 'github-release',
+        binaryPath: finalDest
+      });
 
       // Clean staging
       try {
@@ -528,13 +570,49 @@ export class ToolManager {
         // ignore cleanup error
       }
 
-      sendOutput(`[+] Successfully activated ${tool.displayName} to latest release (${version})!`);
+      sendOutput(`[+] Successfully activated ${tool.displayName} to latest release (${version}) with provenance receipt!`);
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       sendOutput(`[-] Error during download fallback: ${msg}`);
       return false;
     }
+  }
+
+  rollbackTool(toolName: string): boolean {
+    processLock.assertToolNotLocked(toolName);
+    const tool = MANAGED_TOOLS.find(t => t.name === toolName);
+    const exeName = tool ? tool.exeName : (process.platform === 'win32' ? `${toolName}.exe` : toolName);
+    const liveFilePath = path.join(this.binDir, exeName);
+    return this.stagingInstaller.rollback(toolName, liveFilePath);
+  }
+
+  uninstallTool(toolName: string, sender?: Electron.WebContents): boolean {
+    processLock.assertToolNotLocked(toolName);
+    const tool = MANAGED_TOOLS.find(t => t.name === toolName);
+    const exeName = tool ? tool.exeName : (process.platform === 'win32' ? `${toolName}.exe` : toolName);
+    const liveFilePath = path.join(this.binDir, exeName);
+    let removed = false;
+    if (fs.existsSync(liveFilePath)) {
+      try {
+        fs.unlinkSync(liveFilePath);
+        removed = true;
+      } catch { /* ignore */ }
+    }
+    const cmdPath = path.join(this.binDir, `${toolName}.cmd`);
+    const batPath = path.join(this.binDir, `${toolName}.bat`);
+    if (fs.existsSync(cmdPath)) { try { fs.unlinkSync(cmdPath); removed = true; } catch { /* ignore */ } }
+    if (fs.existsSync(batPath)) { try { fs.unlinkSync(batPath); removed = true; } catch { /* ignore */ } }
+
+    const venvDir = pythonVenv.getVenvDir(toolName);
+    if (fs.existsSync(venvDir)) {
+      try { fs.rmSync(venvDir, { recursive: true, force: true }); removed = true; } catch { /* ignore */ }
+    }
+
+    if (sender && !sender.isDestroyed()) {
+      sender.send('tools:update-progress', { tool: toolName, message: removed ? `[+] Uninstalled ${toolName}` : `[-] ${toolName} was not found` });
+    }
+    return removed;
   }
 
   private async ensureBinaryAtRoot(exeName: string): Promise<void> {

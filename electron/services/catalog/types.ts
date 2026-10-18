@@ -60,6 +60,11 @@ export interface ToolManifest {
   exitCodeSemantics: ExitCodeSemantic;
   defaultTimeoutMs: number;
   sourceUrl: string;
+  pinnedVersion?: string;
+  minVersion?: string;
+  checksumSha256?: string;
+  smokeArgs?: string[];
+  smokeExpectedExitCode?: number;
   isCommercial?: boolean;
   requiresManual?: boolean;
   requiresExplicitSelection?: boolean;
