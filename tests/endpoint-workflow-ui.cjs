@@ -19,7 +19,7 @@ const assert=require('node:assert/strict');
         window.api={getHistory:async()=>[{scanId:'source',target,status:'COMPLETED',sqlmapStatus:'COMPLETED'}],getSettings:async()=>({}),checkDependencies:async()=>[],getToolsHealth:async()=>[],getFindingsPaginated:async()=>({findings:[{_dbId:42,id:'sqlmap-id',scanner:'sqlmap',severity:'high',name:'SQL injection: id',url:target,parameter:'id',timestamp:'2026-10-17'}],total:1,page:1,limit:50}),getEndpoints:async()=>({items:[{id:1,scanId:'source',url:target,method:'GET',parameters:['id'],sources:['katana','gau'],inScope:true},{id:2,scanId:'source',url:'http://other.example/',method:'GET',parameters:[],sources:['gau'],inScope:false}],total:2,page:1}),getWorkflowRuns:async()=>[{scanId:'prior-retest',target,status:'COMPLETED',startTime:'2026-10-17',kind:'retest',verdict:'not-observed'}],prepareTestingWorkflow:async(workflow,tool)=>({target,tool:tool||'sqlmap',parameters:['id'],scopeOrigin:'http://127.0.0.1:8080',workflow}),startScan:async(target,config)=>{window.__calls.push({target,config});return {success:true,scanId:'child'};},onScanStatus:noop,onScanFindings:noop,onScanOutput:noop,onScanStats:noop,onAiProgress:noop,onUpdateOutput:noop,onUpdateStatus:noop,onInstallProgress:noop,onToolUpdateProgress:noop,onToolUpdateStatus:noop};
       });
       await page.goto('http://127.0.0.1:5179');
-      await page.getByRole('link',{name:'Endpoint Inventory',exact:true}).click();
+      await page.locator('a[href="#/endpoints"], a[href="/endpoints"]').click();
       await page.getByText('katana, gau',{exact:true}).waitFor();
       assert.equal(await page.getByRole('button',{name:'Test server',exact:true}).nth(1).isDisabled(),true);
       await page.screenshot({path:path.join(out,`inventory-${kind}.png`)});
