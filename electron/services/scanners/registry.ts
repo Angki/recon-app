@@ -389,6 +389,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         '-cmd',
         '-port', zapPort,
         '-config', `network.localServers.mainProxy.port=${zapPort}`,
+        '-config', `proxy.port=${zapPort}`,
         '-config', 'spider.maxDepth=3',
         '-config', 'spider.maxChildren=20',
         '-dir', zapHome
@@ -768,7 +769,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       } catch {
         // Fallback to url ctx.targetUrl
       }
-      return [...targetArgs, '--format', 'json', '-o', ctx.jsonFile, '--no-color', '--timeout', '8', '--workers', '5', '--skip-mining-dict'];
+      return [...targetArgs, '--format', 'json', '-o', ctx.jsonFile, '--no-color', '--timeout', '8', '-w', '5', '--skip-mining-dict'];
     },
     isSuccessExitCode(code: number | null) {
       return code === 0 || code === 1 || code === 2;

@@ -82,18 +82,30 @@ function createWindow() {
   });
 }
 
-const gotTheLock = app.requestSingleInstanceLock();
+// Enforce single-instance lock in production to prevent duplicate desktop apps.
+// In development, Vite manages lifecycle and HMR, so bypass to avoid file lock collisions (Error code 32).
+if (app.isPackaged) {
+  const gotTheLock = app.requestSingleInstanceLock();
 
-if (!gotTheLock) {
-  app.quit();
+  if (!gotTheLock) {
+    app.quit();
+  } else {
+    app.on('second-instance', () => {
+      if (mainWindow) {
+        if (mainWindow.isMinimized()) mainWindow.restore();
+        mainWindow.focus();
+      }
+    });
+
+    app.whenReady().then(() => {
+      createWindow();
+
+      app.on('activate', function () {
+        if (BrowserWindow.getAllWindows().length === 0) createWindow();
+      });
+    });
+  }
 } else {
-  app.on('second-instance', () => {
-    if (mainWindow) {
-      if (mainWindow.isMinimized()) mainWindow.restore();
-      mainWindow.focus();
-    }
-  });
-
   app.whenReady().then(() => {
     createWindow();
 
