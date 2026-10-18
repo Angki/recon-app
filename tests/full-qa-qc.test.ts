@@ -4,11 +4,12 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { toolCatalog } from '../electron/services/catalog';
-import { ScannerAdapters, getAdapter } from '../electron/services/scanners/registry';
+import { getAdapter } from '../electron/services/scanners/registry';
 import { aiService, isLoopbackHost, processStreamChunks, flushStreamChunks, redactAiInput, AI_PRESETS, AI_SYSTEM_GUARDRAILS } from '../electron/services/aiService';
 import { dbService } from '../electron/services/database';
 import { endpointInventory, normalizeEndpoint } from '../electron/services/endpointInventory';
 import type { ScannerContext } from '../electron/services/scanners/types';
+import type Electron from 'electron';
 
 function createMockContext(scannerName: string): { ctx: ScannerContext; tmpDir: string; cleanup: () => void } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), `test_qa_${scannerName}_`));
@@ -35,7 +36,7 @@ function createMockContext(scannerName: string): { ctx: ScannerContext; tmpDir: 
         delaySeconds: 1
       }
     },
-    sender: { isDestroyed: () => false, send: () => {} } as any,
+    sender: { isDestroyed: () => false, send: () => {} } as unknown as Electron.WebContents,
     settings: {}
   };
 
@@ -128,7 +129,7 @@ test('QA/QC Suite 1: Full Scanner Catalog & Adapter Assurance', async (t) => {
         const adapter = getAdapter(m.id)!;
         // Output files do not exist at this point
         try {
-          const findings = adapter.parseFindings(ctx);
+          const findings = adapter.parseFindings ? adapter.parseFindings(ctx) : [];
           assert.ok(Array.isArray(findings), `Tool '${m.id}' parseFindings must return array on non-existent files`);
           assert.equal(findings.length, 0, `Tool '${m.id}' should produce 0 findings on missing file`);
         } catch (err: unknown) {
@@ -144,7 +145,7 @@ test('QA/QC Suite 1: Full Scanner Catalog & Adapter Assurance', async (t) => {
   await t.test('parser safety: all adapters handle malformed/corrupted file content gracefully', () => {
     const corruptContent = '<<<INVALID_XML_OR_JSON>>>\n{"broken": [true, null, \n';
     for (const m of manifests) {
-      const { ctx, tmpDir, cleanup } = createMockContext(m.id);
+      const { ctx, cleanup } = createMockContext(m.id);
       try {
         fs.writeFileSync(ctx.jsonFile, corruptContent);
         fs.writeFileSync(ctx.outputFile, corruptContent);
@@ -153,7 +154,7 @@ test('QA/QC Suite 1: Full Scanner Catalog & Adapter Assurance', async (t) => {
         const adapter = getAdapter(m.id)!;
         let findings: unknown[] = [];
         try {
-          findings = adapter.parseFindings(ctx);
+          findings = adapter.parseFindings ? adapter.parseFindings(ctx) : [];
         } catch {
           // Some adapters legitimately throw descriptive errors when format is unexpected
           findings = [];

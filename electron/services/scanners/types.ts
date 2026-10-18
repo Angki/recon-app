@@ -31,5 +31,5 @@ export interface IScannerAdapter {
 
   parseFindings?(context: ScannerContext): Record<string, unknown>[];
 
-  isSuccessExitCode?(code: number | null, context: ScannerContext): boolean;
+  isSuccessExitCode?(code: number | null, context?: ScannerContext): boolean;
 }

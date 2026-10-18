@@ -6,10 +6,11 @@ import { settingsStore } from '../electron/services/settings';
 import { toolManager } from '../electron/services/toolManager';
 import { storage } from '../electron/services/storage';
 import { endpointInventory } from '../electron/services/endpointInventory';
-import { ScannerAdapters, getAdapter } from '../electron/services/scanners/registry';
-import { activeRuntime, parseSqlmap, validateActiveConfig } from '../electron/services/scanners/activeValidation';
+import { getAdapter } from '../electron/services/scanners/registry';
+import { activeRuntime } from '../electron/services/scanners/activeValidation';
 import { aiService, AI_PRESETS } from '../electron/services/aiService';
 import type { ScannerContext } from '../electron/services/scanners/types';
+import type Electron from 'electron';
 
 async function runChildProcess(bin: string, args: string[], cwd: string, timeoutMs: number = 90000): Promise<{ code: number | null; stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
@@ -25,7 +26,11 @@ async function runChildProcess(bin: string, args: string[], cwd: string, timeout
     const child = spawn(executable, spawnArgs, { cwd, windowsHide: true });
 
     const timer = setTimeout(() => {
-      try { child.kill('SIGTERM'); } catch {}
+      try {
+        child.kill('SIGTERM');
+      } catch (_e) {
+        // Ignore kill error on already exited process
+      }
       resolve({ code: -1, stdout, stderr: stderr + '\n[TIMEOUT EXCEEDED]' });
     }, timeoutMs);
 
@@ -90,7 +95,7 @@ async function main() {
     }
   });
 
-  const mockSender: any = { isDestroyed: () => false, send: () => {} };
+  const mockSender = { isDestroyed: () => false, send: () => {} } as unknown as Electron.WebContents;
 
   // =========================================================================
   // PHASE 1: WHATWEB FINGERPRINTING
@@ -205,7 +210,7 @@ async function main() {
   console.log('----------------------------------------------------------------');
   let sqlmapFindingsCount = 0;
 
-  const sqlmapRuntime = activeRuntime('sqlmap', settings as any);
+  const sqlmapRuntime = activeRuntime('sqlmap', settings as unknown as Record<string, unknown>);
   console.log(`[+] SQLMap Interpreter: ${sqlmapRuntime.executable}`);
   console.log(`[+] SQLMap Script:      ${sqlmapRuntime.script}`);
   console.log(`[+] Script SHA256:      ${sqlmapRuntime.scriptSha256.slice(0, 16)}...\n`);
@@ -249,15 +254,16 @@ async function main() {
     fs.writeFileSync(sqlmapOut, res.stdout, 'utf8');
 
     try {
-      const findings = sqlmapAdapter.parseFindings(sqlmapCtx);
+      const findings = sqlmapAdapter.parseFindings ? sqlmapAdapter.parseFindings(sqlmapCtx) : [];
       sqlmapFindingsCount = findings.length;
       console.log(`[+] SQLMap parsed confirmed findings: ${findings.length}`);
       if (findings.length > 0) {
         dbService.insertFindings(scanId, 'sqlmap', findings);
         findings.forEach(f => console.log(`    - [${f.severity}] ${f.name} (Param: ${f.param}, CWE: ${f.cwe})`));
       }
-    } catch (parseErr: any) {
-      console.log(`[*] SQLMap Parser note: ${parseErr.message}`);
+    } catch (parseErr: unknown) {
+      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      console.log(`[*] SQLMap Parser note: ${msg}`);
     }
   }
 
