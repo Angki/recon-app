@@ -1,10 +1,10 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   RefreshCw, X, ShieldAlert, Loader2, Sparkles, Terminal, 
   CheckCircle2, AlertCircle, Timer, Radio, Cpu, Maximize2, Minimize2,
   ChevronDown, ChevronUp, Layers, Send, Bot, Copy, Check, MessageSquare,
-  Shield, Workflow, FileText
+  Shield, Workflow, FileText, Download, Search, Wrench, ExternalLink
 } from 'lucide-react';
 import TerminalPane from '../components/TerminalPane';
 import ErrorBoundary from '../components/ErrorBoundary';
@@ -174,6 +174,41 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const [copilotInput, setCopilotInput] = useState<string>('');
   const [isCopilotThinking, setIsCopilotThinking] = useState<boolean>(false);
   const [showCopilotDrawer, setShowCopilotDrawer] = useState<boolean>(true);
+
+  const [depFilter, setDepFilter] = useState<'all' | 'missing' | 'installed'>('all');
+  const [depSearch, setDepSearch] = useState<string>('');
+  const depLogsEndRef = useRef<HTMLDivElement>(null);
+
+  const depStats = useMemo(() => {
+    const total = dependencies.length;
+    const installed = dependencies.filter(d => d.isInstalled).length;
+    const missing = dependencies.filter(d => !d.isInstalled);
+    const missingAuto = missing.filter(d => !d.requiresManual).length;
+    const missingManual = missing.filter(d => d.requiresManual).length;
+    const percent = total > 0 ? Math.round((installed / total) * 100) : 100;
+    return { total, installed, missing: missing.length, missingAuto, missingManual, percent };
+  }, [dependencies]);
+
+  const filteredDependencies = useMemo(() => {
+    return dependencies.filter(d => {
+      const matchesFilter =
+        depFilter === 'all'
+          ? true
+          : depFilter === 'installed'
+          ? d.isInstalled
+          : !d.isInstalled;
+      const matchesSearch = depSearch.trim()
+        ? d.name.toLowerCase().includes(depSearch.toLowerCase().trim())
+        : true;
+      return matchesFilter && matchesSearch;
+    });
+  }, [dependencies, depFilter, depSearch]);
+
+  useEffect(() => {
+    if (dependencyLogs.length > 0) {
+      depLogsEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [dependencyLogs]);
 
   const isWebUrlTarget = useMemo(() => {
     const trimmed = (targetUrl || '').trim();
@@ -1347,66 +1382,232 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         </div>
       )}
 
-      {/* Dependency Tools Modal */}
+      {/* Dependency Tools Modal - Streamlined High-Density View */}
       {showDependencyModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-card)] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
-            <div className="p-4 border-b border-[var(--border-card)] flex items-center justify-between bg-[var(--bg-surface)]">
-              <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center space-x-2">
-                <ShieldAlert className="w-4 h-4 text-amber-500" />
-                <span>Security Engine Dependencies</span>
-              </h2>
-              {(!isInstallingDependencies) && (
+        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-card)] shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
+            {/* Modal Header */}
+            <div className="px-5 py-3.5 border-b border-[var(--border-card)] flex items-center justify-between bg-[var(--bg-surface)]">
+              <div className="flex items-center space-x-2.5">
+                <div className={`p-1.5 rounded-lg border ${depStats.missingAuto > 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'}`}>
+                  <ShieldAlert className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-bold text-[var(--text-primary)]">Security Engine Dependencies</h2>
+                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold border ${
+                      depStats.missingAuto === 0 && depStats.missing === 0
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                        : depStats.missingAuto > 0
+                        ? 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                        : 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                    }`}>
+                      {depStats.installed}/{depStats.total} Ready ({depStats.percent}%)
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-[var(--text-muted)]">
+                    Audit kesiapan tool scanner keamanan & auto-installer engine
+                  </p>
+                </div>
+              </div>
+
+              {!isInstallingDependencies && (
                 <button
                   onClick={() => setShowDependencyModal(false)}
-                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1 rounded-lg hover:bg-[var(--bg-card)]"
+                  className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1.5 rounded-lg hover:bg-[var(--bg-card)] border border-transparent hover:border-[var(--border-card)]"
+                  title="Tutup dialog"
                 >
                   <X className="w-4 h-4" />
                 </button>
               )}
             </div>
 
-            <div className="p-6 bg-[var(--bg-surface)]/80 flex-1 overflow-y-auto space-y-4">
-              <p className="text-xs text-[var(--text-secondary)]">
-                The following security tools can be automatically managed or updated:
-              </p>
-              
-              <div className="space-y-2">
-                {dependencies.map((dep, idx) => (
-                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-card)]">
-                    <span className="text-xs font-mono font-bold text-[var(--text-primary)] uppercase">{dep.name}</span>
-                    <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full ${dep.isInstalled ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}`}>
-                      {dep.isInstalled ? 'Installed' : dep.requiresManual ? 'Manual Install' : 'Auto-Install Available'}
-                    </span>
-                  </div>
-                ))}
+            {/* Progress Bar & Filter Toolbar */}
+            <div className="px-5 py-2.5 bg-[var(--bg-surface)]/60 border-b border-[var(--border-card)]/60 flex flex-wrap items-center justify-between gap-2.5">
+              {/* Filter Tabs */}
+              <div className="flex items-center gap-1 bg-[var(--bg-card)] p-1 rounded-xl border border-[var(--border-card)]/80 text-xs">
+                <button
+                  onClick={() => setDepFilter('all')}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition-all text-xs flex items-center gap-1.5 ${
+                    depFilter === 'all'
+                      ? 'bg-[var(--accent-primary)] text-white shadow-xs font-semibold'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/5'
+                  }`}
+                >
+                  <span>Semua</span>
+                  <span className="text-[10px] font-mono opacity-80">({depStats.total})</span>
+                </button>
+                <button
+                  onClick={() => setDepFilter('missing')}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition-all text-xs flex items-center gap-1.5 ${
+                    depFilter === 'missing'
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/5'
+                  }`}
+                >
+                  <span>Perlu Aksi</span>
+                  <span className={`text-[10px] font-mono px-1 rounded-full ${depStats.missing > 0 ? 'bg-amber-500/20 text-amber-300' : 'opacity-80'}`}>
+                    ({depStats.missing})
+                  </span>
+                </button>
+                <button
+                  onClick={() => setDepFilter('installed')}
+                  className={`px-2.5 py-1 rounded-lg font-medium transition-all text-xs flex items-center gap-1.5 ${
+                    depFilter === 'installed'
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold'
+                      : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-white/5'
+                  }`}
+                >
+                  <span>Ready</span>
+                  <span className="text-[10px] font-mono opacity-80">({depStats.installed})</span>
+                </button>
               </div>
 
-              {dependencyLogs.length > 0 && (
-                <div className="p-3 bg-black/40 rounded-xl font-mono text-[11px] text-[var(--text-muted)] space-y-1 max-h-36 overflow-y-auto">
-                  {dependencyLogs.map((log, i) => (
-                    <div key={i}>{log}</div>
+              {/* Search Box */}
+              <div className="relative flex-1 min-w-[180px] max-w-xs">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)]" />
+                <input
+                  type="text"
+                  value={depSearch}
+                  onChange={(e) => setDepSearch(e.target.value)}
+                  placeholder="Cari engine..."
+                  className="w-full bg-[var(--bg-card)] border border-[var(--border-card)] rounded-xl pl-8 pr-7 py-1 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-primary)] transition-colors"
+                />
+                {depSearch && (
+                  <button
+                    onClick={() => setDepSearch('')}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Streamlined Dependencies Grid Body */}
+            <div className="p-4 bg-[var(--bg-surface)]/40 flex-1 overflow-y-auto space-y-3 min-h-[220px]">
+              {filteredDependencies.length === 0 ? (
+                <div className="py-12 text-center text-xs text-[var(--text-muted)] flex flex-col items-center justify-center space-y-2">
+                  <AlertCircle className="w-7 h-7 text-[var(--text-muted)]/50" />
+                  <span>Tidak ada security engine yang cocok dengan filter</span>
+                  {depSearch && (
+                    <button
+                      onClick={() => { setDepSearch(''); setDepFilter('all'); }}
+                      className="text-[var(--accent-primary)] hover:underline text-[11px]"
+                    >
+                      Reset pencarian
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-1.5">
+                  {filteredDependencies.map((dep, idx) => (
+                    <div
+                      key={idx}
+                      className="px-2.5 py-1.5 rounded-lg bg-[var(--bg-card)]/80 border border-[var(--border-card)] hover:border-[var(--accent-primary)]/40 hover:bg-[var(--bg-card)] transition-all flex items-center justify-between gap-2 shadow-2xs"
+                    >
+                      <div className="flex items-center space-x-2 min-w-0">
+                        <span
+                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                            dep.isInstalled
+                              ? 'bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.7)]'
+                              : dep.requiresManual
+                              ? 'bg-sky-400 shadow-[0_0_6px_rgba(56,189,248,0.7)]'
+                              : 'bg-amber-400 animate-pulse shadow-[0_0_6px_rgba(251,191,36,0.7)]'
+                          }`}
+                        />
+                        <span className="text-[11px] font-mono font-bold text-[var(--text-primary)] uppercase tracking-wide truncate">
+                          {dep.name}
+                        </span>
+                      </div>
+
+                      {dep.isInstalled ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/25 shrink-0">
+                          <CheckCircle2 className="w-2.5 h-2.5" />
+                          <span>Ready</span>
+                        </span>
+                      ) : dep.requiresManual ? (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/25 shrink-0" title="Manual install / Docker engine required">
+                          <Wrench className="w-2.5 h-2.5" />
+                          <span>Manual</span>
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] font-mono font-medium px-1.5 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/25 shrink-0" title="Bisa di-install otomatis via Go/Pip">
+                          <Download className="w-2.5 h-2.5" />
+                          <span>Auto</span>
+                        </span>
+                      )}
+                    </div>
                   ))}
+                </div>
+              )}
+
+              {/* Streaming Logs Box (Compact Cyber Terminal) */}
+              {dependencyLogs.length > 0 && (
+                <div className="mt-3 p-3 bg-black/60 rounded-xl border border-[var(--border-card)] font-mono text-[11px] text-[var(--text-muted)] space-y-1 max-h-36 overflow-y-auto">
+                  <div className="text-[10px] uppercase font-bold tracking-wider text-amber-400/90 pb-1 border-b border-white/10 flex items-center justify-between">
+                    <span>Installer Execution Logs</span>
+                    {isInstallingDependencies && <span className="animate-pulse text-amber-400">● Streaming...</span>}
+                  </div>
+                  {dependencyLogs.map((log, i) => (
+                    <div key={i} className="leading-snug break-all">{log}</div>
+                  ))}
+                  <div ref={depLogsEndRef} />
                 </div>
               )}
             </div>
 
-            <div className="p-4 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex justify-end gap-3">
-              <button
-                onClick={() => setShowDependencyModal(false)}
-                disabled={isInstallingDependencies}
-                className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--border-card)] text-[var(--text-secondary)] text-xs font-semibold rounded-xl transition-all"
-              >
-                Later
-              </button>
-              <button
-                onClick={handleInstallDependencies}
-                disabled={isInstallingDependencies}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-900/30 flex items-center space-x-2"
-              >
-                {isInstallingDependencies && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
-                <span>{isInstallingDependencies ? 'Installing...' : 'Install Missing Engines'}</span>
-              </button>
+            {/* Modal Footer */}
+            <div className="p-3.5 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex items-center justify-between gap-3">
+              <div>
+                {onOpenToolsHub ? (
+                  <button
+                    onClick={() => {
+                      setShowDependencyModal(false);
+                      onOpenToolsHub();
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent-primary)] hover:underline transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Buka Tools Hub Lengkap</span>
+                  </button>
+                ) : (
+                  <span className="text-[11px] text-[var(--text-muted)] font-mono">
+                    {depStats.missingAuto} auto-installable / {depStats.missingManual} manual
+                  </span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2.5">
+                <button
+                  onClick={() => setShowDependencyModal(false)}
+                  disabled={isInstallingDependencies}
+                  className="px-4 py-1.5 bg-[var(--bg-card)] hover:bg-[var(--border-card)] text-[var(--text-secondary)] text-xs font-semibold rounded-xl border border-[var(--border-card)] transition-all disabled:opacity-50"
+                >
+                  {isInstallingDependencies ? 'Jalankan di Background' : 'Tutup'}
+                </button>
+                <button
+                  onClick={handleInstallDependencies}
+                  disabled={isInstallingDependencies || depStats.missingAuto === 0}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-900/30 flex items-center space-x-2"
+                >
+                  {isInstallingDependencies ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Menginstall Engine...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Download className="w-3.5 h-3.5" />
+                      <span>
+                        {depStats.missingAuto > 0
+                          ? `Install ${depStats.missingAuto} Engine Otomatis`
+                          : 'Semua Engine Otomatis Siap'}
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
           </div>
         </div>
