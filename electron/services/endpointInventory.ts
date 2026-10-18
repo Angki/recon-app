@@ -86,7 +86,7 @@ export class EndpointInventory {
       return 0;
     }
     const stats = fs.statSync(ctx.jsonFile);
-    let text = '';
+    let text: string;
     if (stats.size > 20 * 1024 * 1024) {
       const fd = fs.openSync(ctx.jsonFile, 'r');
       const buffer = Buffer.alloc(20 * 1024 * 1024);

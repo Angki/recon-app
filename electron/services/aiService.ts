@@ -14,6 +14,23 @@ export function isLoopbackHost(urlStr: string): boolean {
   }
 }
 
+export function processStreamChunks(
+  buffer: string,
+  newChunk: string,
+  onLine: (line: string) => void
+): string {
+  const combined = buffer + newChunk;
+  const lines = combined.split('\n');
+  const remainder = lines.pop() ?? '';
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed) {
+      onLine(trimmed);
+    }
+  }
+  return remainder;
+}
+
 export const AI_PRESETS: Record<string, string> = {
   executive: `Act as a Principal Cybersecurity Consultant. Based on the target and structured scan findings below, generate a professional Executive Risk Summary. Include:
 1. Executive Summary & Overall Risk Posture (Grade: Critical/High/Medium/Low)
@@ -43,6 +60,10 @@ export class AIService {
     let baseUrl = customBaseUrl || settings.aiBaseUrl || 'http://127.0.0.1:11434';
     baseUrl = baseUrl.replace('http://localhost', 'http://127.0.0.1');
 
+    if (settings.aiPolicy === 'local-only' && !isLoopbackHost(baseUrl)) {
+      return { success: false, models: [], error: `AI Policy Violation: 'local-only' policy forbids external endpoint '${baseUrl}'.` };
+    }
+
     try {
       const res = await fetch(`${baseUrl}/api/tags`, {
         signal: AbortSignal.timeout(3000)
@@ -64,6 +85,16 @@ export class AIService {
     const provider = customProvider || settings.aiProvider || 'ollama';
     let baseUrl = customBaseUrl || settings.aiBaseUrl || 'http://127.0.0.1:11434';
     baseUrl = baseUrl.replace('http://localhost', 'http://127.0.0.1');
+
+    const policy = settings.aiPolicy || 'local-only';
+    if (policy === 'local-only') {
+      if (provider !== 'ollama') {
+        return { success: false, latencyMs: 0, message: `AI Policy Violation: Policy is set to 'local-only'. Cloud provider '${provider}' is blocked.` };
+      }
+      if (!isLoopbackHost(baseUrl)) {
+        return { success: false, latencyMs: 0, message: `AI Policy Violation: 'local-only' policy forbids external endpoint '${baseUrl}'.` };
+      }
+    }
 
     const startTime = Date.now();
     try {
@@ -132,11 +163,23 @@ export class AIService {
 
     let context = `# Target Security Assessment: ${target}\n`;
     context += `- **Scan ID**: ${scanId}\n`;
+    context += `- **Scan Status**: ${scan?.status || 'UNKNOWN'}\n`;
     context += `- **Total Findings**: ${findings.length} (Critical: ${counts.critical}, High: ${counts.high}, Medium: ${counts.medium}, Low: ${counts.low}, Info: ${counts.info})\n\n`;
 
+    if (scan && scan.status !== 'COMPLETED') {
+      context += `> [!WARNING]\n> Scan execution status is ${scan.status}. Findings reflect incomplete or interrupted coverage, NOT verified clean security assurance.\n\n`;
+    }
+
     if (findings.length > 0) {
-      context += `## Key Findings & Vulnerabilities\n`;
-      const topFindings = findings.slice(0, 50);
+      context += `## Key Findings & Vulnerabilities (Prioritized by Severity)\n`;
+      const severityWeight: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, info: 0 };
+      const sortedFindings = [...findings].sort((a, b) => {
+        const wa = severityWeight[String(a.severity || 'info').toLowerCase()] ?? 0;
+        const wb = severityWeight[String(b.severity || 'info').toLowerCase()] ?? 0;
+        return wb - wa;
+      });
+
+      const topFindings = sortedFindings.slice(0, 50);
       for (const f of topFindings) {
         const sev = String(f.severity || 'info').toUpperCase();
         const name = f.name || f.type || 'Unknown';
@@ -144,14 +187,16 @@ export class AIService {
         const url = f.url || '';
         const desc = f.description || '';
         context += `### [${sev}] ${name} (Scanner: ${scanner})\n`;
+        context += `- **Finding ID**: \`${f.id || 'N/A'}\`\n`;
         if (url) context += `- **Target URL**: ${url}\n`;
         if (desc) context += `- **Description**: ${desc.slice(0, 300)}\n`;
         if (f.param) context += `- **Vulnerable Parameter**: ${f.param}\n`;
         if (f.cve || f.id) context += `- **Ref/CVE**: ${f.cve || f.id}\n`;
+        if (f.evidence) context += `- **Evidence**: \`${String(f.evidence).slice(0, 200)}\`\n`;
         context += `\n`;
       }
       if (findings.length > 50) {
-        context += `*...and ${findings.length - 50} more lower-severity findings omitted for context length.*\n\n`;
+        context += `*...and ${findings.length - 50} more lower-severity findings omitted for context length budget.*\n\n`;
       }
     } else {
       context += `## Vulnerability Findings\nNo automated vulnerabilities detected by active scanners.\n\n`;
@@ -512,12 +557,12 @@ export class AIService {
           const reader = pullRes.body?.getReader();
           if (reader) {
             const decoder = new TextDecoder();
+            let pullBuffer = '';
             while (true) {
               const { done, value } = await reader.read();
               if (done) break;
-              const chunk = decoder.decode(value);
-              const lines = chunk.split('\n').filter(l => l.trim());
-              for (const line of lines) {
+              const chunk = decoder.decode(value, { stream: true });
+              pullBuffer = processStreamChunks(pullBuffer, chunk, (line) => {
                 try {
                   const data = JSON.parse(line);
                   if (data.status) {
@@ -531,6 +576,14 @@ export class AIService {
                 } catch {
                   // ignore
                 }
+              });
+            }
+            if (pullBuffer.trim()) {
+              try {
+                const data = JSON.parse(pullBuffer.trim());
+                if (data.status) sender?.send?.('ai:progress', `Downloading ${model}: ${data.status}`);
+              } catch {
+                // ignore
               }
             }
           }
@@ -562,19 +615,26 @@ export class AIService {
     const reader = response.body.getReader?.();
     if (reader) {
       const decoder = new TextDecoder();
+      let genBuffer = '';
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
         const chunk = decoder.decode(value, { stream: true });
-        const lines = chunk.split('\n');
-        for (const line of lines) {
-          if (!line.trim()) continue;
+        genBuffer = processStreamChunks(genBuffer, chunk, (line) => {
           try {
             const parsed = JSON.parse(line);
             if (parsed.response) fullText += parsed.response;
           } catch {
             // ignore
           }
+        });
+      }
+      if (genBuffer.trim()) {
+        try {
+          const parsed = JSON.parse(genBuffer.trim());
+          if (parsed.response) fullText += parsed.response;
+        } catch {
+          // ignore
         }
       }
     } else {
