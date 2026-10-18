@@ -175,6 +175,22 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const [isCopilotThinking, setIsCopilotThinking] = useState<boolean>(false);
   const [showCopilotDrawer, setShowCopilotDrawer] = useState<boolean>(true);
 
+  const isWebUrlTarget = useMemo(() => {
+    const trimmed = (targetUrl || '').trim();
+    if (!trimmed) return true;
+    if (trimmed.startsWith('docker:') || trimmed.startsWith('image:')) return false;
+    if (/^[a-zA-Z]:\\/i.test(trimmed) || trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
+      return false;
+    }
+    return true;
+  }, [targetUrl]);
+
+  const incompatibleTools = useMemo(() => {
+    if (!isWebUrlTarget) return [];
+    const sourceOnly = ['gitleaks', 'semgrep', 'trivy', 'syft'];
+    return selectedTools.filter(t => sourceOnly.includes(t));
+  }, [isWebUrlTarget, selectedTools]);
+
   useEffect(() => {
     if (window.api?.getSettings) {
       window.api.getSettings().then(s => {
@@ -412,6 +428,25 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       return;
     }
 
+    // Auto-filter tools incompatible with web URL targets
+    const isWeb = /^https?:\/\//i.test(finalUrl);
+    const sourceOnlyTools = ['gitleaks', 'semgrep', 'trivy', 'syft'];
+    let toolsToRun = [...selectedTools];
+
+    if (isWeb) {
+      const incompatible = toolsToRun.filter(t => sourceOnlyTools.includes(t));
+      if (incompatible.length > 0) {
+        toolsToRun = toolsToRun.filter(t => !sourceOnlyTools.includes(t));
+        setSelectedTools(toolsToRun);
+        appendRawLogs(`[AUTO-FIX] Target is a web URL (${finalUrl}). Automatically excluded ${incompatible.length} source-code/container tools (${incompatible.join(', ')}). Proceeding with ${toolsToRun.length} web assessment engines.\n\n`);
+      }
+    }
+
+    if (toolsToRun.length === 0) {
+      alert('No compatible scanner selected for web target. Please select web assessment tools (e.g. Nuclei, Wapiti, ZAP).');
+      return;
+    }
+
     // Reset findings
     setNucleiFindings({ info: 0, low: 0, medium: 0, high: 0, critical: 0 });
     setWapitiVulns(0);
@@ -426,7 +461,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     setStatus('STARTING');
     const initialStatus: Record<ScannerType, ScannerStatus> = { ...initialScannerStatus };
     
-    selectedTools.forEach((tool, idx) => {
+    toolsToRun.forEach((tool, idx) => {
       // In pipeline mode, first tool begins RUNNING, remaining are queued
       initialStatus[tool as ScannerType] = (executionMode === 'pipeline' && idx > 0) ? 'QUEUED' : 'RUNNING';
       if (['subfinder', 'httpx', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].includes(tool)) {
@@ -438,7 +473,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
     try {
       const res = await window.api.startScan(finalUrl, {
-        tools: selectedTools,
+        tools: toolsToRun,
         isWordpress: isWordpressScan,
         executionMode: executionMode,
         activeValidation: activePlan,
@@ -667,10 +702,28 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         <div className="flex gap-4 mt-2"><Link className="underline" to="/endpoints">View inventory and linked results</Link><button disabled={['STARTING','RUNNING','STOPPING'].includes(status)} onClick={()=>setTestingDraft(null)} className="underline disabled:opacity-40">Detach draft</button></div>
       </div>}
       {selectedTools.some(tool => ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool'].includes(tool)) && <ActiveTestingPanel target={targetUrl} tools={selectedTools} value={activePlan} onChange={setActivePlan} disabled={['STARTING','RUNNING','STOPPING'].includes(status)}/>}
+      {incompatibleTools.length > 0 && (
+        <div className="theme-card p-2 px-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between text-xs text-amber-300 shrink-0 animate-fade-in shadow-sm">
+          <div className="flex items-center gap-2">
+            <span className="text-sm">⚠️</span>
+            <span>
+              Target adalah Web URL. Tool kode lokal / direktori <strong>({incompatibleTools.join(', ')})</strong> tidak dapat memindai website live dan otomatis dilewati saat pemindaian.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setSelectedTools(prev => prev.filter(t => !incompatibleTools.includes(t)))}
+            className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-[10px] font-mono cursor-pointer shrink-0 ml-2 border border-amber-500/30 transition-all font-semibold"
+          >
+            Hapus Dari Pilihan
+          </button>
+        </div>
+      )}
       {dashboardView?.showToolSelection ? (
         <ToolSelection
           allTools={allToolsArray} selectedTools={selectedTools}
           setSelectedTools={setSelectedTools} status={status}
+          targetUrl={targetUrl}
         />
       ) : (
         <div className="theme-card p-2 px-3.5 rounded-xl border border-[var(--border-card)] shadow-sm shrink-0 flex items-center justify-between text-xs">

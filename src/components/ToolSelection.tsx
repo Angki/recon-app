@@ -9,6 +9,7 @@ interface ToolSelectionProps {
   selectedTools: string[];
   setSelectedTools: (tools: string[] | ((prev: string[]) => string[])) => void;
   status: string;
+  targetUrl?: string;
 }
 
 interface ToolCategory {
@@ -133,14 +134,33 @@ const SCAN_PROFILES: ScanProfilePreset[] = [
 ];
 
 export default function ToolSelection({
-  allTools, selectedTools, setSelectedTools, status
+  allTools, selectedTools, setSelectedTools, status, targetUrl
 }: ToolSelectionProps) {
   const isRunning = ['STARTING', 'RUNNING', 'STOPPING'].includes(status);
   const [activeCategory, setActiveCategory] = useState<string>('all');
   const [isExpanded, setIsExpanded] = useState<boolean>(false);
 
   const commercialList = useMemo(() => ['appscan', 'netsparker', 'acunetix'], []);
-  const ossTools = useMemo(() => allTools.filter(t => !commercialList.includes(t) && !['sqlmap', 'nikto', 'commix'].includes(t)), [allTools, commercialList]);
+  const sourceOnlyTools = useMemo(() => ['gitleaks', 'semgrep', 'trivy', 'syft'], []);
+
+  const isWebTarget = useMemo(() => {
+    const trimmed = (targetUrl || '').trim();
+    if (!trimmed) return true;
+    if (trimmed.startsWith('docker:') || trimmed.startsWith('image:')) return false;
+    if (/^[a-zA-Z]:\\/i.test(trimmed) || trimmed.startsWith('/') || trimmed.startsWith('./') || trimmed.startsWith('../')) {
+      return false;
+    }
+    return true;
+  }, [targetUrl]);
+
+  const ossTools = useMemo(() => {
+    return allTools.filter(t => {
+      if (commercialList.includes(t)) return false;
+      if (['sqlmap', 'nikto', 'commix'].includes(t)) return false;
+      if (isWebTarget && sourceOnlyTools.includes(t)) return false;
+      return true;
+    });
+  }, [allTools, commercialList, isWebTarget, sourceOnlyTools]);
 
   const activeProfileId = useMemo(() => {
     for (const p of SCAN_PROFILES) {
@@ -157,18 +177,32 @@ export default function ToolSelection({
     return 'custom';
   }, [selectedTools, ossTools]);
 
-  const applyProfile = (tools: string[]) => {
+  const applyProfile = (tools: string[], profileId?: string) => {
     if (isRunning) return;
-    setSelectedTools(tools);
+    if (isWebTarget && profileId === 'secrets-supplychain') {
+      alert("Preset 'Code & Secrets' (Gitleaks, Semgrep, Trivy) requires a local source repository or directory, not a live web URL.");
+      return;
+    }
+    const compatibleTools = isWebTarget ? tools.filter(t => !sourceOnlyTools.includes(t)) : tools;
+    setSelectedTools(compatibleTools);
   };
 
   const toggleCategory = (categoryTools: string[]) => {
     if (isRunning) return;
-    const allSelected = categoryTools.every(t => selectedTools.includes(t));
+    const compatibleTools = isWebTarget 
+      ? categoryTools.filter(t => !sourceOnlyTools.includes(t))
+      : categoryTools;
+
+    if (compatibleTools.length === 0) {
+      alert('These tools require a local repository/directory target, and cannot run against a live web URL.');
+      return;
+    }
+
+    const allSelected = compatibleTools.every(t => selectedTools.includes(t));
     if (allSelected) {
       setSelectedTools(prev => prev.filter(t => !categoryTools.includes(t)));
     } else {
-      setSelectedTools(prev => Array.from(new Set([...prev, ...categoryTools])));
+      setSelectedTools(prev => Array.from(new Set([...prev, ...compatibleTools])));
     }
   };
 
@@ -245,17 +279,20 @@ export default function ToolSelection({
 
         {SCAN_PROFILES.map(profile => {
           const isActive = activeProfileId === profile.id;
+          const isPresetIncompatible = isWebTarget && profile.id === 'secrets-supplychain';
           return (
             <button
               key={profile.id}
               type="button"
-              onClick={() => applyProfile(profile.tools)}
+              onClick={() => applyProfile(profile.tools, profile.id)}
               disabled={isRunning}
-              title={`${profile.name}: ${profile.shortDesc} (${profile.tools.join(', ')})`}
+              title={isPresetIncompatible ? "Requires local source repository target (directory path)" : `${profile.name}: ${profile.shortDesc} (${profile.tools.join(', ')})`}
               className={`px-2.5 py-1 rounded-xl text-[10px] font-mono transition-all flex items-center gap-1.5 shrink-0 border cursor-pointer ${
                 isActive
                   ? 'bg-[var(--accent-primary)] text-white font-bold border-transparent shadow-sm'
-                  : `bg-[var(--bg-card)] text-[var(--text-secondary)] ${profile.badgeColor}`
+                  : isPresetIncompatible
+                    ? 'bg-[var(--bg-card)]/50 text-[var(--text-muted)] border-dashed border-[var(--border-card)] opacity-60'
+                    : `bg-[var(--bg-card)] text-[var(--text-secondary)] ${profile.badgeColor}`
               } disabled:opacity-40`}
             >
               <span>{profile.icon}</span>
@@ -355,6 +392,7 @@ export default function ToolSelection({
                     {cat.tools.map(tool => {
                       const isSelected = selectedTools.includes(tool);
                       const isCommercial = commercialList.includes(tool);
+                      const isIncompatible = isWebTarget && sourceOnlyTools.includes(tool);
 
                       return (
                         <button
@@ -362,6 +400,10 @@ export default function ToolSelection({
                           type="button"
                           onClick={() => {
                             if (isRunning) return;
+                            if (isIncompatible) {
+                              alert(`Tool '${tool}' requires a local source repository or directory target ('local_source'), and cannot run against a web URL. Use DAST engines (Nuclei, Wapiti, ZAP) for web application testing.`);
+                              return;
+                            }
                             if (isSelected) {
                               setSelectedTools(prev => prev.filter(t => t !== tool));
                             } else {
@@ -369,17 +411,21 @@ export default function ToolSelection({
                             }
                           }}
                           disabled={isRunning}
+                          title={isIncompatible ? `Tool '${tool}' requires a local source directory, not a web URL` : tool}
                           className={`flex items-center gap-1.5 px-2.5 py-1 rounded-xl text-[11px] font-mono uppercase tracking-wider font-semibold transition-all border cursor-pointer min-h-[32px] ${
                             isSelected
                               ? isCommercial
                                 ? 'bg-rose-500/15 text-rose-300 border-rose-500/40 shadow-sm'
                                 : 'bg-[var(--accent-primary)]/15 text-[var(--accent-primary)] border-[var(--border-glow)] shadow-sm'
-                              : 'bg-black/20 text-[var(--text-muted)] border-[var(--border-card)] hover:border-[var(--text-muted)] hover:text-[var(--text-secondary)]'
+                              : isIncompatible
+                                ? 'bg-black/10 text-amber-400/60 border-amber-500/20 border-dashed hover:border-amber-500/40'
+                                : 'bg-black/20 text-[var(--text-muted)] border-[var(--border-card)] hover:border-[var(--text-muted)] hover:text-[var(--text-secondary)]'
                           } ${isRunning ? 'opacity-50 cursor-not-allowed' : ''}`}
                         >
-                          <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? (isCommercial ? 'bg-rose-400' : 'bg-[var(--accent-primary)]') : 'bg-[var(--text-muted)]'}`} />
+                          <div className={`w-1.5 h-1.5 rounded-full ${isSelected ? (isCommercial ? 'bg-rose-400' : 'bg-[var(--accent-primary)]') : (isIncompatible ? 'bg-amber-400/50' : 'bg-[var(--text-muted)]')}`} />
                           <span>{tool}</span>
                           {isCommercial && <span className="text-[8px] px-1 py-0.2 rounded bg-rose-500/20 text-rose-400 font-sans normal-case">Licensed</span>}
+                          {isIncompatible && <span className="text-[8px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 font-sans normal-case">Source Only</span>}
                         </button>
                       );
                     })}
