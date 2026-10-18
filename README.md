@@ -1,4 +1,4 @@
-# Resonix Security Suite 🛡️
+# Recon-App (SecOps Recon) 🛡️
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -7,14 +7,14 @@
 ![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue.svg?logo=typescript)
 ![SQLite](https://img.shields.io/badge/Storage-SQLite3%20WAL-emerald.svg?logo=sqlite)
 
-**Resonix Security Suite** is an enterprise-grade desktop cybersecurity command center built on Electron, React, and high-performance native SQLite. It unifies reconnaissance, active attack surface discovery, parameter fuzzing, and dynamic application security testing (DAST) into an automated, chained workflow designed for penetration testers, security engineers, and red teams.
+**Recon-App (SecOps Recon)** is an enterprise-grade desktop cybersecurity command center built on Electron, React, and high-performance native SQLite. It unifies reconnaissance, active attack surface discovery, parameter fuzzing, and dynamic application security testing (DAST) into an automated, chained workflow designed for penetration testers, security engineers, and red teams.
 
 ---
 
 ## ⚡ Key Highlights
 
 ### 🔄 Intelligent Discovery-to-DAST Pipeline Chaining
-- **Automated Recon -> DAST Pipeline**: When crawlers (**Katana**, **GAU**, **Arjun**) discover active endpoints and parameters, Resonix automatically compiles them and feeds them directly into deep audit engines (**Nuclei** via target lists and **Dalfox** via file mode).
+- **Automated Recon -> DAST Pipeline**: When crawlers (**Katana**, **GAU**, **Arjun**) discover active endpoints and parameters, Recon App automatically compiles them and feeds them directly into deep audit engines (**Nuclei** via target lists and **Dalfox** via file mode).
 - **Phased Execution**: Prevents WAF rate-limiting and connection saturation by executing in structured stages:
   1. *Passive Recon & DNS Profiling*: Subfinder, AlterX, DNSX, Naabu, Wafw00f, CMSeeK.
   2. *Active Crawling & Endpoint Discovery*: Katana, GAU, FFUF.
@@ -37,7 +37,7 @@
 - **Technical Exports**: Detailed JSON and Markdown reporting with risk heuristics and reproduction commands.
 
 ### 🎨 Cyber Command Center UI
-- **Multi-Theme Engine**: Seamless toggle between *Obsidian Obsidian*, *Glassmorphism Cyber*, *Modern Dark*, and *High-Contrast Light* themes.
+- **Multi-Theme Engine**: Seamless toggle between *Obsidian*, *Glassmorphism Cyber*, *Modern Dark*, and *High-Contrast Light* themes.
 - **Real-Time Terminal Streams**: High-performance xterm.js integration with search, auto-scroll, and ansi color support.
 - **AI Triage & Analysis**: Local Ollama execution (Llama 3, Mistral) and cloud providers (OpenAI, Claude, Gemini) for contextual finding analysis.
 
@@ -99,14 +99,14 @@ npm run dist
 ```
 
 Artifacts will be produced in the `release/` directory:
-- **Installer**: `release/Resonix Security Suite Setup 1.0.0.exe`
-- **Portable**: `release/Resonix Security Suite 1.0.0.exe`
+- **Installer**: `release/Recon App Setup 1.0.0.exe`
+- **Portable**: `release/Recon App 1.0.0.exe`
 
 ---
 
 ## ⚖️ License & Disclaimer
 
-**Resonix Security Suite is designed strictly for authorized penetration testing, vulnerability assessment, and educational research.**
+**Recon-App is designed strictly for authorized penetration testing, vulnerability assessment, and educational research.**
 Explicit written permission from asset owners must be obtained before scanning. The developers and contributors assume no liability for misuse.
 
 Released under the [MIT License](LICENSE).

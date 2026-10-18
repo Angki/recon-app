@@ -32,10 +32,10 @@ function App() {
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-[var(--text-primary)] to-[var(--accent-primary)] bg-clip-text text-transparent">
-              Resonix Suite
+              SecOps Recon
             </h1>
             <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)]">
-              Enterprise SecOps v2.0
+              Cyber Command v1.1
             </span>
           </div>
         </div>

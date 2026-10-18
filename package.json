@@ -1,9 +1,9 @@
 {
-  "name": "resonix",
+  "name": "recon-app",
   "private": true,
   "version": "1.0.0",
-  "description": "Resonix Security Suite - Enterprise Attack Surface Management & Automated Penetration Testing",
-  "author": "Resonix SecOps Team",
+  "description": "SecOps Recon App - Automated Penetration Testing & Vulnerability Assessment Suite",
+  "author": "SecOps Team",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
@@ -57,8 +57,8 @@
     "xterm": "^5.3.0"
   },
   "build": {
-    "appId": "com.resonix.security",
-    "productName": "Resonix Security Suite",
+    "appId": "com.nucleiwapiti.reconapp",
+    "productName": "Recon App",
     "electronDist": "node_modules/electron/dist",
     "electronVersion": "42.3.3",
     "directories": {
