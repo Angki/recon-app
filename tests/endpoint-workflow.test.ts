@@ -59,6 +59,19 @@ test('inventory deduplication retains sources and scope; launch rejects forged p
   assert.throws(()=>endpointInventory.draft({kind:'endpoint',sourceScanId:'other',endpointId:result.items[0].id},'sqlmap'));
   for (const item of result.items.slice(1)) assert.throws(()=>endpointInventory.draft({kind:'endpoint',sourceScanId:'inventory-fixture',endpointId:item.id},'nikto'));
   const draft=endpointInventory.draft({kind:'endpoint',sourceScanId:'inventory-fixture',endpointId:result.items[0].id},'sqlmap');
+  const sstimapDraft=endpointInventory.draft({kind:'endpoint',sourceScanId:'inventory-fixture',endpointId:result.items[0].id},'sstimap');
+  assert.equal(sstimapDraft.tool, 'sstimap');
+  const jwtDraft=endpointInventory.draft({kind:'endpoint',sourceScanId:'inventory-fixture',endpointId:result.items[0].id},'jwt_tool');
+  assert.equal(jwtDraft.tool, 'jwt_tool');
+  const parameterized=endpointInventory.getParameterizedEndpoints('inventory-fixture');
+  assert.equal(parameterized.length, 1);
+  assert.equal(parameterized[0].url, target);
+
+  const jwtCandidate=normalizeEndpoint('http://127.0.0.1:49152/api/user?token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U', 'GET');
+  endpointInventory.insert('inventory-fixture', target, 'katana', [jwtCandidate]);
+  const discoveredToken=endpointInventory.findDiscoveredJwtToken('inventory-fixture');
+  assert.ok(discoveredToken?.startsWith('eyJhbGciOiJIUzI1Ni'));
+
   const config={tools:['sqlmap'],activeValidation:plan,workflow:draft.workflow};
   endpointInventory.validateLaunch(target,config);
   assert.throws(()=>endpointInventory.validateLaunch('http://example.test/product?id=1',config));

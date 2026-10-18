@@ -234,7 +234,11 @@ export class ScannerService {
       const activeTools = requestedTools.filter(isActiveValidationTool);
       const activeRuntimes: Record<string, ReturnType<typeof activeRuntime>> = {};
       if (activeTools.length) {
-        config = { ...config, activeValidation: validateActiveConfig(targetUrl, config.activeValidation, activeTools) };
+        const activeValidationInput = {
+          ...(typeof config.activeValidation === 'object' && config.activeValidation ? config.activeValidation : {}),
+          autoCascade: config.autoCascade ?? (config.activeValidation as Record<string, unknown> | undefined)?.autoCascade
+        };
+        config = { ...config, activeValidation: validateActiveConfig(targetUrl, activeValidationInput, requestedTools) };
         for (const tool of activeTools) activeRuntimes[tool] = activeRuntime(tool, settings as unknown as Record<string, unknown>);
         config.activeRuntimes = activeRuntimes;
       }
@@ -367,17 +371,77 @@ export class ScannerService {
     config?: Record<string, unknown>
   ): Promise<void> {
     return new Promise((resolve) => {
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '');
-    const outputFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.txt`);
-    const jsonFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.json`);
-    const xmlFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.xml`);
+      let effectiveTargetUrl = targetUrl;
+      let effectiveConfig = config;
 
-    const adapter = getAdapter(scannerName);
-    const context: ScannerContext = {
-      scanId, targetUrl, domain, scannerName, bin, outDir, config,
-      timestamp, outputFile, jsonFile, xmlFile, sender,
-      settings: settingsStore.get()
-    };
+      if (isActiveValidationTool(scannerName)) {
+        const activeConf = (config?.activeValidation as Record<string, unknown> | undefined);
+        const params = (activeConf?.parameters as string[] | undefined) || [];
+
+        if (['sqlmap', 'commix', 'sstimap'].includes(scannerName)) {
+          if (!params.length) {
+            const discovered = endpointInventory.getParameterizedEndpoints(scanId);
+            if (discovered.length > 0) {
+              const chosen = discovered[0];
+              effectiveTargetUrl = chosen.url;
+              effectiveConfig = {
+                ...config,
+                activeValidation: {
+                  ...(activeConf || { timeoutMinutes: 10, delaySeconds: 1, scopeOrigin: new URL(targetUrl).origin }),
+                  parameters: chosen.parameters,
+                  scopeOrigin: new URL(chosen.url).origin
+                }
+              };
+              safeSend(sender, 'scan:output', {
+                scanId,
+                scanner: scannerName,
+                type: 'stdout',
+                message: `[${scannerName.toUpperCase()} AUTO-CHAIN] 🎯 Discovered URL automatically cascaded: ${chosen.url} (Testing parameters: ${chosen.parameters.join(', ')})\n`
+              });
+            } else {
+              safeSend(sender, 'scan:output', {
+                scanId,
+                scanner: scannerName,
+                type: 'stdout',
+                message: `[${scannerName.toUpperCase()} AUTO-CHAIN] ℹ️ No GET query parameters were discovered during crawl. Active testing safely skipped for ${scannerName}.\n`
+              });
+              void (async () => {
+                await storage.updateStatus(scanId, scannerName, 'COMPLETED');
+                safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'COMPLETED', code: 0 });
+                const remaining = this.scanRemainingTools.get(scanId);
+                if (remaining) remaining.delete(scannerName);
+                resolve();
+              })();
+              return;
+            }
+          }
+        } else if (scannerName === 'jwt_tool') {
+          if (!config?.token) {
+            const token = endpointInventory.findDiscoveredJwtToken(scanId);
+            if (token) {
+              effectiveConfig = { ...config, token };
+              safeSend(sender, 'scan:output', {
+                scanId,
+                scanner: 'jwt_tool',
+                type: 'stdout',
+                message: `[JWT_TOOL AUTO-CHAIN] 🔑 Discovered JWT token automatically assigned: ${token.slice(0, 20)}...\n`
+              });
+            }
+          }
+        }
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '');
+      const outputFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.txt`);
+      const jsonFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.json`);
+      const xmlFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.xml`);
+
+      const adapter = getAdapter(scannerName);
+      const context: ScannerContext = {
+        scanId, targetUrl: effectiveTargetUrl, domain, scannerName, bin, outDir, config: effectiveConfig,
+        timestamp, outputFile, jsonFile, xmlFile, sender,
+        settings: settingsStore.get()
+      };
 
     let processInstance: ChildProcess;
     let executable = bin;
@@ -618,7 +682,21 @@ export class ScannerService {
       try {
         if (DISCOVERY_TOOLS.includes(context.scannerName)) {
           const count = endpointInventory.capture(context);
-          safeSend(context.sender, 'scan:output', {scanId:context.scanId,scanner:context.scannerName,type:'stdout',message:`[INVENTORY] ${count} endpoint observations imported. Open Endpoint Inventory to review and test.\n`});
+          const parameterized = endpointInventory.getParameterizedEndpoints(context.scanId);
+          const jwtToken = endpointInventory.findDiscoveredJwtToken(context.scanId);
+          safeSend(context.sender, 'scan:endpoints-discovered', {
+            scanId: context.scanId,
+            scanner: context.scannerName,
+            count,
+            endpoints: parameterized,
+            jwtTokens: jwtToken ? [jwtToken] : []
+          });
+          safeSend(context.sender, 'scan:output', {
+            scanId: context.scanId,
+            scanner: context.scannerName,
+            type: 'stdout',
+            message: `[INVENTORY] ${count} endpoint observations imported (${parameterized.length} with query parameters). Open Endpoint Inventory to review and test.\n`
+          });
           return true;
         }
         const findings = adapter.parseFindings(context);

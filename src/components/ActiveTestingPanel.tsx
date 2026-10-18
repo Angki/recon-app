@@ -16,8 +16,11 @@ const runtimeFields = [
   ['niktoScriptPath', 'nikto.pl (official program directory)', 'nikto'],
 ] as const;
 
-export default function ActiveTestingPanel({ target, tools, value, onChange, disabled }: {
+import type { EndpointRecord } from '../types/workflow';
+
+export default function ActiveTestingPanel({ target, tools, value, onChange, disabled, discoveredEndpoints, onSelectEndpoint, discoveredJwt }: {
   target:string; tools:string[]; value:ActivePlan; onChange:(value:ActivePlan) => void; disabled:boolean;
+  discoveredEndpoints?: EndpointRecord[]; onSelectEndpoint?: (url: string, params: string[]) => void; discoveredJwt?: string | null;
 }) {
   const [paths, setPaths] = useState<Record<string,string>>({});
   const niktoRuntime = paths.niktoRuntime === 'perl' ? 'perl' : 'docker';
@@ -66,6 +69,54 @@ export default function ActiveTestingPanel({ target, tools, value, onChange, dis
           <label className="block text-xs">Assessment origin (scheme, host, port)
             <input aria-label="Assessment origin" className={fieldClass} placeholder={origin || 'https://your-lab.example'} value={value.scopeOrigin} onChange={e => onChange({...value,scopeOrigin:e.target.value})}/>
           </label>
+          {discoveredEndpoints && discoveredEndpoints.length > 0 && (
+            <div className="rounded-lg p-2.5 bg-cyan-950/30 border border-cyan-500/30 space-y-1.5 text-xs">
+              <div className="flex items-center justify-between text-cyan-300 font-semibold text-[11px]">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
+                  URL Berparameter Ditemukan ({discoveredEndpoints.length})
+                </span>
+                <span className="text-[10px] text-cyan-400/80 font-mono">Klik untuk auto-fill</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5 max-h-24 overflow-y-auto pt-0.5">
+                {discoveredEndpoints.slice(0, 10).map((ep, i) => (
+                  <button
+                    key={i}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => {
+                      if (onSelectEndpoint) {
+                        onSelectEndpoint(ep.url, ep.parameters);
+                      } else {
+                        onChange({
+                          ...value,
+                          scopeOrigin: new URL(ep.url).origin,
+                          parameters: ep.parameters
+                        });
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded text-[10px] font-mono bg-cyan-900/40 hover:bg-cyan-800/60 text-cyan-200 border border-cyan-500/40 transition-colors flex items-center gap-1 cursor-pointer"
+                    title={`Pilih ${ep.url} (Params: ${ep.parameters.join(', ')})`}
+                  >
+                    <span className="font-bold text-amber-300">{ep.method}</span>
+                    <span className="truncate max-w-[180px]">{new URL(ep.url).pathname}</span>
+                    <span className="text-cyan-300 font-semibold">({ep.parameters.join(', ')})</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          {tools.includes('jwt_tool') && (
+            <label className="block text-xs">JWT Token (Auto-detected or custom Bearer token)
+              <input
+                aria-label="Target JWT token"
+                className={fieldClass}
+                placeholder={discoveredJwt || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...'}
+                value={paths.jwtToken || ''}
+                onChange={e => setPaths({...paths, jwtToken: e.target.value})}
+              />
+            </label>
+          )}
           {tools.some(tool => ['sqlmap','commix','sstimap'].includes(tool)) && <div className="text-xs space-y-2">
             <p>Query parameters {parameters.length === 0 && '— add a query string to the target URL first.'}</p>
             <div className="flex flex-wrap gap-3">{parameters.map(parameter => <label key={parameter} className="flex gap-2 items-center">

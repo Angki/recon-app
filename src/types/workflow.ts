@@ -15,7 +15,7 @@ export interface WorkflowRef {
 }
 export interface TestingDraft {
   target: string;
-  tool: 'sqlmap' | 'nikto' | 'commix';
+  tool: 'sqlmap' | 'nikto' | 'commix' | 'sstimap' | 'jwt_tool';
   parameters: string[];
   scopeOrigin: string;
   workflow: WorkflowRef;

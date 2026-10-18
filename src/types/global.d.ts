@@ -26,6 +26,7 @@ declare global {
       onScanStatus: (callback: (event: unknown, data: { scanId: string, status: string, scanner: string }) => void) => () => void;
       onScanFindings: (callback: (event: unknown, data: { scanId: string, scanner: string, findings: Vulnerability[] }) => void) => () => void;
       onScanStats: (callback: (event: unknown, data: { scanId: string, stats: any }) => void) => () => void;
+      onScanEndpointsDiscovered: (callback: (event: unknown, data: { scanId: string, scanner: string, count: number, endpoints: import('./workflow').EndpointRecord[], jwtTokens?: string[] }) => void) => () => void;
       getHistory: () => Promise<any>;
       getFindingsPaginated: (scanId: string, options: { page?: number, limit?: number, severity?: string, scanner?: string, search?: string }) => Promise<{ findings: Vulnerability[], total: number, page: number, limit: number }>;
       openReportFolder: (scanId: string) => Promise<unknown>;

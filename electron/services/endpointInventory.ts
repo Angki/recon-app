@@ -145,6 +145,46 @@ export class EndpointInventory {
     }
   }
 
+  getParameterizedEndpoints(scanId: string, limit = 50, method = 'GET'): EndpointRecord[] {
+    try {
+      const db = dbService.getRawDatabase();
+      const rows = method
+        ? db.prepare(
+            "SELECT * FROM endpoints WHERE scanId = ? AND inScope = 1 AND method = ? AND parameters != '[]' ORDER BY length(parameters) DESC, id ASC LIMIT ?"
+          ).all(scanId, method, limit) as Record<string, unknown>[]
+        : db.prepare(
+            "SELECT * FROM endpoints WHERE scanId = ? AND inScope = 1 AND parameters != '[]' ORDER BY length(parameters) DESC, id ASC LIMIT ?"
+          ).all(scanId, limit) as Record<string, unknown>[];
+      return rows.map(row => this.decode(row));
+    } catch {
+      return [];
+    }
+  }
+
+  findDiscoveredJwtToken(scanId: string): string | null {
+    try {
+      const db = dbService.getRawDatabase();
+      const rows = db.prepare('SELECT url, parameters FROM endpoints WHERE scanId = ?').all(scanId) as { url: string; parameters: string }[];
+      const jwtRegex = /eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}\.[a-zA-Z0-9_-]+/;
+      for (const r of rows) {
+        const match = r.url.match(jwtRegex);
+        if (match) return match[0];
+        try {
+          const params = JSON.parse(r.parameters);
+          if (Array.isArray(params)) {
+            for (const p of params) {
+              const pMatch = String(p).match(jwtRegex);
+              if (pMatch) return pMatch[0];
+            }
+          }
+        } catch { /* ignore */ }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private decode(row: Record<string, unknown>): EndpointRecord {
     return {...row, parameters:JSON.parse(String(row.parameters)), sources:JSON.parse(String(row.sources)), inScope:Boolean(row.inScope)} as unknown as EndpointRecord;
   }
@@ -188,14 +228,14 @@ export class EndpointInventory {
       const finding = this.finding(ref.sourceScanId,ref.findingId!);
       tool = String(finding.scanner);
       target = String(finding.url);
-      parameters = tool === 'sqlmap' || tool === 'commix' ? [String(finding.parameter || finding.param || '')] : [];
+      parameters = ['sqlmap', 'commix', 'sstimap'].includes(tool) ? [String(finding.parameter || finding.param || '')] : [];
       if ((source as Record<string,unknown>)[`${tool}Status`] !== 'COMPLETED') throw new Error('Retest requires a finding from a completed tool assessment');
     } else throw new Error('Unknown workflow type');
-    if (tool !== 'sqlmap' && tool !== 'nikto' && tool !== 'commix') throw new Error('Retest/testing currently supports SQLmap, Commix and Nikto');
+    if (tool !== 'sqlmap' && tool !== 'nikto' && tool !== 'commix' && tool !== 'sstimap' && tool !== 'jwt_tool') throw new Error('Retest/testing supports SQLmap, Commix, SSTImap, jwt_tool and Nikto');
     const normalized = normalizeEndpoint(target,'GET');
     if (new URL(normalized.url).origin !== new URL(String(source.target)).origin) throw new Error('Target is outside source scan scope');
-    if (tool !== 'nikto' && !parameters.length) throw new Error('Parameter testing needs a discovered query parameter');
-    return {target:normalized.url,tool,parameters:tool !== 'nikto' ? parameters : [],scopeOrigin:new URL(target).origin,workflow:ref};
+    if (tool !== 'nikto' && tool !== 'jwt_tool' && !parameters.length) throw new Error('Parameter testing needs a discovered query parameter');
+    return {target:normalized.url,tool:tool as TestingDraft['tool'],parameters:tool !== 'nikto' ? parameters : [],scopeOrigin:new URL(target).origin,workflow:ref};
   }
 
   validateLaunch(target: string, config: Record<string,unknown>) {
@@ -212,8 +252,8 @@ export class EndpointInventory {
     if ([...proposed.searchParams.keys()].some(p => !draft.parameters.includes(p) && !original.searchParams.has(p))) throw new Error('Undiscovered parameter added to endpoint test');
     const plan = record(config.activeValidation);
     if (!Array.isArray(plan.parameters) || plan.parameters.some(p => typeof p !== 'string' || !draft.parameters.includes(p))) throw new Error('Selected parameter differs from the source');
-    if (draft.tool !== 'nikto' && (plan.parameters as string[]).some(p => !proposed.searchParams.get(p))) throw new Error('Enter a sample value in the target URL for every selected query parameter');
-    if (ref.kind === 'retest' && draft.tool !== 'nikto' && JSON.stringify(plan.parameters) !== JSON.stringify(draft.parameters)) throw new Error('Retest must preserve the original parameter');
+    if (!['nikto', 'jwt_tool'].includes(draft.tool) && (plan.parameters as string[]).some(p => !proposed.searchParams.get(p))) throw new Error('Enter a sample value in the target URL for every selected query parameter');
+    if (ref.kind === 'retest' && !['nikto', 'jwt_tool'].includes(draft.tool) && JSON.stringify(plan.parameters) !== JSON.stringify(draft.parameters)) throw new Error('Retest must preserve the original parameter');
     config.workflow = {kind:ref.kind,sourceScanId:ref.sourceScanId,...(ref.kind === 'endpoint' ? {endpointId:ref.endpointId} : {findingId:ref.findingId})};
   }
 

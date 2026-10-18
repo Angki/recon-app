@@ -15,7 +15,14 @@ export interface ActiveValidationConfig {
   delaySeconds: number;
 }
 export function validateActiveConfig(target: string, input: unknown, tools: string[]): ActiveValidationConfig {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Configure the Active Testing plan before starting.');
+  const hasDiscovery = tools.some(t => ['katana', 'gau', 'arjun', 'httpx', 'ffuf'].includes(t));
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    if (hasDiscovery) {
+      input = { scopeOrigin: '', parameters: [], timeoutMinutes: 10, delaySeconds: 1, autoCascade: true };
+    } else {
+      throw new Error('Configure the Active Testing plan before starting.');
+    }
+  }
   const raw = input as Record<string, unknown>;
   let url: URL;
   try {
@@ -35,14 +42,19 @@ export function validateActiveConfig(target: string, input: unknown, tools: stri
 
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new Error('Use an HTTP(S) URL without credentials or a fragment.');
   if (scope.origin !== url.origin || scope.pathname !== '/' || scope.search || scope.hash || scope.username || scope.password) throw new Error('Scope must be the exact target origin (scheme, host and port), without path or credentials.');
-  const parameters = raw.parameters;
-  if (!Array.isArray(parameters) || parameters.length > 25 || parameters.some(p => typeof p !== 'string' || !/^[a-zA-Z0-9_.[\]-]{1,80}$/.test(p))) throw new Error('Invalid parameter selection.');
+  const parameters = Array.isArray(raw.parameters) ? raw.parameters : [];
+  if (parameters.length > 25 || parameters.some(p => typeof p !== 'string' || !/^[a-zA-Z0-9_.[\]-]{1,80}$/.test(p))) throw new Error('Invalid parameter selection.');
   const selected = [...new Set(parameters)] as string[];
   const parameterTesting = tools.some(tool => tool === 'sqlmap' || tool === 'commix' || tool === 'sstimap');
-  if (parameterTesting && (!selected.length || selected.some(p => !url.searchParams.has(p)))) throw new Error('Parameter testing requires at least one existing query parameter selected in the plan.');
+  const allowDeferred = hasDiscovery || raw.autoCascade === true || raw.deferredUntilDiscovery === true;
+  if (parameterTesting && (!selected.length || selected.some(p => !url.searchParams.has(p)))) {
+    if (!allowDeferred) {
+      throw new Error('Parameter testing requires at least one existing query parameter selected in the plan.');
+    }
+  }
   if (parameterTesting && (url.pathname.includes('*') || [...url.searchParams].some(([key,value]) => key.includes('*') || value.includes('*')))) throw new Error('Custom injection markers are not supported in this profile.');
-  const minutes = raw.timeoutMinutes;
-  const delay = raw.delaySeconds;
+  const minutes = raw.timeoutMinutes !== undefined ? raw.timeoutMinutes : 10;
+  const delay = raw.delaySeconds !== undefined ? raw.delaySeconds : 1;
   if (!Number.isInteger(minutes) || Number(minutes) < 1 || Number(minutes) > 30) throw new Error('Active testing deadline must be 1–30 minutes.');
   if (!Number.isInteger(delay) || Number(delay) < 1 || Number(delay) > 10) throw new Error('Request delay must be 1–10 seconds.');
   return {scopeOrigin: scope.origin, parameters: selected, timeoutMinutes: Number(minutes), delaySeconds: Number(delay)};

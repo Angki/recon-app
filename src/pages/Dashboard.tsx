@@ -19,6 +19,7 @@ import { useScanStore, allTools, initialScannerStatus } from '../stores/useScanS
 import type { ScannerType, ScannerStatus } from '../stores/useScanStore';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useLogStore } from '../stores/useLogStore';
+import type { EndpointRecord } from '../types/workflow';
 
 const FormattedMarkdown = ({ content }: { content: string }) => {
   const parts = content.split(/(```[\s\S]*?```)/g);
@@ -166,6 +167,9 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
   const [showExportModal, setShowExportModal] = useState(false);
   const [activePlan, setActivePlan] = useState<ActivePlan>({ scopeOrigin:'', parameters:[], timeoutMinutes:10, delaySeconds:1 });
+  const [discoveredEndpoints, setDiscoveredEndpoints] = useState<EndpointRecord[]>([]);
+  const [discoveredJwt, setDiscoveredJwt] = useState<string | null>(null);
+  const [autoCascadeEnabled, setAutoCascadeEnabled] = useState<boolean>(true);
   const [selectedPreset, setSelectedPreset] = useState<'executive' | 'attack_path' | 'remediation' | 'verification'>('executive');
   const [activeAiModel, setActiveAiModel] = useState<string>('qwen2.5:7b');
   const [activeAiProvider, setActiveAiProvider] = useState<string>('ollama');
@@ -287,13 +291,40 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     const removeOutputListener = window.api.onScanOutput(handleOutput);
     const removeStatsListener = window.api.onScanStats(handleStats);
     const removeAiProgress = window.api.onAiProgress((_e, msg) => useLogStore.getState().setAiProgressMsg(msg));
-    
+    const removeEndpointsListener = window.api.onScanEndpointsDiscovered?.((_e, data) => {
+      if (data.scanId !== scanId) return;
+      if (data.endpoints && data.endpoints.length > 0) {
+        setDiscoveredEndpoints(prev => {
+          const existing = new Set(prev.map(p => p.url));
+          const added = data.endpoints.filter(p => !existing.has(p.url));
+          return [...prev, ...added];
+        });
+        if (autoCascadeEnabled) {
+          const chosen = data.endpoints[0];
+          if (chosen && chosen.parameters.length > 0) {
+            const activeList = ['sqlmap', 'commix', 'sstimap', 'jwt_tool', 'nikto'];
+            if (selectedTools.some(t => activeList.includes(t))) {
+              setActivePlan(prev => ({
+                ...prev,
+                parameters: [...new Set([...prev.parameters, ...chosen.parameters])],
+                scopeOrigin: new URL(chosen.url).origin
+              }));
+            }
+          }
+        }
+      }
+      if (data.jwtTokens && data.jwtTokens.length > 0) {
+        setDiscoveredJwt(data.jwtTokens[0]);
+      }
+    });
+
     return () => {
       removeOutputListener();
       removeStatsListener();
       removeAiProgress();
+      removeEndpointsListener?.();
     };
-  }, [scanId]);
+  }, [scanId, autoCascadeEnabled, selectedTools]);
 
   // Scan status listener
   useEffect(() => {
@@ -496,8 +527,10 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     const paramTestingTools = ['sqlmap', 'commix', 'sstimap'];
     const selectedParamTools = toolsToRun.filter(t => paramTestingTools.includes(t));
     const effectiveParameters = activePlan.parameters.length > 0 ? activePlan.parameters : targetParams;
+    const discoveryTools = ['katana', 'gau', 'ffuf', 'arjun', 'wapiti', 'nuclei'];
+    const hasDiscoveryTools = toolsToRun.some(t => discoveryTools.includes(t));
 
-    if (selectedParamTools.length > 0 && effectiveParameters.length === 0) {
+    if (selectedParamTools.length > 0 && effectiveParameters.length === 0 && !hasDiscoveryTools && !autoCascadeEnabled) {
       alert(
         `Target URL does not contain any query parameters (e.g. ?id=1). The selected parameter validation engine(s) (${selectedParamTools.join(', ')}) require a target URL with query parameters.\n\nPlease add query parameters to your target URL or uncheck these tools.`
       );
@@ -515,6 +548,8 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     setWapitiVulns(0);
     setWapitiPages(0);
     setAllFindings([]);
+    setDiscoveredEndpoints([]);
+    setDiscoveredJwt(null);
     setScanStartTime(Date.now());
     setElapsedSeconds(0);
     setSeverityFilter('all');
@@ -540,6 +575,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         isWordpress: isWordpressScan,
         executionMode: executionMode,
         activeValidation: effectiveActivePlan,
+        autoCascade: autoCascadeEnabled,
         ...(testingDraft ? {workflow:testingDraft.workflow} : {}),
       });
       if (res.success) {
@@ -751,6 +787,8 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
           setScanStartTime(null);
           setElapsedSeconds(0);
           setSeverityFilter('all');
+          setDiscoveredEndpoints([]);
+          setDiscoveredJwt(null);
         }}
         onOpenExportReport={() => setShowExportModal(true)}
         isAnalyzing={isAnalyzing} isUpdating={isUpdating}
@@ -764,7 +802,52 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         <p className="text-xs mt-1">Review the URL and parameters, then use Start Scan. Fill sample values for newly discovered parameters. Nikto tests the whole origin.</p>
         <div className="flex gap-4 mt-2"><Link className="underline" to="/endpoints">View inventory and linked results</Link><button disabled={['STARTING','RUNNING','STOPPING'].includes(status)} onClick={()=>setTestingDraft(null)} className="underline disabled:opacity-40">Detach draft</button></div>
       </div>}
-      {selectedTools.some(tool => ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool'].includes(tool)) && <ActiveTestingPanel target={targetUrl} tools={selectedTools} value={activePlan} onChange={setActivePlan} disabled={['STARTING','RUNNING','STOPPING'].includes(status)}/>}
+      {selectedTools.some(tool => ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool'].includes(tool)) && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between px-3 py-1.5 rounded-xl bg-orange-950/20 border border-orange-500/30 text-xs">
+            <div className="flex items-center gap-2">
+              <span className={`w-2 h-2 rounded-full ${autoCascadeEnabled ? 'bg-orange-400 animate-pulse' : 'bg-zinc-500'}`} />
+              <span className="font-semibold text-orange-200">Dynamic Endpoint Cascading</span>
+              <span className="text-[11px] text-[var(--text-muted)] hidden sm:inline">
+                {autoCascadeEnabled
+                  ? '⚡ Auto-chain aktif: URL & parameter crawler otomatis dialirkan ke active engine'
+                  : 'Manual: Parameter hanya menggunakan konfigurasi statis'}
+              </span>
+            </div>
+            <label className="flex items-center gap-1.5 cursor-pointer text-[11px] text-orange-300 font-mono">
+              <input
+                type="checkbox"
+                checked={autoCascadeEnabled}
+                onChange={e => setAutoCascadeEnabled(e.target.checked)}
+                className="rounded border-orange-500/50 bg-black/40 text-orange-500 focus:ring-0"
+              />
+              Auto-Chain Live
+            </label>
+          </div>
+          <ActiveTestingPanel
+            target={targetUrl}
+            tools={selectedTools}
+            value={activePlan}
+            onChange={setActivePlan}
+            disabled={['STARTING', 'RUNNING', 'STOPPING'].includes(status)}
+            discoveredEndpoints={discoveredEndpoints}
+            onSelectEndpoint={(url, params) => {
+              try {
+                const parsed = new URL(url);
+                setTargetUrl(url);
+                setActivePlan(prev => ({
+                  ...prev,
+                  scopeOrigin: parsed.origin,
+                  parameters: params
+                }));
+              } catch {
+                // keep URL
+              }
+            }}
+            discoveredJwt={discoveredJwt}
+          />
+        </div>
+      )}
       {incompatibleTools.length > 0 && (
         <div className="theme-card p-2 px-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-center justify-between text-xs text-amber-300 shrink-0 animate-fade-in shadow-sm">
           <div className="flex items-center gap-2">

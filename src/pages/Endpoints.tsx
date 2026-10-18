@@ -42,7 +42,7 @@ export default function Endpoints() {
     return () => {alive=false;clearTimeout(timer);};
   },[scanId,page,search,refresh]);
   useEffect(() => window.api.onScanStatus((_event,data) => {if (data.scanId === scanId || runs.some(run => run.scanId === data.scanId)) setRefresh(value=>value+1);}),[scanId,runs]);
-  const prepare = async (endpoint:EndpointRecord,tool:'sqlmap'|'nikto'|'commix') => {
+  const prepare = async (endpoint:EndpointRecord,tool:'sqlmap'|'nikto'|'commix'|'sstimap'|'jwt_tool') => {
     if (busy) return;
     setPreparing(true);setError('');
     try {
@@ -62,7 +62,7 @@ export default function Endpoints() {
     {loading && <p role="status">Loading inventory…</p>}
     <div className="overflow-auto rounded-xl border border-[var(--border-card)]">
       <table className="w-full text-sm text-left"><thead className="bg-[var(--bg-card)]"><tr>{['Method / Scope','Endpoint / Parameters','Sources','Prepare test'].map(label=><th key={label} className="p-3">{label}</th>)}</tr></thead><tbody>
-        {items.map(item=><tr key={item.id} className="border-t border-[var(--border-card)]"><td className="p-3">{item.method}<div className={item.inScope?'text-emerald-400':'text-amber-400'}>{item.inScope?'Same origin':'Out of scope'}</div></td><td className="p-3 break-all max-w-xl"><span>{item.url}</span><div className="text-[var(--text-secondary)]">Parameters: {item.parameters.join(', ') || 'none'}</div></td><td className="p-3">{item.sources.join(', ')}</td><td className="p-3"><div className="flex flex-wrap gap-2">{(['sqlmap','commix','nikto'] as const).map(tool=><button key={tool} disabled={busy || !item.inScope || item.method!=='GET' || (tool!=='nikto' && !item.parameters.length)} onClick={()=>void prepare(item,tool)} className="border rounded px-2 py-1 disabled:opacity-40" title={tool==='nikto'?'Checks the whole origin':'Choose parameters and review before launch'}>{tool==='sqlmap'?'Test SQLi':tool==='commix'?'Test command injection':'Test server'}</button>)}</div></td></tr>)}
+        {items.map(item=><tr key={item.id} className="border-t border-[var(--border-card)]"><td className="p-3">{item.method}<div className={item.inScope?'text-emerald-400':'text-amber-400'}>{item.inScope?'Same origin':'Out of scope'}</div></td><td className="p-3 break-all max-w-xl"><span>{item.url}</span><div className="text-[var(--text-secondary)]">Parameters: {item.parameters.join(', ') || 'none'}</div></td><td className="p-3">{item.sources.join(', ')}</td><td className="p-3"><div className="flex flex-wrap gap-2">{(['sqlmap','commix','sstimap','jwt_tool','nikto'] as const).map(tool=><button key={tool} disabled={busy || !item.inScope || item.method!=='GET' || (!['nikto','jwt_tool'].includes(tool) && !item.parameters.length)} onClick={()=>void prepare(item,tool)} className="border rounded px-2 py-1 disabled:opacity-40 text-xs" title={tool==='nikto'?'Checks the whole origin':tool==='jwt_tool'?'Test JWT authorization':'Choose parameters and review before launch'}>{tool==='sqlmap'?'Test SQLi':tool==='commix'?'Test CMD':tool==='sstimap'?'Test SSTI':tool==='jwt_tool'?'Test JWT':'Test server'}</button>)}</div></td></tr>)}
       </tbody></table>
       {!items.length && !loading && <p className="p-5 text-sm">No endpoints in this view. Run Katana, GAU or Arjun to populate inventory. Older scan artifacts are not imported automatically.</p>}
     </div>

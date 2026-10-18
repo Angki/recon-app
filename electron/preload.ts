@@ -30,6 +30,11 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('scan:stats', handler);
     return () => { ipcRenderer.removeListener('scan:stats', handler); };
   },
+  onScanEndpointsDiscovered: (callback: (event: unknown, data: { scanId: string, scanner: string, count: number, endpoints: import('../src/types/workflow').EndpointRecord[], jwtTokens?: string[] }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: any) => callback(null, data);
+    ipcRenderer.on('scan:endpoints-discovered', handler);
+    return () => { ipcRenderer.removeListener('scan:endpoints-discovered', handler); };
+  },
   
   // Storage & History
   getEndpoints: (scanId: string, options: {page?:number;search?:string}) => ipcRenderer.invoke('inventory:list',scanId,options),
