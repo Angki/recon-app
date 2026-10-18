@@ -40,6 +40,8 @@ declare global {
       testAiConnection: (provider?: string, customBaseUrl?: string) => Promise<{ success: boolean; latencyMs: number; message: string; modelCount?: number }>;
       analyzeScan: (scanId: string, preset: string, customPrompt?: string) => Promise<string>;
       chatCopilot: (scanId: string, history: Array<{ role: 'user' | 'assistant'; content: string }>, message: string) => Promise<string>;
+      getAiAnalyses: (scanId: string) => Promise<Array<Record<string, unknown>>>;
+      getLatestAiAnalysis: (scanId: string, preset?: string) => Promise<Record<string, unknown> | null>;
       onAiProgress: (callback: (event: unknown, msg: string) => void) => () => void;
 
       

@@ -173,6 +173,16 @@ export function registerIpcHandlers() {
     return await aiService.chatCopilot(event.sender, scanId, history, message);
   });
 
+  ipcMain.handle('ai:getAnalyses', async (event, scanId: string) => {
+    const { dbService } = await import('./services/database');
+    return dbService.getAiAnalyses(scanId);
+  });
+
+  ipcMain.handle('ai:getLatestAnalysis', async (event, scanId: string, preset?: string) => {
+    const { dbService } = await import('./services/database');
+    return dbService.getLatestAiAnalysis(scanId, preset);
+  });
+
 
   // System Diagnostics & Operational Logging
   ipcMain.handle('system:getDiagnostics', async () => {

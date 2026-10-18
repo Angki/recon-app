@@ -73,6 +73,17 @@ export class DatabaseService {
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS ai_analyses (
+        id TEXT PRIMARY KEY,
+        scanId TEXT NOT NULL,
+        preset TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        model TEXT NOT NULL,
+        analysisText TEXT NOT NULL,
+        contextVersion TEXT,
+        evidenceIdsJson TEXT,
+        createdAt TEXT NOT NULL
+      );
     `);
   }
 
@@ -139,6 +150,7 @@ export class DatabaseService {
       this.db.prepare('DELETE FROM observations WHERE scanId = ?').run(scanId);
       this.db.prepare('DELETE FROM endpoints WHERE scanId = ?').run(scanId);
       this.db.prepare('DELETE FROM scan_status WHERE scanId = ?').run(scanId);
+      this.db.prepare('DELETE FROM ai_analyses WHERE scanId = ?').run(scanId);
       this.db.prepare('DELETE FROM scans WHERE scanId = ?').run(scanId);
     });
     tx();
@@ -150,6 +162,7 @@ export class DatabaseService {
       this.db.prepare('DELETE FROM observations').run();
       this.db.prepare('DELETE FROM endpoints').run();
       this.db.prepare('DELETE FROM scan_status').run();
+      this.db.prepare('DELETE FROM ai_analyses').run();
       this.db.prepare('DELETE FROM scans').run();
     });
     tx();
@@ -313,6 +326,48 @@ export class DatabaseService {
   // Baseline Comparison
   compareWithBaseline(currentScanId: string, baselineScanId: string): BaselineComparisonResult {
     return BaselineComparator.compare(currentScanId, baselineScanId, this.db);
+  }
+
+  // AI Analysis Persistence
+  insertAiAnalysis(analysis: {
+    id: string;
+    scanId: string;
+    preset: string;
+    provider: string;
+    model: string;
+    analysisText: string;
+    contextVersion?: string;
+    evidenceIds?: string[];
+    createdAt?: string;
+  }) {
+    const stmt = this.db.prepare(`
+      INSERT INTO ai_analyses (id, scanId, preset, provider, model, analysisText, contextVersion, evidenceIdsJson, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(
+      analysis.id,
+      analysis.scanId,
+      analysis.preset,
+      analysis.provider,
+      analysis.model,
+      analysis.analysisText,
+      analysis.contextVersion || 'v1',
+      JSON.stringify(analysis.evidenceIds || []),
+      analysis.createdAt || new Date().toISOString()
+    );
+  }
+
+  getAiAnalyses(scanId: string): Array<Record<string, unknown>> {
+    return this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? ORDER BY createdAt DESC').all(scanId) as Array<Record<string, unknown>>;
+  }
+
+  getLatestAiAnalysis(scanId: string, preset?: string): Record<string, unknown> | null {
+    if (preset) {
+      const row = this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? AND preset = ? ORDER BY createdAt DESC LIMIT 1').get(scanId, preset);
+      return (row as Record<string, unknown>) || null;
+    }
+    const row = this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? ORDER BY createdAt DESC LIMIT 1').get(scanId);
+    return (row as Record<string, unknown>) || null;
   }
 }
 

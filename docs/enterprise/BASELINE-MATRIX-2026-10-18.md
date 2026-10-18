@@ -38,40 +38,43 @@ Dokumen ini mencatat audit baseline, status komitmen, verifikasi runtime/tool, d
 | **R6** | Database | Retention backup salah urut (membuang backup baru) | **Sudah diperbaiki (Fase 1)** | `backup.ts:enforceRetention` memprune file kadaluarsa tanpa menghapus backup terbaru, memprune kuota dari yang tertua ke terbaru, dan memvalidasi `PRAGMA integrity_check` serta `wal_checkpoint(TRUNCATE)`. |
 | **R8** | Adapters | Parser tool versi dipin (SSLyze, Schemathesis, Semgrep) | **Sudah diperbaiki (Fase 3)** | Audit parser SSLyze, Semgrep, Trivy, dan Schemathesis: tidak lagi menelan (swallow) error syntax/korupsi JSON menjadi temuan kosong; rethrow exception dengan context `{ cause: err }` agar finalisasi scan melaporkan status `FAILED`, bukan `COMPLETED_CLEAN` palsu. Lulus tes `tests/fase3-hardening.test.ts`. |
 | **R9** | Platform | Manifest platform terpadu, locking, staging, venv & container cleanup | **Sudah diperbaiki (Fase 3)** | `ProcessLockManager` mencegah modifikasi/penghapusan binary saat scan aktif; `StagingInstaller` mengisolasi download ke `.staging`, memverifikasi SHA-256, mencatat receipt provenance, dan mendukung rollback otomatis; `PythonVenvManager` mengisolasi dependency Python ke venv per-tool tanpa mencemari sistem; `ContainerLifecycleManager` melacak container ID dan membersihkan container yang tersisa saat cancel/quit; `PreflightSmokeEngine` membedakan status `not_installed`, `runtime_missing`, `unsupported_version`, `healthcheck_failed`, dan `ready` dengan uji versi semver dan smoke fixture. Lulus 171/171 tes. |
-| **R10** | Runner | Ring buffer logs, concurrency budget, Windows cmd quoting | **Terkonfirmasi tersisa (P1)** | Log store di memory perlu batasan buffer agar tidak membengkak pada long-running scans. |
+| **R10** | Runner | Ring buffer logs, concurrency budget, Windows cmd quoting | **Sudah diperbaiki (Fase 5)** | `useLogStore.ts` menerapkan ring buffer 1.000 baris scanner log dan 500.000 karakter raw log dengan indikator pemotongan `[... BUFFER TRUNCATED: showing latest lines ...]`. Lulus tes `tests/fase5-hardening.test.ts`. |
 | **T1** | Tools | Integrasi SSTImap (deteksi aman, lab lokal) | **Sudah selesai (Fase 4)** | Manifest `sstimap` (v1.2.2 pinned) di `manifests.ts`, installer git-clone aman di `activeToolInstaller.ts`, runner `--verify` dan arithmetic proof non-destruktif (`7*7=49`) di `activeValidation.ts:parseSstimap`, reduksi secret, CWE-1336. Lulus tes fixture di `tests/fase4-hardening.test.ts`. |
 | **T2** | Tools | Integrasi jwt_tool (inspeksi token aman, redaksi) | **Sudah selesai (Fase 4)** | Manifest `jwt_tool` (v2.2.8 pinned), runner mode inspeksi token dan controlled validation di `activeValidation.ts:parseJwtTool`, pemisahan temuan offline inspection (medium) dan server-verified flaws (high, CWE-347), serta redaksi ketat seluruh token JWT (`eyJ...[REDACTED_TOKEN]`). Lulus tes fixture di `tests/fase4-hardening.test.ts`. |
 | **T3** | Tools | Integrasi Syft (SBOM source & container) | **Sudah selesai (Fase 4)** | Manifest `syft` (v1.20.0 native binary), adapter `ScannerAdapters.syft` mendukung direktori (`dir:...`) dan container image, parser `parseSyft` memetakan komponen perangkat lunak, PURL, lisensi, dan lokasi dengan CWE-1395, serta error reporting tanpa swallow. Lulus tes fixture di `tests/fase4-hardening.test.ts`. |
 | **T4** | Tools | Integrasi Interactsh (self-hosted, OOB verification) | **Sudah selesai (Fase 4)** | Manifest `interactsh` (v1.2.2 native binary), adapter `ScannerAdapters.interactsh` mendukung self-hosted server dan korelasi token per-run (`-cid`), parser `parseInteractsh` meredaksi alamat IP remote (`[REDACTED_IP]`) dan header Authorization/Cookie pada raw requests, CWE-918. Lulus tes fixture di `tests/fase4-hardening.test.ts`. |
-| **U1** | UI/UX | Workflow Request & Auth Workspace, Visual QA | **Fitur baru (Fase 2 & 5)**| Tabs terstruktur (Projects/Targets -> Requests/Auth -> Tools -> Run -> Findings -> Reports). |
+| **U1** | UI/UX | Workflow Request & Auth Workspace, Visual QA | **Sudah selesai (Fase 2 & Fase 5)**| 6-tahap workflow navigasi (`1. Target & Scope`, `2. Requests & Auth`, `3. Engines & Preflight`, `4. Run & Telemetry`, `5. Findings & Evidence`, `6. Retest & Reports`) di `App.tsx`. `VulnerabilityTable` mendukung filter tool aktif, confidence badge, keyboard navigation, fingerprint copy, dan evidence drawer tab. AI reasoning dengan boundary untrusted, secret redaction, evidence ID grounding, dan persistensi database `ai_analyses`. Lulus 187/187 tes. |
 
 ---
 
 ## 3. Rencana Eksekusi Bertahap
 
-- **Fase 0 (Sedang Berjalan)**:
+- **Fase 0 (Selesai — commit `de79549`)**:
   - Menyelesaikan lint error dan mengunci baseline.
-  - Memperbarui `tests/ai-service.test.ts` dengan mock transport fetch yang deterministik (tidak memerlukan Ollama daemon hidup).
+  - Memperbarui `tests/ai-service.test.ts` dengan mock transport fetch yang deterministik.
   - Menyempurnakan streaming chunk buffer pada `aiService.ts` agar tahan terhadap pecahan chunk JSON di batas newline.
-- **Fase 1**:
+- **Fase 1 (Selesai — commit `b58b899`)**:
   - Kontrak assessment: `COMPLETED_CLEAN`, `COMPLETED_WITH_FINDINGS`, `PARTIAL`, `FAILED`, `INTERRUPTED`.
   - Hapus nilai A+/Secure palsu pada scan kosong/gagal di `reportService.ts` dan `FindingsSummary.tsx`.
   - Fix fingerprint case-sensitivity di `fingerprint.ts` (`/Admin` != `/admin`), sertakan parameter identity, hapus secret dari hash.
   - Fix baseline comparison di `baseline.ts` (unobserved menjadi `not reassessed`).
   - Idempotent runner lifecycle & atomic settings save dengan cache rollback.
   - Fix retention backup di `backup.ts` (pertahankan backup terbaru, prune tertua, integritas SQLite).
-- **Fase 2**:
+- **Fase 2 (Selesai — commit `7e0968f`)**:
   - Target bertipe: `web_url`, `api_spec`, `local_source`, `container_image`.
   - Request Workspace (method, headers, cookies, body, auth profile).
   - Scope and rate limiting enforcement.
-- **Fase 3**:
+- **Fase 3 (Selesai — commit `4a2ca35`)**:
   - Manifest platform terpadu & preflight smoke tests.
   - Per-tool virtual environment isolation.
   - Container cleanup guarantees.
-- **Fase 4**:
+- **Fase 4 (Selesai — commit `18a7a4e`)**:
   - Integrasi SSTImap, jwt_tool, Syft, Interactsh dengan pengujian fixture terisolasi.
-- **Fase 5**:
-  - Streamlined UI workflow & virtualized/ring buffer logs.
-  - Evidence-grounded AI copilot reasoning.
-- **Fase 6**:
-  - Comprehensive QA, verification tests, release build & documentation.
+- **Fase 5 (Selesai — commit Fase 5)**:
+  - Streamlined UI workflow navigasi 6 tahap & ring buffer logs (`MAX_SCANNER_LOG_LINES = 1000`, `MAX_RAW_LOG_CHARS = 500_000`).
+  - Keyboard accessible findings table dengan filter tool baru, confidence badges, fingerprint hashes, dan tab Evidence Drawer.
+  - Evidence-grounded AI copilot reasoning dengan untrusted prompt boundary, input redaction, grounded evidence citation, dan persistensi database `ai_analyses`.
+  - Suite pengujian Fase 5 (`tests/fase5-hardening.test.ts`) dengan 187/187 tes lulus.
+- **Fase 6 (Sedang Berjalan)**:
+  - Comprehensive QA/QC, verification tests, release build & packaging sign-off.
+

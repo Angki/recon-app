@@ -299,6 +299,13 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         setAllFindings(res.findings);
       }
     }).catch(() => {});
+    if (window.api.getLatestAiAnalysis) {
+      window.api.getLatestAiAnalysis(scanId).then((analysis) => {
+        if (analysis && typeof analysis.analysisText === 'string') {
+          useLogStore.getState().setAiResponse(analysis.analysisText);
+        }
+      }).catch(() => {});
+    }
     // A short-lived tool may finish before the scan-id-dependent IPC listeners mount.
     window.api.getHistory().then((history: Array<Record<string, unknown>>) => {
       if (useScanStore.getState().scanId !== scanId) return;

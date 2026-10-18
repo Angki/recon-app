@@ -53,6 +53,8 @@ contextBridge.exposeInMainWorld('api', {
   testAiConnection: (provider?: string, customBaseUrl?: string) => ipcRenderer.invoke('ai:testConnection', provider, customBaseUrl),
   analyzeScan: (scanId: string, preset: string, customPrompt?: string) => ipcRenderer.invoke('ai:analyzeScan', scanId, preset, customPrompt),
   chatCopilot: (scanId: string, history: Array<{ role: 'user' | 'assistant'; content: string }>, message: string) => ipcRenderer.invoke('ai:chatCopilot', scanId, history, message),
+  getAiAnalyses: (scanId: string) => ipcRenderer.invoke('ai:getAnalyses', scanId),
+  getLatestAiAnalysis: (scanId: string, preset?: string) => ipcRenderer.invoke('ai:getLatestAnalysis', scanId, preset),
   onAiProgress: (callback: (event: unknown, msg: string) => void) => {
     const handler = (_event: IpcRendererEvent, msg: string) => callback(null, msg);
     ipcRenderer.on('ai:progress', handler);

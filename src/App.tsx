@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
-import { Shield, History, Settings as SettingsIcon, Cpu, Layers } from 'lucide-react';
+import { Shield, History, Settings as SettingsIcon, Cpu, Layers, ShieldAlert, Radio } from 'lucide-react';
+import { useScanStore } from './stores/useScanStore';
 import Dashboard from './pages/Dashboard';
 import HistoryPage from './pages/History';
 import SettingsPage from './pages/Settings';
@@ -47,33 +48,104 @@ function App() {
           </div>
         </div>
 
-        <nav className="flex-1 space-y-1.5">
-          <Link to="/" className={getNavClass('/')}>
-            <Layers className="w-4 h-4" />
-            <span>Dashboard</span>
-          </Link>
-          <button
-            onClick={() => setShowToolsHub(true)}
-            className="w-full flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)] cursor-pointer text-left"
+        <div className="px-2 mb-2">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)] font-semibold">
+            Assessment Workflow
+          </span>
+        </div>
+
+        <nav className="flex-1 space-y-1" aria-label="Assessment Pipeline Navigation">
+          <Link 
+            to="/" 
+            onClick={() => useScanStore.getState().setActiveTab('nuclei')}
+            className={getNavClass('/') && location.pathname === '/' && useScanStore.getState().activeTab !== 'findings' ? 'flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-semibold bg-[var(--accent-primary)] text-white shadow-md shadow-[var(--accent-glow)]' : 'flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'}
+            aria-label="1. Target and Engagement Scope"
           >
-            <Cpu className="w-4 h-4 text-emerald-400" />
-            <span>Engines & Tools</span>
-          </button>
-          <Link to="/history" className={getNavClass('/history')}>
-            <History className="w-4 h-4" />
-            <span>Scan History</span>
+            <Shield className="w-4 h-4 text-cyan-400 shrink-0" />
+            <div className="flex flex-col">
+              <span>1. Target & Scope</span>
+              <span className="text-[9px] font-mono text-[var(--text-muted)]">Engagements & input</span>
+            </div>
           </Link>
-          <Link to="/endpoints" className={getNavClass('/endpoints')}><Layers className="w-4 h-4"/><span>Endpoint Inventory</span></Link>
-          <Link to="/settings" className={getNavClass('/settings')}>
+
+          <Link 
+            to="/endpoints" 
+            className={getNavClass('/endpoints')}
+            aria-label="2. Requests and Authentication Workspace"
+          >
+            <Layers className="w-4 h-4 text-indigo-400 shrink-0" />
+            <div className="flex flex-col">
+              <span>2. Requests & Auth</span>
+              <span className="text-[9px] font-mono text-[var(--text-muted)]">Parameters & auth tokens</span>
+            </div>
+          </Link>
+
+          <button
+            type="button"
+            onClick={() => setShowToolsHub(true)}
+            className="w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)] cursor-pointer text-left"
+            aria-label="3. Engines and Preflight Healthchecks"
+          >
+            <Cpu className="w-4 h-4 text-emerald-400 shrink-0" />
+            <div className="flex flex-col">
+              <span>3. Engines & Preflight</span>
+              <span className="text-[9px] font-mono text-[var(--text-muted)]">Catalog & environment</span>
+            </div>
+          </button>
+
+          <Link 
+            to="/" 
+            onClick={() => {
+              const active = useScanStore.getState().activeTab;
+              if (active === 'findings') useScanStore.getState().setActiveTab('sqlmap');
+            }}
+            className="flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]"
+            aria-label="4. Run and Live Telemetry"
+          >
+            <Radio className="w-4 h-4 text-amber-400 shrink-0" />
+            <div className="flex flex-col">
+              <span>4. Run & Telemetry</span>
+              <span className="text-[9px] font-mono text-[var(--text-muted)]">Live console & execution</span>
+            </div>
+          </Link>
+
+          <Link 
+            to="/" 
+            onClick={() => useScanStore.getState().setActiveTab('findings')}
+            className={location.pathname === '/' && useScanStore.getState().activeTab === 'findings' ? 'flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-semibold bg-rose-600/90 text-white shadow-md shadow-rose-900/40' : 'flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'}
+            aria-label="5. Findings and Verified Evidence"
+          >
+            <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+            <div className="flex flex-col">
+              <span>5. Findings & Evidence</span>
+              <span className="text-[9px] font-mono text-[var(--text-muted)]">Triage & verification</span>
+            </div>
+          </Link>
+
+          <Link 
+            to="/history" 
+            className={getNavClass('/history')}
+            aria-label="6. Retests, Baselines, and Compliance Reports"
+          >
+            <History className="w-4 h-4 text-sky-400 shrink-0" />
+            <div className="flex flex-col">
+              <span>6. Retest & Reports</span>
+              <span className="text-[9px] font-mono text-[var(--text-muted)]">Baselines & exports</span>
+            </div>
+          </Link>
+        </nav>
+
+        <div className="pt-3 border-t border-[var(--border-card)] space-y-1">
+          <Link to="/settings" className={getNavClass('/settings')} aria-label="System Settings">
             <SettingsIcon className="w-4 h-4" />
             <span>Settings</span>
           </Link>
-        </nav>
+        </div>
 
         <div className="mt-auto px-2 py-3 border-t border-[var(--border-card)]">
           <div className="flex items-center justify-between text-[11px] text-[var(--text-muted)] font-mono">
             <span>Status: Operational</span>
-            <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
           </div>
         </div>
       </aside>
