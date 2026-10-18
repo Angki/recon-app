@@ -262,7 +262,8 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const allToolsArray = allTools;
   const tabs = [
     'sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool', 'interactsh',
-    'findings', 'ai', 'nuclei', 'wapiti', 'wpscan', 'pdiscovery', 
+    'findings', 'ai', 'nuclei', 'wapiti', 'wpscan', 'subfinder', 'pdiscovery', 
+    'httpx', 'katana', 'dnsx', 'alterx', 'naabu', 'tlsx',
     'dalfox', 'wafw00f', 'whatweb', 'arjun', 'corsy', 'cmseek', 'gau', 'crlfsuite', 
     'nmap', 'zap', 'ffuf', 'gitleaks', 'semgrep', 'trivy', 'syft', 'sslyze', 'schemathesis',
     'appscan', 'netsparker', 'acunetix'

@@ -4,6 +4,7 @@ import {
   XCircle, Terminal, Shield, Zap, Search, Globe, ShieldAlert, Cpu, Sparkles
 } from 'lucide-react';
 import type { ToolHealthInfo } from '../types/global';
+import { useScanStore } from '../stores/useScanStore';
 
 interface ToolsHubModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface ToolsHubModalProps {
 }
 
 export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose }) => {
+  const isScanRunning = useScanStore((state) => state.status === 'RUNNING');
   const [tools, setTools] = useState<ToolHealthInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [updatingTool, setUpdatingTool] = useState<string | null>(null);
@@ -68,7 +70,7 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
   }, []);
 
   const handleUpdateSingle = async (toolName: string) => {
-    if (updatingTool || isUpdatingAll) return;
+    if (isScanRunning || updatingTool || isUpdatingAll) return;
     setUpdatingTool(toolName);
     setLogs((prev) => [...prev, `\n[*] Initiating update for ${toolName}...`]);
     try {
@@ -84,7 +86,7 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
   };
 
   const handleUpdateAll = async () => {
-    if (isUpdatingAll || updatingTool) return;
+    if (isScanRunning || isUpdatingAll || updatingTool) return;
     setIsUpdatingAll(true);
     setLogs((prev) => [...prev, `\n[*] Starting Master Suite Update...`]);
     try {
@@ -141,7 +143,8 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
 
             <button
               onClick={handleUpdateAll}
-              disabled={isUpdatingAll || !!updatingTool}
+              disabled={isScanRunning || isUpdatingAll || !!updatingTool}
+              title={isScanRunning ? 'Fitur update dinonaktifkan saat pemindaian sedang berjalan' : undefined}
               className="flex items-center gap-2 px-4 py-1.5 text-xs font-bold rounded-xl bg-[var(--accent-primary)] text-white hover:bg-[var(--accent-hover)] shadow-md shadow-[var(--accent-glow)] transition-all cursor-pointer disabled:opacity-50"
             >
               <Sparkles className={`w-3.5 h-3.5 ${isUpdatingAll ? 'animate-spin' : ''}`} />
@@ -156,6 +159,14 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
             </button>
           </div>
         </div>
+
+        {/* Scan Active Warning Banner */}
+        {isScanRunning && (
+          <div className="flex items-center gap-2.5 px-6 py-2.5 bg-amber-500/10 border-b border-amber-500/20 text-amber-300 text-xs">
+            <AlertTriangle className="w-4 h-4 shrink-0 text-amber-400" />
+            <span>Pemindaian aktif sedang berjalan (Scan in Progress). Pembaruan dan pengunduhan tool dinonaktifkan sementara untuk mencegah konflik file binary dan gangguan proses scan.</span>
+          </div>
+        )}
 
         {/* Telemetry Bar */}
         <div className="grid grid-cols-3 gap-4 px-6 py-3 border-b border-[var(--border-card)] bg-black/10 text-xs">
@@ -275,7 +286,8 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
                       ) : (
                         <button
                           onClick={() => handleUpdateSingle(t.name)}
-                          disabled={isThisUpdating}
+                          disabled={isScanRunning || isThisUpdating || isUpdatingAll}
+                          title={isScanRunning ? 'Pembaruan dinonaktifkan saat pemindaian sedang berjalan' : undefined}
                           className={`inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer disabled:opacity-50 ${
                             t.updateAvailable
                               ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'

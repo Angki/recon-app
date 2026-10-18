@@ -34,15 +34,36 @@ export function registerIpcHandlers() {
   });
 
   ipcMain.handle('tools:update-single', async (event, toolName: string) => {
+    if (scannerService.isAnyScanActive()) {
+      event.sender.send('tools:update-progress', { 
+        tool: toolName, 
+        message: '[-] Cannot update tools while a scan is actively running. Please wait for the scan to finish or stop it first.' 
+      });
+      return false;
+    }
     return await toolManager.updateTool(toolName, event.sender);
   });
 
   ipcMain.handle('tools:update-all', async (event) => {
+    if (scannerService.isAnyScanActive()) {
+      event.sender.send('tools:update-progress', { 
+        tool: 'ALL', 
+        message: '[-] Cannot update tools while a scan is actively running. Please wait for the scan to finish or stop it first.' 
+      });
+      return;
+    }
     return await toolManager.updateAll(event.sender);
   });
 
   // Legacy Tools Update
   ipcMain.handle('tools:update', async (event) => {
+    if (scannerService.isAnyScanActive()) {
+      event.sender.send('tools:update-progress', { 
+        tool: 'ALL', 
+        message: '[-] Cannot update tools while a scan is actively running. Please wait for the scan to finish or stop it first.' 
+      });
+      return;
+    }
     return await toolManager.updateAll(event.sender);
   });
 

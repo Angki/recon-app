@@ -746,6 +746,11 @@ export class ScannerService {
     return true;
   }
 
+  /** Check if any scan session is currently executing child processes */
+  isAnyScanActive(): boolean {
+    return this.activeScans.size > 0;
+  }
+
   /** Kill all running scans — called on app quit */
   killAll() {
     for (const [scanId, processes] of this.activeScans) {
