@@ -796,12 +796,39 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
       const findings: Record<string, unknown>[] = [];
+
+      // Support modern Dalfox structured report object ({ findings: [...], meta: {...} })
+      try {
+        const fullDoc = JSON.parse(content);
+        if (fullDoc && typeof fullDoc === 'object' && Array.isArray(fullDoc.findings)) {
+          for (const d of fullDoc.findings) {
+            if (d && typeof d === 'object') {
+              findings.push({
+                id: `dalfox-xss-${d.param || d.data || 'finding'}`,
+                name: `XSS (${d.type || 'Reflected / DOM'})`,
+                severity: (d.severity?.toLowerCase() || 'high'),
+                scanner: 'dalfox',
+                url: d.url || ctx.targetUrl,
+                description: `Vulnerable param: ${d.param || 'unknown'} | Payload: ${d.payload || ''}`,
+                timestamp: new Date().toISOString(),
+                cwe: d.cwe || 'CWE-79',
+                rawJson: JSON.stringify(d),
+              });
+            }
+          }
+          return findings;
+        }
+      } catch { /* Fallback to line-delimited stream */ }
+
       const lines = content.split('\n').filter(l => l.trim() !== '');
       for (const line of lines) {
         try {
           const item = JSON.parse(line);
           const items = Array.isArray(item) ? item : [item];
           for (const d of items) {
+            if (!d || typeof d !== 'object') continue;
+            // Guard against strings, metadata headers, or empty container objects
+            if (!d.param && !d.payload && !d.evidence && d.type !== 'VULN' && !d.cwe) continue;
             findings.push({
               id: `dalfox-xss-${d.param || 'finding'}`,
               name: `XSS (${d.type || 'Reflected / DOM'})`,
