@@ -37,9 +37,12 @@ export class LoggerService {
   static redactSensitive(text: string): string {
     if (!text) return '';
     return text
+      .replace(/-----BEGIN [A-Z ]+ PRIVATE KEY-----[\s\S]*?-----END [A-Z ]+ PRIVATE KEY-----/gi, '[REDACTED_PRIVATE_KEY]')
       .replace(/Bearer\s+[A-Za-z0-9_\-.]+/gi, 'Bearer [REDACTED]')
       .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, 'Basic [REDACTED]')
-      .replace(/(api[_-]?key|password|token|secret|access_token|auth_token)\s*[:=]\s*["']?([^\s"',&]+)["']?/gi, '$1=[REDACTED]');
+      .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]+/g, '[REDACTED_JWT]')
+      .replace(/(sessionid|connect\.sid|PHPSESSID|JSESSIONID)=[^;\s&]+/gi, '$1=[REDACTED]')
+      .replace(/(api[_-]?key|password|passwd|token|secret|access_token|auth_token)\s*[:=]\s*["']?([^\s"',&]+)["']?/gi, '$1=[REDACTED]');
   }
 
   private rotateIfNeeded(targetPath: string) {

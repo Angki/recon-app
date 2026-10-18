@@ -154,7 +154,13 @@ export class DatabaseService {
           type,
           name,
           url,
-          param: String(finding.param || '')
+          param: finding.param ? String(finding.param) : undefined,
+          filePath: finding.filePath ? String(finding.filePath) : finding.file ? String(finding.file) : undefined,
+          lineNumber: finding.lineNumber !== undefined ? Number(finding.lineNumber) : finding.line !== undefined ? Number(finding.line) : undefined,
+          ruleId: finding.ruleId ? String(finding.ruleId) : finding.rule ? String(finding.rule) : undefined,
+          packageName: finding.packageName ? String(finding.packageName) : finding.package ? String(finding.package) : undefined,
+          packageVersion: finding.packageVersion ? String(finding.packageVersion) : finding.version ? String(finding.version) : undefined,
+          cveId: finding.cveId ? String(finding.cveId) : undefined
         });
         finding.fingerprint = fingerprint;
         stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding), fingerprint);

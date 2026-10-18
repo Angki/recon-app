@@ -1,5 +1,5 @@
 import { spawn, ChildProcess, execSync } from 'child_process';
-import { logger } from './logger';
+import { logger, LoggerService } from './logger';
 import { storage } from './storage';
 import { settingsStore } from './settings';
 import { dependencyService } from './dependencyManager';
@@ -394,8 +394,10 @@ export class ScannerService {
     const scanSession = this.activeScans.get(scanId);
     if (scanSession) scanSession[scannerName] = processInstance;
 
+    let finalized = false;
+
     processInstance.stdout?.on('data', (data) => {
-      const msg = data.toString();
+      const msg = LoggerService.redactSensitive(data.toString());
       stdoutBatcher.send(sender, scanId, scannerName, 'stdout', msg);
       try {
         fs.appendFileSync(outputFile, msg);
@@ -408,9 +410,10 @@ export class ScannerService {
     });
 
     processInstance.stderr?.on('data', (data) => {
-      stderrBatcher.send(sender, scanId, scannerName, 'stderr', data.toString());
+      const msg = LoggerService.redactSensitive(data.toString());
+      stderrBatcher.send(sender, scanId, scannerName, 'stderr', msg);
       if (isActiveValidationTool(scannerName)) {
-        try { fs.appendFileSync(outputFile, data.toString()); } catch { /* parser fails if output unavailable */ }
+        try { fs.appendFileSync(outputFile, msg); } catch { /* parser fails if output unavailable */ }
       }
     });
 
@@ -431,16 +434,49 @@ export class ScannerService {
     }, timeoutMs);
     processInstance.once('close', () => clearTimeout(timeoutTimer));
 
+    const finalize = async (finalStatus: string, code?: number | null) => {
+      if (finalized) return;
+      finalized = true;
+
+      // Await persistence before emitting success/completion event
+      await storage.updateStatus(scanId, scannerName, finalStatus);
+      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: finalStatus, code });
+
+      const remaining = this.scanRemainingTools.get(scanId);
+      if (remaining) remaining.delete(scannerName);
+
+      const scanSession = this.activeScans.get(scanId);
+      let anyProcRunning = false;
+      if (scanSession) {
+        for (const proc of Object.values(scanSession)) {
+          if (proc === processInstance) continue;
+          if (proc.exitCode === null && !proc.killed) {
+            anyProcRunning = true; break;
+          }
+        }
+      }
+      const allDone = ((!remaining || remaining.size === 0) && !anyProcRunning) || this.stoppedScans.has(scanId);
+
+      if (allDone) {
+        const interval = this.statEmitIntervals.get(scanId);
+        if (interval) { clearInterval(interval); this.statEmitIntervals.delete(scanId); }
+        this.activeScans.delete(scanId);
+        this.scanRemainingTools.delete(scanId);
+        this.scanStats.delete(scanId);
+        setTimeout(() => this.stoppedScans.delete(scanId), 10000);
+      }
+      resolve();
+    };
+
     processInstance.on('error', (err) => {
       logger.error(`Failed to start ${scannerName}:`, err);
       safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stderr', message: `[SYSTEM ERROR] Process error: ${err.message}\nPlease check if the tool is installed and executable.` });
       const finalStatus = this.stoppedScans.has(scanId) ? 'STOPPED' : 'FAILED';
-      storage.updateStatus(scanId, scannerName, finalStatus);
-      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: finalStatus });
+      void finalize(finalStatus, -1);
     });
 
     // Listen to 'close' to ensure stdio streams are fully drained and buffers flushed
-    processInstance.on('close', (code) => {
+    processInstance.on('close', async (code) => {
       logger.info(`${scannerName} process for ${scanId} closed with code ${code}`);
       
       const fileToRead = ['alterx', 'nmap', 'sqlmap'].includes(scannerName) ? outputFile : 
@@ -469,39 +505,13 @@ export class ScannerService {
       // Attempt to parse findings if they exist
       const parsed = this.parseAndSendFindings(context, adapter);
 
-      // Clean up interval and memory when all processes in this session finish
-      const remaining = this.scanRemainingTools.get(scanId);
-      if (remaining) remaining.delete(scannerName);
-
-      const scanSession = this.activeScans.get(scanId);
-      let anyProcRunning = false;
-      if (scanSession) {
-         for (const proc of Object.values(scanSession)) {
-           if (proc === processInstance) continue; // close already fired, including signal-only termination
-           if (proc.exitCode === null && !proc.killed) {
-             anyProcRunning = true; break;
-           }
-         }
-      }
-      const allDone = ((!remaining || remaining.size === 0) && !anyProcRunning) || this.stoppedScans.has(scanId);
       const wasCancelled = this.stoppedScans.has(scanId) || processInstance.killed || Boolean((processInstance as unknown as { _wasTerminated?: boolean })._wasTerminated);
       const exitSemantic = toolCatalog.getExitCodeSemantic(scannerName, code);
       const isSuccess = adapter.isSuccessExitCode 
         ? adapter.isSuccessExitCode(code, context) 
         : (exitSemantic === 'clean' || exitSemantic === 'findings_found');
       const finalStatus = timedOut ? 'FAILED' : wasCancelled ? 'STOPPED' : isSuccess && parsed ? 'COMPLETED' : 'FAILED';
-      storage.updateStatus(scanId, scannerName, finalStatus);
-      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: finalStatus, code });
-
-      if (allDone) {
-         const interval = this.statEmitIntervals.get(scanId);
-         if (interval) { clearInterval(interval); this.statEmitIntervals.delete(scanId); }
-         this.activeScans.delete(scanId);
-         this.scanRemainingTools.delete(scanId);
-         this.scanStats.delete(scanId);
-         setTimeout(() => this.stoppedScans.delete(scanId), 10000);
-      }
-      resolve();
+      await finalize(finalStatus, code);
     });
   });
 }

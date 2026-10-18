@@ -1204,6 +1204,9 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         wapitiVulns={wapitiVulns} 
         wapitiPages={wapitiPages} 
         allFindings={allFindings}
+        scanStatus={status}
+        selectedTools={selectedTools}
+        scannerStatus={scannerStatus}
         activeSeverityFilter={severityFilter}
         compact={dashboardView?.mode === 'focus' || !dashboardView?.showSummaryCards}
         onFilterSeverity={(sev) => {

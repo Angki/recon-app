@@ -184,6 +184,7 @@ class SettingsStore {
 
   save(settings: Partial<AppSettings>): PublicAppSettings {
     const current = this.get();
+    const previousCache = this.cache ? { ...this.cache } : null;
     const merged: AppSettings = { ...current };
 
     // Update fields, preserving existing secrets when sentinel is sent back
@@ -198,14 +199,14 @@ class SettingsStore {
       (merged as unknown as Record<string, unknown>)[key] = v;
     }
 
-    this.cache = merged;
+    const dir = path.dirname(this.filePath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+
+    const tmpPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
 
     try {
-      const dir = path.dirname(this.filePath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      
       const toSave: Record<string, unknown> = { ...merged } as unknown as Record<string, unknown>;
       const encryptionOk = this.isEncryptionAvailable();
 
@@ -230,10 +231,18 @@ class SettingsStore {
         }
       });
       
-      fs.writeFileSync(this.filePath, JSON.stringify(toSave, null, 2));
-      logger.info('Settings saved');
+      // Atomic write: write to temp file then rename
+      fs.writeFileSync(tmpPath, JSON.stringify(toSave, null, 2), 'utf8');
+      fs.renameSync(tmpPath, this.filePath);
+      this.cache = merged;
+      logger.info('Settings saved atomically');
     } catch (err) {
-      logger.error('Failed to save settings', err);
+      if (fs.existsSync(tmpPath)) {
+        try { fs.unlinkSync(tmpPath); } catch { /* ignore */ }
+      }
+      this.cache = previousCache;
+      logger.error('Failed to save settings (cache rolled back)', err);
+      throw new Error(`Failed to save settings: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
 
     return this.getPublic();

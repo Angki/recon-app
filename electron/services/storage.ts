@@ -221,6 +221,14 @@ export class StorageService {
     if (!scanId || typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) {
       throw new Error('Invalid scanId: path traversal or invalid characters detected');
     }
+    const scan = dbService.getScanById(scanId);
+    if (scan) {
+      const activeStates = ['RUNNING', 'VALIDATING', 'PARSING', 'QUEUED'];
+      if (activeStates.includes(String(scan.status || '').toUpperCase())) {
+        throw new Error(`Cannot delete active scan ${scanId} (status: ${scan.status}). Stop or cancel the scan first.`);
+      }
+    }
+
     const scanDir = path.join(this.reportsDir, scanId);
     if (fs.existsSync(scanDir)) {
       try {
@@ -236,6 +244,13 @@ export class StorageService {
   }
 
   clearAllScans(): boolean {
+    const history = dbService.getHistory();
+    const activeStates = ['RUNNING', 'VALIDATING', 'PARSING', 'QUEUED'];
+    const activeScan = history.find(s => activeStates.includes(String(s.status || '').toUpperCase()));
+    if (activeScan) {
+      throw new Error(`Cannot clear all scans: scan ${activeScan.scanId} is currently active (${activeScan.status}). Stop active scans first.`);
+    }
+
     if (fs.existsSync(this.reportsDir)) {
       try {
         const entries = fs.readdirSync(this.reportsDir);

@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { Globe2, Activity, ShieldCheck, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Globe2, Activity, ShieldCheck, AlertTriangle, ShieldAlert, Shield } from 'lucide-react';
 import type { Vulnerability } from '../types/vulnerability';
 
 interface FindingsSummaryProps {
@@ -7,6 +7,9 @@ interface FindingsSummaryProps {
   wapitiVulns: number;
   wapitiPages: number;
   allFindings?: Vulnerability[];
+  scanStatus?: string;
+  selectedTools?: string[];
+  scannerStatus?: Record<string, string>;
   activeSeverityFilter?: string;
   onFilterSeverity?: (sev: string) => void;
   compact?: boolean;
@@ -17,6 +20,9 @@ export default function FindingsSummary({
   wapitiVulns,
   wapitiPages,
   allFindings = [],
+  scanStatus = 'IDLE',
+  selectedTools = [],
+  scannerStatus = {},
   activeSeverityFilter = 'all',
   onFilterSeverity,
   compact = false
@@ -42,23 +48,58 @@ export default function FindingsSummary({
     ? allFindings.length
     : counts.critical + counts.high + counts.medium + counts.low + counts.info + wapitiVulns;
 
-  // Calculate Weighted Risk Score (0 - 100 where 100 is cleanest/most secure)
+  // Calculate Weighted Risk Score & Assessment Contract
   const securityPosture = useMemo(() => {
-    if (totalFindings === 0) {
-      return { grade: 'A+', label: 'Secure', color: 'text-emerald-400', border: 'border-emerald-500/30 bg-emerald-500/10' };
+    const normStatus = (scanStatus || '').toUpperCase();
+    const tools = selectedTools || [];
+    const toolsRequested = tools.length;
+    let toolsCompleted = 0;
+    let toolsFailed = 0;
+
+    for (const t of tools) {
+      const s = (scannerStatus[t] || '').toUpperCase();
+      if (s === 'COMPLETED') toolsCompleted++;
+      else if (s === 'FAILED' || s === 'STOPPED' || s === 'CANCELLED') toolsFailed++;
     }
+
+    const isPartialCoverage = toolsFailed > 0 || (toolsCompleted < toolsRequested && normStatus !== 'COMPLETED');
+
+    if (totalFindings === 0) {
+      if (toolsRequested === 0 || normStatus === 'IDLE') {
+        return { grade: 'N/A', label: 'Not Assessed', color: 'text-slate-400', border: 'border-slate-500/30 bg-slate-500/10' };
+      }
+      if (['RUNNING', 'VALIDATING', 'PARSING', 'QUEUED'].includes(normStatus)) {
+        return { grade: 'N/A', label: 'In Progress', color: 'text-blue-400', border: 'border-blue-500/30 bg-blue-500/10' };
+      }
+      if (normStatus === 'FAILED') {
+        return { grade: 'N/A', label: 'Scan Failed', color: 'text-rose-400', border: 'border-rose-500/30 bg-rose-500/10' };
+      }
+      if (['STOPPED', 'CANCELLED', 'INTERRUPTED'].includes(normStatus)) {
+        return { grade: 'N/A', label: 'Interrupted', color: 'text-slate-400', border: 'border-slate-500/30 bg-slate-500/10' };
+      }
+      if (isPartialCoverage) {
+        return { grade: 'N/A', label: 'Inconclusive (Partial)', color: 'text-amber-400', border: 'border-amber-500/30 bg-amber-500/10' };
+      }
+      if (normStatus === 'COMPLETED') {
+        return { grade: 'A', label: 'Clean (Tested Scope)', color: 'text-emerald-400', border: 'border-emerald-500/30 bg-emerald-500/10' };
+      }
+      return { grade: 'N/A', label: normStatus || 'Idle', color: 'text-slate-400', border: 'border-slate-500/30 bg-slate-500/10' };
+    }
+
     const penalty = counts.critical * 25 + counts.high * 12 + counts.medium * 4 + counts.low * 1;
+    const partialSuffix = isPartialCoverage ? ' (Partial)' : '';
+
     if (penalty >= 50 || counts.critical > 0) {
-      return { grade: 'F', label: 'Critical Risk', color: 'text-rose-400', border: 'border-rose-500/40 bg-rose-500/15' };
+      return { grade: 'F', label: `Critical Risk${partialSuffix}`, color: 'text-rose-400', border: 'border-rose-500/40 bg-rose-500/15' };
     }
     if (penalty >= 25 || counts.high > 0) {
-      return { grade: 'D', label: 'High Risk', color: 'text-red-400', border: 'border-red-500/30 bg-red-500/10' };
+      return { grade: 'D', label: `High Risk${partialSuffix}`, color: 'text-red-400', border: 'border-red-500/30 bg-red-500/10' };
     }
     if (penalty >= 10 || counts.medium > 0) {
-      return { grade: 'C', label: 'Moderate Risk', color: 'text-amber-400', border: 'border-amber-500/30 bg-amber-500/10' };
+      return { grade: 'C', label: `Moderate Risk${partialSuffix}`, color: 'text-amber-400', border: 'border-amber-500/30 bg-amber-500/10' };
     }
-    return { grade: 'B', label: 'Low Risk', color: 'text-cyan-400', border: 'border-cyan-500/30 bg-cyan-500/10' };
-  }, [counts, totalFindings]);
+    return { grade: 'B', label: `Low Risk${partialSuffix}`, color: 'text-cyan-400', border: 'border-cyan-500/30 bg-cyan-500/10' };
+  }, [counts, totalFindings, scanStatus, selectedTools, scannerStatus]);
 
   const severityItems = [
     { id: 'critical', label: 'Critical', count: counts.critical, dot: 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.6)]', text: 'text-rose-400', border: 'border-rose-500/30' },
@@ -121,10 +162,12 @@ export default function FindingsSummary({
 
         {/* Posture Pill */}
         <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg border ${securityPosture.border} transition-all`}>
-          {securityPosture.grade === 'A+' ? (
+          {securityPosture.grade === 'A' || securityPosture.grade === 'A+' ? (
             <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
           ) : securityPosture.grade === 'F' ? (
             <ShieldAlert className="w-3.5 h-3.5 text-rose-400 animate-pulse" />
+          ) : securityPosture.grade === 'N/A' ? (
+            <Shield className="w-3.5 h-3.5 text-slate-400" />
           ) : (
             <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
           )}

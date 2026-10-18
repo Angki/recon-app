@@ -66,20 +66,27 @@ export class ScanStateMachine {
     toolStates: Record<string, string>,
     tools: string[]
   ): ScanState {
-    if (currentScanState === 'STOPPED' || currentScanState === 'CANCELLED') {
+    if (currentScanState === 'STOPPED' || currentScanState === 'CANCELLED' || currentScanState === 'INTERRUPTED') {
       return currentScanState;
     }
 
-    if (tools.length === 0) return 'COMPLETED';
+    if (!tools || tools.length === 0) {
+      return 'FAILED';
+    }
 
     let allTerminal = true;
     let anySuccess = false;
     let anyFailed = false;
+    let anyStopped = false;
+    let allSkipped = true;
 
     for (const tool of tools) {
       const state = (toolStates[tool] || 'RUNNING') as ScanState;
       if (!this.isTerminal(state)) {
         allTerminal = false;
+      }
+      if (state !== 'SKIPPED') {
+        allSkipped = false;
       }
       if (state === 'COMPLETED') {
         anySuccess = true;
@@ -87,13 +94,24 @@ export class ScanStateMachine {
       if (state === 'FAILED') {
         anyFailed = true;
       }
+      if (state === 'STOPPED' || state === 'CANCELLED') {
+        anyStopped = true;
+      }
     }
 
     if (!allTerminal) {
       return 'RUNNING';
     }
 
-    if (anySuccess && anyFailed) {
+    if (allSkipped) {
+      return 'SKIPPED';
+    }
+
+    if (anyStopped && !anySuccess) {
+      return 'CANCELLED';
+    }
+
+    if (anySuccess && (anyFailed || anyStopped)) {
       return 'PARTIAL';
     }
     if (anyFailed && !anySuccess) {

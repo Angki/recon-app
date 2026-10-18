@@ -3,8 +3,35 @@ import path from 'path';
 import os from 'os';
 import { dbService } from './database';
 import { logger } from './logger';
-import { shell } from 'electron';
-import type {WorkflowRef} from '../../src/types/workflow';
+import type { WorkflowRef } from '../../src/types/workflow';
+export type AssessmentStatus =
+  | 'COMPLETED_CLEAN'
+  | 'COMPLETED_WITH_FINDINGS'
+  | 'PARTIAL_COVERAGE'
+  | 'FAILED'
+  | 'CANCELLED'
+  | 'INTERRUPTED'
+  | 'IN_PROGRESS'
+  | 'NOT_ASSESSED';
+
+export interface AssessmentMetrics {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  info: number;
+  total: number;
+  riskScore: number;
+  grade: 'A' | 'B' | 'C' | 'D' | 'F' | 'N/A';
+  gradeColor: string;
+  assessmentStatus: AssessmentStatus;
+  assessmentLabel: string;
+  coverageStatus: 'FULL' | 'PARTIAL' | 'NONE';
+  toolsRequested: number;
+  toolsCompleted: number;
+  toolsFailed: number;
+  coverageLimitation: string;
+}
 
 export interface ReportData {
   workflow?: WorkflowRef;
@@ -14,6 +41,7 @@ export interface ReportData {
   startTime: string;
   endTime?: string;
   toolsUsed: string[];
+  toolStatuses?: Record<string, string>;
   findings: Array<{
     id?: string;
     scanner: string;
@@ -54,6 +82,13 @@ export class ReportService {
       }
     }
 
+    const scanRecord = scan as Record<string, unknown>;
+    const toolsUsed: string[] = (scan.config as { tools?: string[] })?.tools || [];
+    const toolStatuses: Record<string, string> = {};
+    for (const t of toolsUsed) {
+      toolStatuses[t] = String(scanRecord[`${t}Status`] || 'UNKNOWN');
+    }
+
     return {
       workflow: (scan.config as {workflow?:WorkflowRef})?.workflow,
       scanId,
@@ -61,13 +96,19 @@ export class ReportService {
       status: String(scan.status || 'UNKNOWN'),
       startTime: String(scan.startTime || new Date().toISOString()),
       endTime: scan.endTime ? String(scan.endTime) : undefined,
-      toolsUsed: (scan.config as { tools?: string[] })?.tools || [],
+      toolsUsed,
+      toolStatuses,
       findings,
       aiAnalysis
     };
   }
 
-  calculateStats(findings: ReportData['findings'], scanStatus?: string) {
+  calculateStats(
+    findings: ReportData['findings'],
+    scanStatus?: string,
+    toolsUsed?: string[],
+    toolStatuses?: Record<string, string>
+  ): AssessmentMetrics {
     let critical = 0, high = 0, medium = 0, low = 0, info = 0;
     for (const f of findings) {
       const sev = (f.severity || 'info').toLowerCase();
@@ -79,38 +120,136 @@ export class ReportService {
     }
 
     const total = findings.length;
-    // Weighted risk score (0-100 max scale)
     const rawScore = (critical * 10) + (high * 6) + (medium * 3) + (low * 1);
     const riskScore = Math.min(100, rawScore);
 
-    let grade = 'A';
-    let gradeColor = '#10b981';
-
-    // If scan failed or was aborted prematurely, do not award a deceptive Grade A
     const normStatus = (scanStatus || '').toUpperCase();
-    if (normStatus === 'FAILED' || normStatus === 'STOPPED' || normStatus === 'CANCELLED') {
-      grade = 'N/A';
-      gradeColor = '#64748b';
-    } else if (critical > 0 || riskScore >= 50) {
-      grade = 'F';
-      gradeColor = '#ef4444';
-    } else if (high > 1 || riskScore >= 35) {
-      grade = 'D';
-      gradeColor = '#f97316';
-    } else if (high === 1 || medium > 3 || riskScore >= 20) {
-      grade = 'C';
-      gradeColor = '#f59e0b';
-    } else if (medium > 0 || low > 5 || riskScore >= 10) {
-      grade = 'B';
-      gradeColor = '#3b82f6';
+    const inferredTools = findings.length > 0
+      ? Array.from(new Set(findings.map(f => f.scanner || 'scanner')))
+      : normStatus === 'COMPLETED'
+      ? ['scanner']
+      : [];
+    const tools = toolsUsed !== undefined ? toolsUsed : inferredTools;
+    const toolsRequested = tools.length;
+    let toolsCompleted = 0;
+    let toolsFailed = 0;
+
+    if (toolStatuses && toolsRequested > 0) {
+      for (const t of tools) {
+        const s = (toolStatuses[t] || '').toUpperCase();
+        if (s === 'COMPLETED') toolsCompleted++;
+        else if (s === 'FAILED' || s === 'STOPPED' || s === 'CANCELLED') toolsFailed++;
+      }
+    } else if (normStatus === 'COMPLETED') {
+      toolsCompleted = toolsRequested;
     }
 
-    return { critical, high, medium, low, info, total, riskScore, grade, gradeColor };
+    let grade: 'A' | 'B' | 'C' | 'D' | 'F' | 'N/A';
+    let gradeColor: string;
+    let assessmentStatus: AssessmentStatus;
+    let assessmentLabel: string;
+    let coverageStatus: 'FULL' | 'PARTIAL' | 'NONE';
+    let coverageLimitation: string;
+
+    const isNonTerminalOrActive = ['RUNNING', 'VALIDATING', 'PARSING', 'QUEUED'].includes(normStatus);
+    const isInterruptedOrStopped = ['STOPPED', 'CANCELLED', 'INTERRUPTED'].includes(normStatus);
+    const isFailed = normStatus === 'FAILED';
+
+    if (toolsRequested === 0 && total === 0) {
+      grade = 'N/A';
+      gradeColor = '#64748b';
+      assessmentStatus = 'NOT_ASSESSED';
+      assessmentLabel = 'Not Assessed (Zero Tools Run)';
+      coverageStatus = 'NONE';
+      coverageLimitation = 'No security tools were selected or executed on target.';
+    } else if (isFailed) {
+      grade = 'N/A';
+      gradeColor = '#ef4444';
+      assessmentStatus = 'FAILED';
+      assessmentLabel = 'Assessment Failed';
+      coverageStatus = 'NONE';
+      coverageLimitation = 'Scan execution failed with error. Results are incomplete and cannot be used for security assurance.';
+    } else if (isInterruptedOrStopped) {
+      grade = 'N/A';
+      gradeColor = '#64748b';
+      assessmentStatus = 'CANCELLED';
+      assessmentLabel = 'Assessment Cancelled / Interrupted';
+      coverageStatus = 'PARTIAL';
+      coverageLimitation = 'Scan was stopped or interrupted before all engines completed. Findings do not reflect full scope.';
+    } else if (isNonTerminalOrActive) {
+      grade = 'N/A';
+      gradeColor = '#3b82f6';
+      assessmentStatus = 'IN_PROGRESS';
+      assessmentLabel = 'Assessment In Progress';
+      coverageStatus = 'PARTIAL';
+      coverageLimitation = 'Scan is actively executing. Interim findings do not represent a final assessment.';
+    } else if (toolsFailed > 0 || (toolsCompleted < toolsRequested && normStatus !== 'COMPLETED')) {
+      coverageStatus = 'PARTIAL';
+      assessmentStatus = 'PARTIAL_COVERAGE';
+      if (total === 0) {
+        grade = 'N/A';
+        gradeColor = '#f59e0b';
+        assessmentLabel = 'Inconclusive (Partial Coverage)';
+        coverageLimitation = `Scan completed partially (${toolsCompleted}/${toolsRequested} tools succeeded, ${toolsFailed} failed). Zero findings does not imply the target is secure.`;
+      } else {
+        if (critical > 0 || riskScore >= 50) { grade = 'F'; gradeColor = '#ef4444'; }
+        else if (high > 1 || riskScore >= 35) { grade = 'D'; gradeColor = '#f97316'; }
+        else if (high === 1 || medium > 3 || riskScore >= 20) { grade = 'C'; gradeColor = '#f59e0b'; }
+        else if (medium > 0 || low > 5 || riskScore >= 10) { grade = 'B'; gradeColor = '#3b82f6'; }
+        else { grade = 'B'; gradeColor = '#3b82f6'; }
+        assessmentLabel = `${grade} (Partial Coverage)`;
+        coverageLimitation = `Some tool executions failed or were skipped (${toolsFailed} failed). Additional vulnerabilities may exist in unassessed areas.`;
+      }
+    } else if (normStatus === 'COMPLETED') {
+      coverageStatus = 'FULL';
+      if (total === 0) {
+        grade = 'A';
+        gradeColor = '#10b981';
+        assessmentStatus = 'COMPLETED_CLEAN';
+        assessmentLabel = 'Clean (Tested Scope Only)';
+        coverageLimitation = 'No vulnerabilities identified within tested scanner coverage. This assessment does not guarantee absence of unassessed vulnerability classes or zero-day exploits.';
+      } else {
+        if (critical > 0 || riskScore >= 50) { grade = 'F'; gradeColor = '#ef4444'; }
+        else if (high > 1 || riskScore >= 35) { grade = 'D'; gradeColor = '#f97316'; }
+        else if (high === 1 || medium > 3 || riskScore >= 20) { grade = 'C'; gradeColor = '#f59e0b'; }
+        else if (medium > 0 || low > 5 || riskScore >= 10) { grade = 'B'; gradeColor = '#3b82f6'; }
+        else { grade = 'B'; gradeColor = '#3b82f6'; }
+        assessmentStatus = 'COMPLETED_WITH_FINDINGS';
+        assessmentLabel = `${grade} - ${grade === 'F' ? 'Critical Risk' : grade === 'D' ? 'High Risk' : grade === 'C' ? 'Moderate Risk' : 'Low Risk'}`;
+        coverageLimitation = 'Findings verified within tested scope. Remediate according to severity priority.';
+      }
+    } else {
+      grade = 'N/A';
+      gradeColor = '#64748b';
+      assessmentStatus = 'NOT_ASSESSED';
+      assessmentLabel = `Status: ${normStatus}`;
+      coverageStatus = 'NONE';
+      coverageLimitation = `Scan ended with status ${normStatus}. Results do not provide security verification.`;
+    }
+
+    return {
+      critical,
+      high,
+      medium,
+      low,
+      info,
+      total,
+      riskScore,
+      grade,
+      gradeColor,
+      assessmentStatus,
+      assessmentLabel,
+      coverageStatus,
+      toolsRequested,
+      toolsCompleted,
+      toolsFailed,
+      coverageLimitation
+    };
   }
 
   async generateHtmlReport(scanId: string): Promise<string> {
     const data = await this.compileReportData(scanId);
-    const stats = this.calculateStats(data.findings, data.status);
+    const stats = this.calculateStats(data.findings, data.status, data.toolsUsed, data.toolStatuses);
     const scanDir = path.join(this.reportsDir, scanId);
     if (!fs.existsSync(scanDir)) fs.mkdirSync(scanDir, { recursive: true });
 
@@ -190,21 +329,21 @@ export class ReportService {
         </div>
         <div style="text-align:center;">
           <div class="score-badge">${stats.grade}</div>
-          <div style="font-size:11px; font-weight:bold; color:#94a3b8; margin-top:6px;">RISK SCORE: ${stats.riskScore}/100</div>
+          <div style="font-size:11px; font-weight:bold; color:#94a3b8; margin-top:6px;">${escapeHtml(stats.assessmentLabel)}</div>
         </div>
       </div>
       <div style="margin-top:16px; padding-top:14px; border-top:1px solid #334155; font-size:12px; color:#cbd5e1;">
-        <strong>Engines Deployed:</strong> ${data.toolsUsed.length > 0 ? escapeHtml(data.toolsUsed.join(', ')) : 'Automated Suite'}
+        <strong>Engines Deployed:</strong> ${data.toolsUsed.length > 0 ? escapeHtml(data.toolsUsed.join(', ')) : 'None'} (${stats.toolsCompleted}/${stats.toolsRequested} completed)
       </div>
     </div>
 
     <!-- Methodology & Assessment Scope Notice -->
     <div style="background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:16px; margin-bottom:24px; font-size:12px; color:#94a3b8; line-height:1.6;">
-      <strong style="color:#cbd5e1;">Assessment Scope & Scoring Methodology:</strong><br>
-      • <strong>Assessment Window:</strong> ${escapeHtml(data.startTime)}${data.endTime ? ` to ${escapeHtml(data.endTime)}` : ' (In Progress / Interrupted)'} | <strong>Status:</strong> ${escapeHtml(data.status)}<br>
-      • <strong>Engines Deployed:</strong> ${data.toolsUsed.length > 0 ? escapeHtml(data.toolsUsed.join(', ')) : 'Automated Suite'}<br>
-      • <strong>Scoring Notice:</strong> The Risk Score (${stats.riskScore}/100) is an internal operational prioritization index (Critical: 10, High: 6, Medium: 3, Low: 1) and is distinct from official CVSS, EPSS, or CISA KEV scores.<br>
-      • <strong>Assurance Notice:</strong> Failed or stopped scans are flagged as Grade N/A and do not indicate a clean target posture.
+      <strong style="color:#cbd5e1;">Assessment Scope, Status & Limitations:</strong><br>
+      • <strong>Assessment Status:</strong> ${escapeHtml(stats.assessmentStatus)} (${escapeHtml(stats.assessmentLabel)})<br>
+      • <strong>Coverage Posture:</strong> ${escapeHtml(stats.coverageStatus)} (${stats.toolsCompleted}/${stats.toolsRequested} tools succeeded, ${stats.toolsFailed} failed)<br>
+      • <strong>Assurance Limitation:</strong> ${escapeHtml(stats.coverageLimitation)}<br>
+      • <strong>Scoring Notice:</strong> The Risk Score (${stats.riskScore}/100) is an internal operational prioritization index (Critical: 10, High: 6, Medium: 3, Low: 1) and is distinct from official CVSS, EPSS, or CISA KEV scores.
     </div>
 
     <!-- Severity Summary -->
@@ -247,7 +386,7 @@ export class ReportService {
         <h2 style="font-size:18px; font-weight:700; margin:0;">Detailed Findings (${data.findings.length})</h2>
         <span style="font-size:12px; color:#94a3b8;">Sorted by Severity</span>
       </div>
-      ${data.findings.length === 0 ? '<div style="text-align:center; padding:40px; background:#0f172a; border-radius:14px; color:#94a3b8;">No security vulnerabilities detected during this assessment.</div>' : findingsHtml}
+      ${data.findings.length === 0 ? `<div style="text-align:center; padding:40px; background:#0f172a; border-radius:14px; color:#94a3b8;">${stats.assessmentStatus === 'COMPLETED_CLEAN' ? 'No security vulnerabilities detected during this assessment.' : stats.coverageLimitation}</div>` : findingsHtml}
     </div>
 
     <footer style="margin-top:40px; padding-top:20px; border-top:1px solid #1e293b; text-align:center; font-size:12px; color:#64748b;">
@@ -264,7 +403,7 @@ export class ReportService {
 
   async generateMarkdownReport(scanId: string): Promise<string> {
     const data = await this.compileReportData(scanId);
-    const stats = this.calculateStats(data.findings);
+    const stats = this.calculateStats(data.findings, data.status, data.toolsUsed, data.toolStatuses);
     const scanDir = path.join(this.reportsDir, scanId);
     if (!fs.existsSync(scanDir)) fs.mkdirSync(scanDir, { recursive: true });
 
@@ -273,10 +412,13 @@ export class ReportService {
     let md = `# Security Assessment Report: ${data.target}\n\n`;
     md += `**Target:** \`${data.target}\`  \n`;
     md += `**Scan ID:** \`${data.scanId}\`  \n`;
+    md += `**Assessment Status:** \`${stats.assessmentStatus}\` (${stats.assessmentLabel})  \n`;
+    md += `**Overall Security Grade:** **${stats.grade}** (Risk Score: ${stats.riskScore}/100)  \n`;
+    md += `**Engines Coverage:** ${stats.toolsCompleted}/${stats.toolsRequested} tools completed successfully (${stats.coverageStatus})  \n`;
     if (data.workflow) md += `**Workflow:** ${data.workflow.kind}; source scan: ${data.workflow.sourceScanId}; source item: ${data.workflow.findingId ?? data.workflow.endpointId}. Retest does not automatically establish remediation.\n\n`;
-    md += `**Generated:** ${new Date().toISOString()}  \n`;
-    md += `**Overall Security Grade:** **${stats.grade}** (Risk Score: ${stats.riskScore}/100)  \n\n`;
+    md += `**Generated:** ${new Date().toISOString()}  \n\n`;
 
+    md += `> **Scope & Assurance Limitation**: ${stats.coverageLimitation}\n\n`;
     md += `> **Notice**: Risk Score is an internal operational index (Critical: 10, High: 6, Medium: 3, Low: 1) and does not represent an official CVSS or EPSS score.\n\n`;
 
     md += `## Executive Summary\n\n`;
@@ -316,7 +458,7 @@ export class ReportService {
 
   async exportJsonReport(scanId: string): Promise<string> {
     const data = await this.compileReportData(scanId);
-    const stats = this.calculateStats(data.findings);
+    const stats = this.calculateStats(data.findings, data.status, data.toolsUsed, data.toolStatuses);
     const scanDir = path.join(this.reportsDir, scanId);
     if (!fs.existsSync(scanDir)) fs.mkdirSync(scanDir, { recursive: true });
 
@@ -324,6 +466,9 @@ export class ReportService {
     const payload = {
       ...data,
       metrics: stats,
+      assessmentStatus: stats.assessmentStatus,
+      assessmentLabel: stats.assessmentLabel,
+      coverageLimitation: stats.coverageLimitation,
       scoringNotice: 'Risk score is an internal weighted risk index (0-100) and is not an official CVSS or EPSS metric.',
       exportedAt: new Date().toISOString()
     };

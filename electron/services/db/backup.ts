@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import type Database from 'better-sqlite3';
+import Database from 'better-sqlite3';
 import { logger } from '../logger';
 
 export interface BackupResult {
@@ -37,7 +37,7 @@ export class BackupManager {
 
   /**
    * Safely create a timestamped database backup.
-   * If a live better-sqlite3 instance is provided, use db.backup() for online transactional consistency.
+   * Flushes WAL checkpoint and uses db.backup() for online transactional consistency.
    */
   async createBackup(db?: Database.Database, customFilename?: string): Promise<BackupResult> {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -45,6 +45,11 @@ export class BackupManager {
     const targetPath = path.join(this.backupDir, filename);
 
     if (db) {
+      try {
+        db.pragma('wal_checkpoint(TRUNCATE)');
+      } catch (err) {
+        logger.warn(`wal_checkpoint notice before backup: ${err}`);
+      }
       // Use SQLite online backup API
       await db.backup(targetPath);
     } else {
@@ -67,7 +72,7 @@ export class BackupManager {
   }
 
   /**
-   * Validate SQLite header and file integrity before restore.
+   * Validate SQLite header, file structure, and PRAGMA integrity_check before restore.
    */
   validateBackupFile(filePath: string): { valid: boolean; reason?: string } {
     if (!fs.existsSync(filePath)) {
@@ -79,7 +84,7 @@ export class BackupManager {
       return { valid: false, reason: 'File size too small for SQLite database' };
     }
 
-    // Check first 16 bytes for standard SQLite header: "SQLite format 3\0"
+    // 1. Check first 16 bytes for standard SQLite header: "SQLite format 3\0"
     const fd = fs.openSync(filePath, 'r');
     const buffer = Buffer.alloc(16);
     fs.readSync(fd, buffer, 0, 16, 0);
@@ -88,6 +93,22 @@ export class BackupManager {
     const header = buffer.toString('utf-8');
     if (!header.startsWith('SQLite format 3')) {
       return { valid: false, reason: 'Invalid SQLite file header' };
+    }
+
+    // 2. Perform deep PRAGMA integrity_check
+    try {
+      const probeDb = new Database(filePath, { readonly: true, fileMustExist: true });
+      try {
+        const rows = probeDb.pragma('integrity_check') as { integrity_check?: string }[];
+        const first = rows[0]?.integrity_check || (rows[0] as unknown as string);
+        if (first !== 'ok') {
+          return { valid: false, reason: `SQLite integrity check failed: ${first}` };
+        }
+      } finally {
+        probeDb.close();
+      }
+    } catch (err) {
+      return { valid: false, reason: `Unable to open SQLite database: ${err instanceof Error ? err.message : String(err)}` };
     }
 
     return { valid: true };
@@ -112,7 +133,9 @@ export class BackupManager {
   }
 
   /**
-   * Enforce retention policy: remove backups older than maxDays, or when total size exceeds quota.
+   * Enforce retention policy:
+   * 1. Remove expired backups older than maxDays, but NEVER delete the single latest backup.
+   * 2. If remaining total bytes exceed quota, prune oldest backups first until within quota.
    */
   enforceRetention(maxDays: number = 30, maxTotalBytes: number = 2 * 1024 * 1024 * 1024): RetentionResult {
     let deletedFiles = 0;
@@ -120,24 +143,50 @@ export class BackupManager {
     const now = Date.now();
     const maxAgeMs = maxDays * 24 * 60 * 60 * 1000;
 
-    const backups = this.listBackups(); // already sorted newest first
+    const allBackups = this.listBackups(); // Sorted newest first
+    if (allBackups.length <= 1) {
+      return { deletedFiles: 0, reclaimedBytes: 0 };
+    }
 
-    let totalBytes = backups.reduce((acc, b) => acc + b.sizeBytes, 0);
+    const newestBackup = allBackups[0]; // Guaranteed protected restore point
+    const candidates = allBackups.slice(1); // Backups that may be pruned
 
-    for (const backup of backups) {
+    const survivors = [newestBackup];
+    let totalBytes = newestBackup.sizeBytes;
+
+    // Phase 1: Prune expired backups (excluding newestBackup)
+    for (const backup of candidates) {
       const ageMs = now - backup.createdAt.getTime();
-      const isExpired = ageMs > maxAgeMs;
-      const exceedsQuota = totalBytes > maxTotalBytes;
+      if (ageMs > maxAgeMs) {
+        try {
+          fs.unlinkSync(backup.path);
+          deletedFiles++;
+          reclaimedBytes += backup.sizeBytes;
+          logger.info(`Retention pruned expired backup: ${backup.filename} (${backup.sizeBytes} bytes)`);
+        } catch (err) {
+          logger.error(`Failed to prune expired backup ${backup.filename}: ${err}`);
+        }
+      } else {
+        survivors.push(backup);
+        totalBytes += backup.sizeBytes;
+      }
+    }
 
-      if (isExpired || exceedsQuota) {
+    // Phase 2: If totalBytes exceeds maxTotalBytes, prune OLDEST survivors first
+    if (totalBytes > maxTotalBytes && survivors.length > 1) {
+      // Sort survivors oldest-first for quota pruning
+      const quotaCandidates = survivors.slice(1).sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+
+      for (const backup of quotaCandidates) {
+        if (totalBytes <= maxTotalBytes) break;
         try {
           fs.unlinkSync(backup.path);
           deletedFiles++;
           reclaimedBytes += backup.sizeBytes;
           totalBytes -= backup.sizeBytes;
-          logger.info(`Retention pruned backup: ${backup.filename} (${backup.sizeBytes} bytes)`);
+          logger.info(`Retention pruned excess quota backup: ${backup.filename} (${backup.sizeBytes} bytes)`);
         } catch (err) {
-          logger.error(`Failed to prune backup ${backup.filename}: ${err}`);
+          logger.error(`Failed to prune excess backup ${backup.filename}: ${err}`);
         }
       }
     }

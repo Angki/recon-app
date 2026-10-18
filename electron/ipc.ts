@@ -114,9 +114,10 @@ export function registerIpcHandlers() {
     }
     const { reportService } = await import('./services/reportService');
     const data = await reportService.compileReportData(scanId);
+    const metrics = reportService.calculateStats(data.findings, data.status, data.toolsUsed, data.toolStatuses);
     return {
       ...data,
-      metrics: reportService.calculateStats(data.findings)
+      metrics
     };
   });
 
