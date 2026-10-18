@@ -70,11 +70,18 @@ Dokumen ini mencatat audit baseline, status komitmen, verifikasi runtime/tool, d
   - Container cleanup guarantees.
 - **Fase 4 (Selesai — commit `18a7a4e`)**:
   - Integrasi SSTImap, jwt_tool, Syft, Interactsh dengan pengujian fixture terisolasi.
-- **Fase 5 (Selesai — commit Fase 5)**:
+- **Fase 5 (Selesai — commit `c9e2a6f`)**:
   - Streamlined UI workflow navigasi 6 tahap & ring buffer logs (`MAX_SCANNER_LOG_LINES = 1000`, `MAX_RAW_LOG_CHARS = 500_000`).
   - Keyboard accessible findings table dengan filter tool baru, confidence badges, fingerprint hashes, dan tab Evidence Drawer.
   - Evidence-grounded AI copilot reasoning dengan untrusted prompt boundary, input redaction, grounded evidence citation, dan persistensi database `ai_analyses`.
   - Suite pengujian Fase 5 (`tests/fase5-hardening.test.ts`) dengan 187/187 tes lulus.
-- **Fase 6 (Sedang Berjalan)**:
-  - Comprehensive QA/QC, verification tests, release build & packaging sign-off.
+- **Fase 6 (Selesai — commit Fase 6)**:
+  - Verifikasi seluruh rangkaian pengujian unit & integrasi terisolasi: 187 / 187 tes LULUS (10 test suites).
+  - Verifikasi nol error TypeScript (`npx tsc -b`) dan nol error ESLint (`npx eslint . --quiet`).
+  - Verifikasi kompilasi bundel produksi (`npm run build`) renderer Vite dan backend Electron.
+  - Verifikasi pembuatan paket rilis Windows (`electron-builder` v26.15.2, Electron v42.3.3):
+    - `Recon App Setup 1.0.0.exe` (NSIS Installer, 104,978,985 bytes, SHA-256: `5A9A798CA61BCF2EBC75CBDDA6023C696E476776DD2E785FD068841C254F6023`)
+    - `Recon App 1.0.0.exe` (Portable executable, 104,811,828 bytes, SHA-256: `619CDDDBED19280732D0D0485F767798D2AB7704B37789664AD4EC1417D9DE2B`)
+  - Dokumentasi rilis, integritas hash SHA-256, petunjuk SmartScreen self-signed certificate, dan persyaratan sistem pada `docs/enterprise/QA-2026-10-18.md` dan `README.md`.
+
 

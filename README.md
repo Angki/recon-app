@@ -86,7 +86,7 @@ npm run dev
 ```bash
 npm run test
 ```
-*Executes the complete test suite across all 5 verification phases.*
+*Executes the complete test suite (187 / 187 passing tests) across all 6 verification phases in an isolated sandbox environment.*
 
 ---
 
@@ -98,9 +98,33 @@ To build the standalone Windows installer and portable executable:
 npm run dist
 ```
 
-Artifacts will be produced in the `release/` directory:
-- **Installer**: `release/Recon App Setup 1.0.0.exe`
-- **Portable**: `release/Recon App 1.0.0.exe`
+### Verified Release Artifacts (v1.0.0)
+
+| Artifact | Type | File Size | SHA-256 Checksum |
+|---|---|---|---|
+| **`Recon App Setup 1.0.0.exe`** | NSIS Installer | 104,978,985 bytes | `5A9A798CA61BCF2EBC75CBDDA6023C696E476776DD2E785FD068841C254F6023` |
+| **`Recon App 1.0.0.exe`** | Standalone Portable | 104,811,828 bytes | `619CDDDBED19280732D0D0485F767798D2AB7704B37789664AD4EC1417D9DE2B` |
+
+#### Verifying Checksums
+```powershell
+Get-FileHash -Algorithm SHA256 "release\Recon App Setup 1.0.0.exe"
+Get-FileHash -Algorithm SHA256 "release\Recon App 1.0.0.exe"
+```
+
+> [!NOTE]
+> **Code Signing Notice**: This software is released for cybersecurity research and authorized penetration testing without an expensive commercial EV certificate. Windows Defender SmartScreen may display a warning on first run (*"Windows protected your PC"*). Click **More info** -> **Run anyway** after verifying the SHA-256 checksum against this repository.
+
+---
+
+## 💻 System Requirements
+
+- **OS**: Windows 10/11 64-bit (x64)
+- **Memory**: 4 GB RAM minimum (8 GB+ recommended for concurrent active scanners)
+- **Disk Space**: 500 MB for core application, plus scan artifacts storage (`Documents\SecOpsScans`)
+- **Optional Tools Prerequisite**:
+  - Python 3.10+ (for SQLmap, Commix, SSTImap, Arjun, Schemathesis)
+  - Docker Desktop (for containerized tools like Nikto, Syft)
+  - Ollama (for offline local AI triage)
 
 ---
 
