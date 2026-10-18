@@ -447,6 +447,34 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       return;
     }
 
+    // Parse target origin & query parameters for active validation plans
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(finalUrl);
+    } catch {
+      alert('Please enter a valid URL');
+      return;
+    }
+    const targetOrigin = parsedUrl.origin;
+    const targetParams = [...new Set(parsedUrl.searchParams.keys())];
+
+    const paramTestingTools = ['sqlmap', 'commix', 'sstimap'];
+    const selectedParamTools = toolsToRun.filter(t => paramTestingTools.includes(t));
+    const effectiveParameters = activePlan.parameters.length > 0 ? activePlan.parameters : targetParams;
+
+    if (selectedParamTools.length > 0 && effectiveParameters.length === 0) {
+      alert(
+        `Target URL does not contain any query parameters (e.g. ?id=1). The selected parameter validation engine(s) (${selectedParamTools.join(', ')}) require a target URL with query parameters.\n\nPlease add query parameters to your target URL or uncheck these tools.`
+      );
+      return;
+    }
+
+    const effectiveActivePlan: ActivePlan = {
+      ...activePlan,
+      scopeOrigin: activePlan.scopeOrigin.trim() || targetOrigin,
+      parameters: effectiveParameters,
+    };
+
     // Reset findings
     setNucleiFindings({ info: 0, low: 0, medium: 0, high: 0, critical: 0 });
     setWapitiVulns(0);
@@ -476,7 +504,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         tools: toolsToRun,
         isWordpress: isWordpressScan,
         executionMode: executionMode,
-        activeValidation: activePlan,
+        activeValidation: effectiveActivePlan,
         ...(testingDraft ? {workflow:testingDraft.workflow} : {}),
       });
       if (res.success) {

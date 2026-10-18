@@ -31,6 +31,19 @@ test('active plan rejects absent scope, wrong origin, missing parameters and inv
   }
   assert.deepEqual(validateActiveConfig(target,plan,['sqlmap']),plan);
   assert.throws(() => validateActiveConfig(target.replace('id=1','id=*'),plan,['sqlmap']));
+
+  // Fallback to target origin when scopeOrigin is empty string or omitted
+  const fallbackEmpty = validateActiveConfig(target, { ...plan, scopeOrigin: '' }, ['sqlmap']);
+  assert.equal(fallbackEmpty.scopeOrigin, 'http://127.0.0.1:49151');
+  const { scopeOrigin: _omitted, ...planWithoutScope } = plan;
+  const fallbackOmitted = validateActiveConfig(target, planWithoutScope, ['sqlmap']);
+  assert.equal(fallbackOmitted.scopeOrigin, 'http://127.0.0.1:49151');
+
+  // Descriptive error when scopeOrigin is invalid URL format
+  assert.throws(
+    () => validateActiveConfig(target, { ...plan, scopeOrigin: '://bad-url' }, ['sqlmap']),
+    /invalid URL format/
+  );
 });
 test('SQLmap differentiates confirmed, negative, truncated and error output', () => {
   assert.equal(parseSqlmap(positive,{targetUrl:target})[0].parameter,'id');

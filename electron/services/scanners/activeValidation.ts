@@ -17,8 +17,22 @@ export interface ActiveValidationConfig {
 export function validateActiveConfig(target: string, input: unknown, tools: string[]): ActiveValidationConfig {
   if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Configure the Active Testing plan before starting.');
   const raw = input as Record<string, unknown>;
-  const url = new URL(target);
-  const scope = new URL(String(raw.scopeOrigin || ''));
+  let url: URL;
+  try {
+    url = new URL(target);
+  } catch {
+    throw new Error(`Target '${target}' is an invalid URL format.`);
+  }
+
+  const rawScope = typeof raw.scopeOrigin === 'string' ? raw.scopeOrigin.trim() : '';
+  const effectiveScope = rawScope || url.origin;
+  let scope: URL;
+  try {
+    scope = new URL(effectiveScope);
+  } catch {
+    throw new Error(`Scope origin '${effectiveScope}' is an invalid URL format.`);
+  }
+
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new Error('Use an HTTP(S) URL without credentials or a fragment.');
   if (scope.origin !== url.origin || scope.pathname !== '/' || scope.search || scope.hash || scope.username || scope.password) throw new Error('Scope must be the exact target origin (scheme, host and port), without path or credentials.');
   const parameters = raw.parameters;

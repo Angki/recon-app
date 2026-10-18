@@ -37,6 +37,17 @@ export default function ActiveTestingPanel({ target, tools, value, onChange, dis
     origin = url.origin;
     parameters = [...new Set(url.searchParams.keys())];
   } catch { /* URL input may be incomplete */ }
+
+  useEffect(() => {
+    if (origin && !value.scopeOrigin) {
+      onChange({
+        ...value,
+        scopeOrigin: origin,
+        parameters: value.parameters.length === 0 ? parameters : value.parameters,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [origin]);
   const fieldClass = 'w-full rounded border border-[var(--border-card)] bg-[var(--bg-surface)] p-2 text-sm';
   const save = async () => {
     setSaving(true);
