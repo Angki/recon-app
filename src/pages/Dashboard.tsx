@@ -201,19 +201,19 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
   const allToolsArray = allTools;
   const tabs = [
-    'sqlmap', 'nikto', 'commix',
+    'sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool', 'interactsh',
     'findings', 'ai', 'nuclei', 'wapiti', 'wpscan', 'pdiscovery', 
     'dalfox', 'wafw00f', 'whatweb', 'arjun', 'corsy', 'cmseek', 'gau', 'crlfsuite', 
-    'nmap', 'zap', 'ffuf', 'gitleaks', 'semgrep', 'trivy', 'sslyze', 'schemathesis',
+    'nmap', 'zap', 'ffuf', 'gitleaks', 'semgrep', 'trivy', 'syft', 'sslyze', 'schemathesis',
     'appscan', 'netsparker', 'acunetix'
   ];
 
   // Tool categories for console filtering
   const toolCategories = {
-    dast: ['sqlmap', 'nikto', 'commix', 'nuclei', 'wapiti', 'dalfox', 'corsy', 'cmseek', 'crlfsuite', 'zap', 'appscan', 'netsparker', 'acunetix'],
+    dast: ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool', 'interactsh', 'nuclei', 'wapiti', 'dalfox', 'corsy', 'cmseek', 'crlfsuite', 'zap', 'appscan', 'netsparker', 'acunetix'],
     recon: ['subfinder', 'httpx', 'katana', 'dnsx', 'alterx', 'tlsx', 'gau', 'whatweb', 'wafw00f', 'wpscan', 'pdiscovery', 'sslyze'],
     network: ['naabu', 'nmap', 'ffuf', 'arjun', 'schemathesis'],
-    secops: ['gitleaks', 'semgrep', 'trivy']
+    secops: ['gitleaks', 'semgrep', 'trivy', 'syft']
   };
 
   // Scan output and stats listeners
@@ -659,7 +659,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         <p className="text-xs mt-1">Review the URL and parameters, then use Start Scan. Fill sample values for newly discovered parameters. Nikto tests the whole origin.</p>
         <div className="flex gap-4 mt-2"><Link className="underline" to="/endpoints">View inventory and linked results</Link><button disabled={['STARTING','RUNNING','STOPPING'].includes(status)} onClick={()=>setTestingDraft(null)} className="underline disabled:opacity-40">Detach draft</button></div>
       </div>}
-      {selectedTools.some(tool => ['sqlmap', 'nikto', 'commix'].includes(tool)) && <ActiveTestingPanel target={targetUrl} tools={selectedTools} value={activePlan} onChange={setActivePlan} disabled={['STARTING','RUNNING','STOPPING'].includes(status)}/>}
+      {selectedTools.some(tool => ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool'].includes(tool)) && <ActiveTestingPanel target={targetUrl} tools={selectedTools} value={activePlan} onChange={setActivePlan} disabled={['STARTING','RUNNING','STOPPING'].includes(status)}/>}
       {dashboardView?.showToolSelection ? (
         <ToolSelection
           allTools={allToolsArray} selectedTools={selectedTools}

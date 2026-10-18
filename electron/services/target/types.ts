@@ -50,6 +50,10 @@ export const TOOL_TARGET_CAPABILITIES: Record<string, TargetType[]> = {
   nikto: ['web_url'],
   sqlmap: ['web_url'],
   commix: ['web_url'],
+  sstimap: ['web_url'],
+  jwt_tool: ['web_url', 'api_spec'],
+  syft: ['local_source', 'container_image'],
+  interactsh: ['web_url'],
   zap: ['web_url', 'api_spec'],
   wpscan: ['web_url', 'container_image'],
   

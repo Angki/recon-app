@@ -1432,8 +1432,146 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         throw new Error(`Failed to parse Schemathesis output: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
       }
     }
+  },
+
+  syft: {
+    getCommandArgs(ctx) {
+      const isPath = fs.existsSync(ctx.targetUrl) || ctx.targetUrl.startsWith('/') || /^[a-zA-Z]:\\/.test(ctx.targetUrl) || ctx.targetUrl.startsWith('.');
+      const targetArg = isPath ? `dir:${ctx.targetUrl}` : ctx.targetUrl;
+      return [targetArg, '-o', `json=${ctx.jsonFile}`, '-q'];
+    },
+    isSuccessExitCode(code) {
+      return code === 0;
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      return parseSyft(content, ctx);
+    }
+  },
+
+  interactsh: {
+    getCommandArgs(ctx) {
+      const args = ['-json', '-o', ctx.jsonFile, '-v'];
+      const server = (ctx.settings as any)?.interactshServer || (ctx.config?.interactshServer as string);
+      if (server) {
+        args.push('-server', server);
+      }
+      const token = (ctx.settings as any)?.interactshToken || (ctx.config?.interactshToken as string);
+      if (token) {
+        args.push('-token', token);
+      }
+      const correlationId = (ctx.config?.correlationId as string) || ctx.scanId;
+      if (correlationId) {
+        args.push('-cid', correlationId);
+      }
+      return args;
+    },
+    isSuccessExitCode(code) {
+      return code === 0;
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      return parseInteractsh(content, ctx);
+    }
   }
 };
+
+export function parseSyft(content: string, ctx: Pick<ScannerContext, 'targetUrl'>) {
+  if (!content.trim()) return [];
+  let data: any;
+  try {
+    data = JSON.parse(content);
+  } catch (err) {
+    throw new Error(`Failed to parse Syft JSON: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+  }
+
+  if (!data || typeof data !== 'object' || !Array.isArray(data.artifacts)) {
+    throw new Error('Malformed Syft JSON output: missing artifacts array');
+  }
+
+  const findings: Record<string, unknown>[] = [];
+  for (const pkg of data.artifacts) {
+    if (!pkg || typeof pkg.name !== 'string') continue;
+    const version = pkg.version || 'unknown';
+    const purl = pkg.purl || 'N/A';
+    const licenses = Array.isArray(pkg.licenses) ? pkg.licenses : (pkg.license ? [pkg.license] : []);
+    const licenseNames = licenses.map((l: any) => typeof l === 'string' ? l : (l.value || l.spdxExpression || JSON.stringify(l))).filter(Boolean);
+
+    findings.push({
+      id: `syft-pkg-${pkg.name}-${version}`,
+      name: `Software Component: ${pkg.name} (${version})`,
+      severity: 'info',
+      scanner: 'syft',
+      url: ctx.targetUrl,
+      cwe: 'CWE-1395',
+      confidence: 'tool-confirmed',
+      description: `Syft cataloged ${pkg.type || 'unknown'} package ${pkg.name}@${version}. PURL: ${purl}. Licenses: ${licenseNames.join(', ') || 'Unknown'}.`,
+      remediation: 'Maintain component in Software Bill of Materials (SBOM) and audit for known upstream CVE vulnerabilities.',
+      evidence: {
+        name: pkg.name,
+        version,
+        type: pkg.type || 'unknown',
+        purl,
+        licenses: licenseNames,
+        locations: pkg.locations || [],
+        source: data.source?.target || ctx.targetUrl
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  return findings;
+}
+
+export function parseInteractsh(content: string, ctx: Pick<ScannerContext, 'targetUrl'>) {
+  if (!content.trim()) return [];
+  const lines = content.split(/\r?\n/).filter(l => l.trim() !== '');
+  const findings: Record<string, unknown>[] = [];
+
+  for (const line of lines) {
+    let item: any;
+    try {
+      item = JSON.parse(line);
+    } catch (err) {
+      throw new Error(`Malformed Interactsh JSON line: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+    }
+
+    if (!item || typeof item !== 'object') continue;
+    const protocol = String(item.protocol || 'OOB').toUpperCase();
+    const uniqueId = item['unique-id'] || 'session';
+    const fullId = item['full-id'] || uniqueId;
+    
+    // Strict IP and credential redaction
+    const rawReq = item['raw-request'] ? String(item['raw-request'])
+      .replace(/Authorization:\s*.+/gi, 'Authorization: [REDACTED]')
+      .replace(/Cookie:\s*.+/gi, 'Cookie: [REDACTED]') : undefined;
+
+    findings.push({
+      id: `interactsh-${uniqueId}-${protocol.toLowerCase()}`,
+      name: `Out-of-Band (OOB) Interaction: ${protocol}`,
+      severity: 'high',
+      scanner: 'interactsh',
+      url: ctx.targetUrl,
+      confidence: 'tool-confirmed',
+      cwe: 'CWE-918',
+      description: `Interactsh received an out-of-band ${protocol} callback for correlation session ${uniqueId}. Proves external network interaction initiated by target.`,
+      remediation: 'Restrict outbound network egress from backend servers and validate URL input schemas strictly.',
+      evidence: {
+        protocol,
+        uniqueId,
+        fullId,
+        remoteAddress: '[REDACTED_IP]',
+        timestamp: item.timestamp || new Date().toISOString(),
+        rawRequestSnippet: rawReq ? rawReq.slice(0, 500) : undefined
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  return findings;
+}
 
 function genericJsonLinesParser(ctx: ScannerContext) {
   if (!fs.existsSync(ctx.jsonFile)) return [];

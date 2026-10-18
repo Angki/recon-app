@@ -11,10 +11,16 @@ export interface AppSettings {
   activePerlPath?: string;
   sqlmapScriptPath?: string;
   commixScriptPath?: string;
+  sstimapScriptPath?: string;
+  jwtToolScriptPath?: string;
   niktoScriptPath?: string;
   niktoRuntime?: 'perl' | 'docker';
   activeDockerPath?: string;
   niktoDockerImage?: string;
+  syftPath: string;
+  interactshPath: string;
+  interactshServer?: string;
+  interactshToken?: string;
   nucleiPath: string;
   wapitiPath: string;
   subfinderPath: string;
@@ -54,6 +60,10 @@ export interface PublicAppSettings extends AppSettings {
 }
 
 const DEFAULTS: AppSettings = {
+  syftPath: 'syft',
+  interactshPath: 'interactsh-client',
+  interactshServer: '',
+  interactshToken: '',
   nucleiPath: 'nuclei',
   wapitiPath: 'wapiti',
   subfinderPath: 'subfinder',
@@ -83,7 +93,7 @@ const DEFAULTS: AppSettings = {
   wpscanApiToken: '',
 };
 
-const SENSITIVE_FIELDS: (keyof AppSettings)[] = ['acunetixApiKey', 'acunetixPassword', 'aiApiKey', 'wpscanApiToken'];
+const SENSITIVE_FIELDS: (keyof AppSettings)[] = ['acunetixApiKey', 'acunetixPassword', 'aiApiKey', 'wpscanApiToken', 'interactshToken'];
 
 class SettingsStore {
   private filePath: string;

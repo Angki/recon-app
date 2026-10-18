@@ -10,6 +10,8 @@ const runtimeFields = [
   ['activePythonPath', 'Python executable (absolute path)', 'sqlmap'],
   ['sqlmapScriptPath', 'sqlmap.py (official source checkout)', 'sqlmap'],
   ['commixScriptPath', 'commix.py (official source checkout)', 'commix'],
+  ['sstimapScriptPath', 'sstimap.py (official source checkout)', 'sstimap'],
+  ['jwtToolScriptPath', 'jwt_tool.py (official source checkout)', 'jwt_tool'],
   ['activePerlPath', 'Perl executable (absolute path)', 'nikto'],
   ['niktoScriptPath', 'nikto.pl (official program directory)', 'nikto'],
 ] as const;
@@ -46,14 +48,14 @@ export default function ActiveTestingPanel({ target, tools, value, onChange, dis
   };
   return <section aria-label="Active Testing plan" className="theme-card rounded-xl p-3 shrink-0 border border-orange-400/30">
     <details open>
-      <summary className="font-semibold cursor-pointer">Active Testing — SQLmap / Commix / Nikto</summary>
+      <summary className="font-semibold cursor-pointer">Active Testing — SQLmap / Commix / SSTImap / jwt_tool / Nikto</summary>
       <div className="max-h-64 overflow-y-auto space-y-3 pt-2">
-        <p className="text-xs text-[var(--text-secondary)]">SQLmap and Commix validate selected GET parameters. Commix probes command execution with proof markers. Nikto checks server issues. Use an origin covered by your assessment scope. Install Python tools from Tools Hub; findings require analyst review.</p>
+        <p className="text-xs text-[var(--text-secondary)]">SQLmap, Commix, and SSTImap validate selected GET parameters. Commix probes command execution with proof markers. SSTImap verifies template injection with arithmetic proofs. jwt_tool inspects tokens with secret redaction. Nikto checks server issues. Use an origin covered by your assessment scope. Findings require analyst review.</p>
         <fieldset disabled={disabled || saving} className="space-y-3 disabled:opacity-60">
           <label className="block text-xs">Assessment origin (scheme, host, port)
             <input aria-label="Assessment origin" className={fieldClass} placeholder={origin || 'https://your-lab.example'} value={value.scopeOrigin} onChange={e => onChange({...value,scopeOrigin:e.target.value})}/>
           </label>
-          {tools.some(tool => ['sqlmap','commix'].includes(tool)) && <div className="text-xs space-y-2">
+          {tools.some(tool => ['sqlmap','commix','sstimap'].includes(tool)) && <div className="text-xs space-y-2">
             <p>Query parameters {parameters.length === 0 && '— add a query string to the target URL first.'}</p>
             <div className="flex flex-wrap gap-3">{parameters.map(parameter => <label key={parameter} className="flex gap-2 items-center">
               <input type="checkbox" checked={value.parameters.includes(parameter)} onChange={e => onChange({...value,parameters:e.target.checked ? [...value.parameters,parameter] : value.parameters.filter(p => p !== parameter)})}/>{parameter}

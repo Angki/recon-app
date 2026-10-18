@@ -90,6 +90,8 @@ export class ToolManager {
       wapiti: settings.wapitiPath,
       nmap: settings.nmapPath,
       zap: settings.zapPath,
+      syft: settings.syftPath,
+      interactsh: settings.interactshPath,
     };
 
     if (settingMap[toolName] && fs.existsSync(settingMap[toolName]!)) {

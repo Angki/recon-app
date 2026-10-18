@@ -80,6 +80,7 @@ export const TOOL_PIPELINE_PRIORITY: Record<string, number> = {
   gitleaks: 21,
   semgrep: 22,
   trivy: 23,
+  syft: 24,
 
   // Phase 2: Active Web Crawling & Endpoint Discovery
   httpx: 30,
@@ -102,6 +103,9 @@ export const TOOL_PIPELINE_PRIORITY: Record<string, number> = {
   nikto: 55,
   sqlmap: 59,
   commix: 60,
+  sstimap: 61,
+  jwt_tool: 62,
+  interactsh: 63,
   appscan: 56,
   netsparker: 57,
   acunetix: 58,

@@ -453,6 +453,27 @@ export class RequestWorkspace {
         if (authHeader) args.push('--header', `Authorization: ${authHeader}`);
         break;
       }
+      case 'sstimap': {
+        args.push('-u', req.url, '--batch', '--verify');
+        if (req.method === 'POST' && req.body) {
+          args.push(`--data=${req.body}`);
+        }
+        if (req.testParameters.length > 0) {
+          args.push('-p', req.testParameters.join(','));
+        }
+        const cookies = Object.entries(req.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
+        if (cookies) args.push(`--cookie=${cookies}`);
+        if (authHeader) args.push(`--headers=Authorization: ${authHeader}`);
+        break;
+      }
+      case 'jwt_tool': {
+        args.push('-t', req.url, '-M', 'at', '--no-banner');
+        if (authHeader) {
+          const token = authHeader.replace(/^Bearer\s+/i, '');
+          args.push('-b', token);
+        }
+        break;
+      }
       case 'nikto': {
         const parsed = new URL(req.url);
         args.push('-h', parsed.origin);
@@ -476,7 +497,16 @@ export class RequestWorkspace {
    */
   static buildSafePreview(tool: string, req: RequestDefinition, authHeader?: string): string[] {
     const rawArgs = this.buildToolArguments(tool, req, authHeader);
+    let redactNext = false;
     return rawArgs.map(arg => {
+      if (redactNext) {
+        redactNext = false;
+        return '[AUTH_REDACTED]';
+      }
+      if (arg === '-b') {
+        redactNext = true;
+        return arg;
+      }
       // Redact Authorization headers and secrets
       if (/Authorization:\s*/i.test(arg)) {
         return arg.replace(/Authorization:\s*.+/i, 'Authorization: [AUTH_REDACTED]');
@@ -486,6 +516,9 @@ export class RequestWorkspace {
       }
       if (/-id\s+.+/i.test(arg)) {
         return '-id [AUTH_REDACTED]';
+      }
+      if (/^eyJ[A-Za-z0-9_-]+\.eyJ[A-Za-z0-9_-]+/i.test(arg)) {
+        return 'eyJ...[REDACTED_TOKEN]';
       }
       return arg;
     });

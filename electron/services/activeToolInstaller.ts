@@ -8,6 +8,8 @@ import { settingsStore } from './settings';
 export const PINNED_ACTIVE_SOURCES = {
   sqlmap: {repo:'https://github.com/sqlmapproject/sqlmap.git',revision:'9a1660aa120c526f68b637e5f232137722353522',script:'sqlmap.py',setting:'sqlmapScriptPath'},
   commix: {repo:'https://github.com/commixproject/commix.git',revision:'287fb3dc99ff0c720cd1e5327ddb9819d8f5c5b8',script:'commix.py',setting:'commixScriptPath'},
+  sstimap: {repo:'https://github.com/vladko312/SSTImap.git',revision:'8f7f8976b325257f86f7fe24b33b006c3c52e6d6',script:'sstimap.py',setting:'sstimapScriptPath'},
+  jwt_tool: {repo:'https://github.com/ticarpi/jwt_tool.git',revision:'69f50ca544b611e9f16cbdd96fba4898fc8a7e02',script:'jwt_tool.py',setting:'jwtToolScriptPath'},
 } as const;
 export const PINNED_NIKTO_IMAGE = 'ghcr.io/sullo/nikto@sha256:0bb37022ebfadc38d6a9a2755c03bfd1f9e079e01e8946fe548153d9ba0c2012';
 export type InstallableActiveTool = keyof typeof PINNED_ACTIVE_SOURCES | 'nikto';
@@ -65,8 +67,9 @@ export async function installActiveTool(tool: InstallableActiveTool, progress: (
     const {stdout:head} = await run(['-C',directory,'rev-parse','HEAD']);
     if (head.trim() !== source.revision) throw new Error('Source revision mismatch');
     const script = path.join(directory,source.script);
-    const {stdout:version} = await execute(python,[script,'--version'],{windowsHide:true,timeout:20000,maxBuffer:64*1024});
-    if (!/\d+\.\d+/.test(version)) throw new Error('Tool version check failed');
+    const versionFlag = tool === 'jwt_tool' ? '-h' : '--version';
+    const {stdout:version} = await execute(python,[script,versionFlag],{windowsHide:true,timeout:20000,maxBuffer:64*1024});
+    if (!/\d+\.\d+/.test(version) && !/SSTImap|jwt_tool/i.test(version)) throw new Error('Tool version check failed');
     await fs.writeFile(path.join(directory,'recon-install.json'),JSON.stringify({tool,repo:source.repo,revision:source.revision,python,version:version.trim(),installedAt:new Date().toISOString()},null,2));
     settingsStore.save({activePythonPath:python,[source.setting]:script});
     progress(`${tool} installed and configured: ${version.trim().split('\n')[0]}`);

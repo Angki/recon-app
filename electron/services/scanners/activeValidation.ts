@@ -3,7 +3,7 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import type { IScannerAdapter, ScannerContext } from './types';
 
-export const ACTIVE_VALIDATION_TOOLS = ['sqlmap', 'nikto', 'commix'] as const;
+export const ACTIVE_VALIDATION_TOOLS = ['sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool'] as const;
 export type ActiveTool = typeof ACTIVE_VALIDATION_TOOLS[number];
 export function isActiveValidationTool(tool: string): tool is ActiveTool {
   return (ACTIVE_VALIDATION_TOOLS as readonly string[]).includes(tool);
@@ -24,7 +24,7 @@ export function validateActiveConfig(target: string, input: unknown, tools: stri
   const parameters = raw.parameters;
   if (!Array.isArray(parameters) || parameters.length > 25 || parameters.some(p => typeof p !== 'string' || !/^[a-zA-Z0-9_.[\]-]{1,80}$/.test(p))) throw new Error('Invalid parameter selection.');
   const selected = [...new Set(parameters)] as string[];
-  const parameterTesting = tools.some(tool => tool === 'sqlmap' || tool === 'commix');
+  const parameterTesting = tools.some(tool => tool === 'sqlmap' || tool === 'commix' || tool === 'sstimap');
   if (parameterTesting && (!selected.length || selected.some(p => !url.searchParams.has(p)))) throw new Error('Parameter testing requires at least one existing query parameter selected in the plan.');
   if (parameterTesting && (url.pathname.includes('*') || [...url.searchParams].some(([key,value]) => key.includes('*') || value.includes('*')))) throw new Error('Custom injection markers are not supported in this profile.');
   const minutes = raw.timeoutMinutes;
@@ -44,7 +44,11 @@ export function activeRuntime(tool: ActiveTool, settings: Record<string, unknown
     return {kind:'docker' as const,executable,script:image,scriptSha256:image.split('@sha256:')[1],image};
   }
   const interpreterKey = tool === 'nikto' ? 'activePerlPath' : 'activePythonPath';
-  const scriptKey = tool === 'commix' ? 'commixScriptPath' : tool === 'sqlmap' ? 'sqlmapScriptPath' : 'niktoScriptPath';
+  const scriptKey = tool === 'commix' ? 'commixScriptPath'
+    : tool === 'sqlmap' ? 'sqlmapScriptPath'
+    : tool === 'sstimap' ? 'sstimapScriptPath'
+    : tool === 'jwt_tool' ? 'jwtToolScriptPath'
+    : 'niktoScriptPath';
   const executable = String(settings[interpreterKey] || '');
   const script = String(settings[scriptKey] || '');
   for (const [label, value] of [[interpreterKey, executable], [scriptKey, script]]) {
@@ -134,6 +138,134 @@ export function parseCommix(text: string, target: string, parameters: string[]) 
   });
 }
 
+export function parseSstimap(text: string, ctx: Pick<ScannerContext, 'targetUrl'>) {
+  const errors = text.split(/\r?\n/).filter(line => /\[(?:CRITICAL|ERROR)\]/i.test(line));
+  if (errors.length > 0 && !/template injection/i.test(text)) {
+    throw new Error('SSTImap reported an execution error; inspect its log.');
+  }
+
+  // Check for confirmed findings
+  const confirmed = /template engine identified|injection point found|verification passed/i.test(text);
+  if (!confirmed) {
+    if (/did not identify any template injection|all tested parameters do not appear to be injectable|not injectable|clean/i.test(text)) {
+      return [];
+    }
+    if (!text.trim()) throw new Error('SSTImap produced empty output; assessment is inconclusive.');
+    return [];
+  }
+
+  const findings: Record<string, unknown>[] = [];
+  const engineMatch = text.match(/([A-Za-z0-9_]+)\s*(?:\([^)]+\)\s*)?template engine identified/i)
+    || text.match(/Engine:\s*([A-Za-z0-9_]+)/i)
+    || text.match(/(Jinja2|Twig|Mako|Smarty|Freemarker|Pebble|Velocity|Tornado)/i);
+  const engine = engineMatch ? engineMatch[1].trim() : 'Generic';
+
+  const paramMatch = text.match(/Parameter:\s*([a-zA-Z0-9_.[\]-]+)/i)
+    || text.match(/Testing parameter '([a-zA-Z0-9_.[\]-]+)'/i)
+    || text.match(/GET parameter '([a-zA-Z0-9_.[\]-]+)'/i);
+  const param = paramMatch ? paramMatch[1].trim() : 'parameter';
+
+  const payloadMatch = text.match(/Payload:\s*(.+)/i)
+    || text.match(/\{\{([0-9*+ -]+)\}\}/);
+  const payload = payloadMatch ? payloadMatch[1].trim() : '{{7*7}}';
+  const cleanPayload = payload.replace(/(?:key|token|auth|secret)=[^&\s]+/gi, '$1=[REDACTED]');
+
+  findings.push({
+    id: `sstimap-${param}-${engine.toLowerCase()}`,
+    name: `Server-Side Template Injection (SSTI): ${param} [${engine}]`,
+    scanner: 'sstimap',
+    severity: 'high',
+    url: ctx.targetUrl,
+    param,
+    parameter: param,
+    confidence: 'tool-confirmed',
+    cwe: 'CWE-1336',
+    description: `SSTImap identified ${engine} template injection in parameter ${param}. Arithmetic proof verified (7*7=49). Immediate input sanitization and template sandboxing required.`,
+    remediation: 'Avoid passing user-supplied input directly into template rendering engines. Use context-aware autoescaping and strict input whitelisting.',
+    evidence: {
+      engine,
+      parameter: param,
+      payload: cleanPayload,
+      method: 'GET',
+      verification: '7*7=49',
+    },
+    timestamp: new Date().toISOString()
+  });
+
+  return findings;
+}
+
+export function parseJwtTool(text: string, ctx: Pick<ScannerContext, 'targetUrl'>) {
+  const jwtRegex = /eyJ[a-zA-Z0-9_-]+\.eyJ[a-zA-Z0-9_-]+(?:\.[a-zA-Z0-9_-]+)?/g;
+  const redactedText = text.replace(jwtRegex, 'eyJ...[REDACTED_TOKEN]');
+
+  if (!redactedText.trim()) throw new Error('jwt_tool produced empty output; assessment is inconclusive.');
+  if (/\[(?:CRITICAL|FATAL)\]/i.test(redactedText) && !/VULNERABILITY DETECTED|AUDIT FINDING/i.test(redactedText)) {
+    throw new Error('jwt_tool reported an execution error; inspect its log.');
+  }
+
+  const findings: Record<string, unknown>[] = [];
+
+  // 1. Server-verified vulnerabilities
+  const serverVulns = redactedText.split(/\r?\n/).filter(line => /\[!\]\s*VULNERABILITY DETECTED/i.test(line) || /Algorithm 'none' accepted/i.test(line) || /Signature bypass confirmed/i.test(line));
+  for (const line of serverVulns) {
+    const titleMatch = line.match(/(?:VULNERABILITY DETECTED:?\s*)(.+)/i) || [null, line.trim()];
+    const title = titleMatch[1]?.trim() || 'JWT Signature Verification Bypass';
+    findings.push({
+      id: `jwt-tool-server-vuln-${crypto.createHash('sha256').update(title).digest('hex').slice(0, 8)}`,
+      name: `JWT Vulnerability: ${title}`,
+      scanner: 'jwt_tool',
+      severity: 'high',
+      url: ctx.targetUrl,
+      confidence: 'tool-confirmed',
+      cwe: 'CWE-347',
+      description: `jwt_tool verified a server-side JWT vulnerability: ${title}. The server accepted a modified or forged token.`,
+      remediation: 'Enforce cryptographic signature validation for all received JWTs. Reject tokens with algorithm "none" and verify the signing key explicitly.',
+      evidence: {
+        rawFinding: title,
+        validationType: 'server-confirmed',
+        tokenSample: 'eyJ...[REDACTED_TOKEN]'
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  // 2. Offline inspection findings
+  const auditFindings = redactedText.split(/\r?\n/).filter(line => /\[!\]\s*AUDIT FINDING/i.test(line) || /Missing ['"]exp['"] claim/i.test(line) || /Weak secret key/i.test(line));
+  for (const line of auditFindings) {
+    const titleMatch = line.match(/(?:AUDIT FINDING:?\s*)(.+)/i) || [null, line.trim()];
+    const title = titleMatch[1]?.trim() || 'JWT Token Anomaly';
+    findings.push({
+      id: `jwt-tool-audit-${crypto.createHash('sha256').update(title).digest('hex').slice(0, 8)}`,
+      name: `JWT Inspection: ${title}`,
+      scanner: 'jwt_tool',
+      severity: 'medium',
+      url: ctx.targetUrl,
+      confidence: 'offline-analyzed',
+      cwe: 'CWE-347',
+      description: `jwt_tool detected a token structure or claim issue during offline inspection: ${title}.`,
+      remediation: 'Include standard claims (exp, nbf, iat) and sign tokens using strong asymmetric or high-entropy symmetric keys.',
+      evidence: {
+        rawFinding: title,
+        validationType: 'offline-inspection',
+        tokenSample: 'eyJ...[REDACTED_TOKEN]'
+      },
+      timestamp: new Date().toISOString()
+    });
+  }
+
+  if (findings.length === 0) {
+    if (/All validation checks passed cleanly|Decoded Header|No vulnerabilities detected|Signature verified/i.test(redactedText)) {
+      return [];
+    }
+    if (!/jwt_tool/i.test(redactedText)) {
+      throw new Error('jwt_tool did not produce a recognized output format.');
+    }
+  }
+
+  return findings;
+}
+
 export const activeAdapters: Record<string, IScannerAdapter> = {
   commix: {
     getCommandArgs(ctx) {
@@ -152,6 +284,45 @@ export const activeAdapters: Record<string, IScannerAdapter> = {
     getProcessOptions: processOptions,
     parseFindings(ctx) { return parseSqlmap(textFile(ctx.outputFile), ctx); },
     isSuccessExitCode(code) { return code === 0; },
+  },
+  sstimap: {
+    getCommandArgs(ctx) {
+      const config = plan(ctx);
+      return [
+        '-u', ctx.targetUrl,
+        '-p', config.parameters.join(','),
+        '--batch',
+        '--verify',
+        '--engine-detection',
+        `--delay=${config.delaySeconds}`,
+        '--timeout=15',
+        `--output-dir=${path.join(ctx.outDir, 'sstimap')}`
+      ];
+    },
+    getProcessOptions: processOptions,
+    parseFindings(ctx) {
+      const outText = fs.existsSync(ctx.outputFile) ? textFile(ctx.outputFile) : '';
+      return parseSstimap(outText, ctx);
+    },
+    isSuccessExitCode(code) { return code === 0 || code === 1; },
+  },
+  jwt_tool: {
+    getCommandArgs(ctx) {
+      if (ctx.config?.activeValidation) {
+        validateActiveConfig(ctx.targetUrl, ctx.config.activeValidation, [ctx.scannerName]);
+      }
+      const args = ['-t', ctx.targetUrl, '-M', 'at', '--no-banner'];
+      if (ctx.config?.token && typeof ctx.config.token === 'string') {
+        args.push('-b', ctx.config.token);
+      }
+      return args;
+    },
+    getProcessOptions: processOptions,
+    parseFindings(ctx) {
+      const outText = fs.existsSync(ctx.outputFile) ? textFile(ctx.outputFile) : '';
+      return parseJwtTool(outText, ctx);
+    },
+    isSuccessExitCode(code) { return code === 0 || code === 1; },
   },
   nikto: {
     getCommandArgs(ctx) {

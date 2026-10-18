@@ -718,5 +718,112 @@ export const TOOL_MANIFESTS: Record<string, ToolManifest> = {
     exitCodeSemantics: { successCodes: [0, 1] },
     defaultTimeoutMs: 25 * 60 * 1000,
     sourceUrl: 'https://github.com/schemathesis/schemathesis'
+  },
+
+  sstimap: {
+    id: 'sstimap',
+    displayName: 'SSTImap — SSTI Detection',
+    category: 'dast',
+    requiresExplicitSelection: true,
+    description: 'Targeted SSTI detection and engine identification for request parameters. Safe, non-destructive mathematical verification on local lab.',
+    capabilities: ['active', 'vuln-scan'],
+    acceptedTargetTypes: ['url'],
+    outputTypes: ['text'],
+    runtime: 'python-script',
+    executionMode: 'script',
+    supportedOs: ['win32', 'linux', 'darwin'],
+    versionFlag: '--version',
+    pinnedVersion: '1.2.2',
+    minVersion: '1.2.0',
+    installStrategy: {
+      type: 'git-clone',
+      gitRepo: 'https://github.com/vladko312/SSTImap.git',
+      entryScript: 'sstimap.py',
+      wrapperName: 'sstimap.cmd',
+      exeName: 'sstimap.py'
+    },
+    exitCodeSemantics: { successCodes: [0, 1] },
+    defaultTimeoutMs: 10 * 60 * 1000,
+    sourceUrl: 'https://github.com/vladko312/SSTImap'
+  },
+
+  jwt_tool: {
+    id: 'jwt_tool',
+    displayName: 'jwt_tool — JWT Security Analysis',
+    category: 'dast',
+    requiresExplicitSelection: true,
+    description: 'JSON Web Token analysis workspace. Offline token claim/algorithm inspection and controlled server validation with strict token secret redaction.',
+    capabilities: ['active', 'vuln-scan', 'fingerprinting'],
+    acceptedTargetTypes: ['url'],
+    outputTypes: ['text'],
+    runtime: 'python-script',
+    executionMode: 'script',
+    supportedOs: ['win32', 'linux', 'darwin'],
+    versionFlag: '-h',
+    pinnedVersion: '2.2.8',
+    minVersion: '2.2.0',
+    installStrategy: {
+      type: 'git-clone',
+      gitRepo: 'https://github.com/ticarpi/jwt_tool.git',
+      entryScript: 'jwt_tool.py',
+      wrapperName: 'jwt_tool.cmd',
+      exeName: 'jwt_tool.py'
+    },
+    exitCodeSemantics: { successCodes: [0, 1] },
+    defaultTimeoutMs: 10 * 60 * 1000,
+    sourceUrl: 'https://github.com/ticarpi/jwt_tool'
+  },
+
+  syft: {
+    id: 'syft',
+    displayName: 'Syft — SBOM Generator',
+    category: 'sast',
+    description: 'CLI tool for generating a Software Bill of Materials (SBOM) from container images and filesystems with package purls and license provenance.',
+    capabilities: ['passive', 'fingerprinting', 'sca'],
+    acceptedTargetTypes: ['directory', 'repo'],
+    outputTypes: ['json'],
+    runtime: 'native',
+    executionMode: 'cli',
+    supportedOs: ['win32', 'linux', 'darwin'],
+    versionFlag: 'version',
+    pinnedVersion: '1.20.0',
+    minVersion: '1.0.0',
+    installStrategy: {
+      type: 'github-release',
+      repo: 'anchore/syft',
+      assetPrefix: 'syft_',
+      assetSuffix: '_windows_amd64.zip',
+      exeName: 'syft.exe'
+    },
+    exitCodeSemantics: { successCodes: [0] },
+    defaultTimeoutMs: 15 * 60 * 1000,
+    sourceUrl: 'https://github.com/anchore/syft'
+  },
+
+  interactsh: {
+    id: 'interactsh',
+    displayName: 'Interactsh Client — OOB Interaction Gathering',
+    category: 'dast',
+    requiresExplicitSelection: true,
+    description: 'Out-of-band interaction client for blind vulnerability correlation. Configurable self-hosted server with strict session isolation and IP redaction.',
+    capabilities: ['active'],
+    acceptedTargetTypes: ['url', 'domain'],
+    outputTypes: ['jsonl', 'json'],
+    runtime: 'native',
+    executionMode: 'cli',
+    supportedOs: ['win32', 'linux', 'darwin'],
+    versionFlag: '-version',
+    pinnedVersion: '1.2.2',
+    minVersion: '1.1.0',
+    installStrategy: {
+      type: 'github-release',
+      repo: 'projectdiscovery/interactsh',
+      assetPrefix: 'interactsh-client_',
+      assetSuffix: '_windows_amd64.zip',
+      exeName: 'interactsh-client.exe'
+    },
+    exitCodeSemantics: { successCodes: [0] },
+    defaultTimeoutMs: 15 * 60 * 1000,
+    sourceUrl: 'https://github.com/projectdiscovery/interactsh'
   }
 };

@@ -4,11 +4,11 @@ import type { Vulnerability } from '../types/vulnerability';
 import type { TestingDraft } from '../types/workflow';
 
 export type ScannerType = 
-  | 'sqlmap' | 'nikto' | 'commix'
+  | 'sqlmap' | 'nikto' | 'commix' | 'sstimap' | 'jwt_tool' | 'interactsh'
   | 'nuclei' | 'wapiti' | 'subfinder' | 'httpx' | 'nmap' | 'zap' | 'katana' | 'ffuf' 
   | 'alterx' | 'dnsx' | 'naabu' | 'tlsx' | 'appscan' | 'netsparker' | 'acunetix' 
   | 'pdiscovery' | 'wpscan' | 'dalfox' | 'wafw00f' | 'whatweb' | 'arjun' | 'corsy' 
-  | 'cmseek' | 'gau' | 'crlfsuite' | 'gitleaks' | 'semgrep' | 'trivy' | 'sslyze' | 'schemathesis';
+  | 'cmseek' | 'gau' | 'crlfsuite' | 'gitleaks' | 'semgrep' | 'trivy' | 'syft' | 'sslyze' | 'schemathesis';
 export type ScannerStatus = 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'STOPPED' | 'QUEUED';
 export type ExecutionMode = 'pipeline' | 'concurrent';
 
@@ -21,10 +21,10 @@ interface FindingsCount {
 }
 
 export const allTools = [
-  'sqlmap', 'nikto', 'commix',
+  'sqlmap', 'nikto', 'commix', 'sstimap', 'jwt_tool', 'interactsh',
   'nuclei', 'wapiti', 'wpscan', 'subfinder', 'alterx', 'dnsx', 'naabu', 'tlsx', 
   'httpx', 'nmap', 'zap', 'katana', 'ffuf', 'dalfox', 'wafw00f', 'whatweb', 
-  'arjun', 'corsy', 'cmseek', 'gau', 'crlfsuite', 'gitleaks', 'semgrep', 'trivy', 
+  'arjun', 'corsy', 'cmseek', 'gau', 'crlfsuite', 'gitleaks', 'semgrep', 'trivy', 'syft',
   'sslyze', 'schemathesis', 'appscan', 'netsparker', 'acunetix'
 ];
 export const defaultSelectedTools = ['httpx', 'nuclei'];
@@ -81,6 +81,9 @@ export const initialScannerStatus: Record<ScannerType, ScannerStatus> = {
   sqlmap: 'IDLE',
   nikto: 'IDLE',
   commix: 'IDLE',
+  sstimap: 'IDLE',
+  jwt_tool: 'IDLE',
+  interactsh: 'IDLE',
   nuclei: 'IDLE',
   wapiti: 'IDLE',
   subfinder: 'IDLE',
@@ -109,6 +112,7 @@ export const initialScannerStatus: Record<ScannerType, ScannerStatus> = {
   gitleaks: 'IDLE',
   semgrep: 'IDLE',
   trivy: 'IDLE',
+  syft: 'IDLE',
   sslyze: 'IDLE',
   schemathesis: 'IDLE',
 };
