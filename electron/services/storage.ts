@@ -3,8 +3,17 @@ import path from 'path';
 import os from 'os';
 import { logger } from './logger';
 import { format } from 'date-fns';
-import { shell } from 'electron';
+let electronShell: { showItemInFolder: (path: string) => void } | null = null;
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const electron = require('electron');
+  electronShell = electron.shell || null;
+} catch {
+  // Running outside electron (e.g. tests)
+}
 import { dbService } from './database';
+import crypto from 'crypto';
+import { ScanStateMachine, type ScanState } from './runner/stateMachine';
 
 class Mutex {
   private queue: Promise<unknown> = Promise.resolve();
@@ -84,8 +93,9 @@ export class StorageService {
 
   createScanDirectory(domain: string): { scanId: string, scanDir: string, nucleiDir: string, wapitiDir: string } {
     const timestamp = format(new Date(), 'yyyyMMdd_HHmmss');
+    const rand = crypto.randomUUID().slice(0, 8);
     const safeDomain = domain.replace(/[^a-z0-9]/gi, '_').toLowerCase();
-    const scanId = `${safeDomain}_${timestamp}`;
+    const scanId = `${safeDomain}_${timestamp}_${rand}`;
     
     const scanDir = path.join(this.reportsDir, scanId);
     const nucleiDir = path.join(scanDir, 'nuclei');
@@ -99,6 +109,14 @@ export class StorageService {
     logger.info(`Created scan directory for ${scanId}`);
     
     return { scanId, scanDir, nucleiDir, wapitiDir };
+  }
+
+  getScanDir(scanId: string): string {
+    return path.join(this.reportsDir, scanId);
+  }
+
+  getReportsDir(): string {
+    return this.reportsDir;
   }
 
   async saveMetadata(scanId: string, data: Record<string, unknown>) {
@@ -117,15 +135,23 @@ export class StorageService {
   }
 
   openFolder(scanId: string) {
-    const folderPath = path.join(this.reportsDir, scanId);
-    if (fs.existsSync(folderPath)) {
-      shell.showItemInFolder(folderPath);
+    if (!scanId || typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) {
+      logger.warn(`openFolder rejected invalid scanId: ${scanId}`);
+      return;
+    }
+    const resolved = path.resolve(this.reportsDir, scanId);
+    if (!resolved.startsWith(path.resolve(this.reportsDir))) {
+      logger.warn(`openFolder path traversal attempt blocked: ${scanId}`);
+      return;
+    }
+    if (fs.existsSync(resolved) && electronShell) {
+      electronShell.showItemInFolder(resolved);
     }
   }
 
   /** Update the status in the persisted metadata file and SQLite.
    *  If `scanner` is provided, sets e.g. nucleiStatus / wapitiStatus.
-   *  Always re-evaluates the overall `status` field. */
+   *  Always re-evaluates the overall `status` field without overwriting terminal STOPPED state. */
   async updateStatus(scanId: string, scanner: string | null, status: string) {
     // 1. Update SQLite
     if (scanner) {
@@ -137,22 +163,19 @@ export class StorageService {
     // Update overall status in SQLite
     const scan = dbService.getScanById(scanId);
     if (scan) {
-      const tools: string[] = scan.config?.tools || [];
-      const terminal = ['COMPLETED', 'FAILED', 'STOPPED'];
-      let allTerminal = true;
-      let anyFailed = false;
-
+      const tools: string[] = (scan.config as { tools?: string[] })?.tools || [];
+      const toolStates: Record<string, string> = {};
       for (const t of tools) {
-        const tStatus = (scan as Record<string, unknown>)[`${t}Status`] as string || 'RUNNING';
-        if (!terminal.includes(tStatus)) allTerminal = false;
-        if (tStatus === 'FAILED') anyFailed = true;
+        toolStates[t] = ((scan as Record<string, unknown>)[`${t}Status`] as string) || 'RUNNING';
       }
 
-      if (status === 'STOPPED') {
-        dbService.updateScanStatus(scanId, 'STOPPED', new Date().toISOString());
-      } else if (allTerminal && tools.length > 0) {
-        dbService.updateScanStatus(scanId, anyFailed ? 'FAILED' : 'COMPLETED', new Date().toISOString());
-      }
+      const aggregate = ScanStateMachine.computeAggregateState(
+        (scan.status as ScanState) || 'RUNNING',
+        toolStates,
+        tools
+      );
+      const isTerminal = ScanStateMachine.isTerminal(aggregate);
+      dbService.updateScanStatus(scanId, aggregate, isTerminal ? new Date().toISOString() : undefined);
     }
 
     // 2. Update JSON for output folder completeness
@@ -168,29 +191,66 @@ export class StorageService {
         }
 
         const tools: string[] = meta.config?.tools || [];
-        const terminal = ['COMPLETED', 'FAILED', 'STOPPED'];
-        let allTerminal = true;
-        let anyFailed = false;
-
+        const toolStates: Record<string, string> = {};
         for (const t of tools) {
-          const tStatus = meta[`${t}Status`] || 'RUNNING';
-          if (!terminal.includes(tStatus)) allTerminal = false;
-          if (tStatus === 'FAILED') anyFailed = true;
+          toolStates[t] = (meta[`${t}Status`] as string) || 'RUNNING';
         }
 
-        if (status === 'STOPPED') {
-          meta.status = 'STOPPED';
-          meta.endTime = new Date().toISOString();
-        } else if (allTerminal && tools.length > 0) {
-          meta.status = anyFailed ? 'FAILED' : 'COMPLETED';
-          meta.endTime = new Date().toISOString();
+        const aggregate = ScanStateMachine.computeAggregateState(
+          (meta.status as ScanState) || 'RUNNING',
+          toolStates,
+          tools
+        );
+        meta.status = aggregate;
+        if (ScanStateMachine.isTerminal(aggregate)) {
+          meta.endTime = meta.endTime || new Date().toISOString();
         }
 
         await fsPromises.writeFile(metaPath, JSON.stringify(meta, null, 2));
+
+        if (ScanStateMachine.isTerminal(aggregate)) {
+          this.locks.delete(scanId);
+        }
       } catch (err) {
         logger.error(`Failed to update status for ${scanId}`, err);
       }
     });
+  }
+
+  deleteScan(scanId: string): boolean {
+    if (!scanId || typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) {
+      throw new Error('Invalid scanId: path traversal or invalid characters detected');
+    }
+    const scanDir = path.join(this.reportsDir, scanId);
+    if (fs.existsSync(scanDir)) {
+      try {
+        fs.rmSync(scanDir, { recursive: true, force: true });
+        logger.info(`Deleted scan artifact directory: ${scanDir}`);
+      } catch (err) {
+        logger.error(`Failed to delete scan directory ${scanDir}: ${err}`);
+      }
+    }
+    this.locks.delete(scanId);
+    dbService.deleteScan(scanId);
+    return true;
+  }
+
+  clearAllScans(): boolean {
+    if (fs.existsSync(this.reportsDir)) {
+      try {
+        const entries = fs.readdirSync(this.reportsDir);
+        for (const entry of entries) {
+          const fullPath = path.join(this.reportsDir, entry);
+          fs.rmSync(fullPath, { recursive: true, force: true });
+        }
+        logger.info('Cleared all scan artifact directories');
+      } catch (err) {
+        logger.error(`Failed to clear report directories: ${err}`);
+      }
+    }
+    this.locks.clear();
+    dbService.clearAllScans();
+    return true;
   }
 }
 

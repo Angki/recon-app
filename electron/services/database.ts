@@ -1,52 +1,36 @@
+import fs from 'fs';
 import Database from 'better-sqlite3';
 import path from 'path';
 import os from 'os';
 import { logger } from './logger';
+import { ScanStateMachine } from './runner/stateMachine';
+import { MigrationManager } from './db/migrations';
+import { computeFindingFingerprint } from './db/fingerprint';
+import { BaselineComparator, type BaselineComparisonResult } from './db/baseline';
 
 export class DatabaseService {
   private db: Database.Database;
 
   constructor() {
     const baseDir = path.join(os.homedir(), 'Documents', 'SecOpsScans');
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir, { recursive: true });
+    }
     const dbPath = path.join(baseDir, 'recon_app.sqlite');
-    this.db = new Database(dbPath, { verbose: logger.debug });
+    this.db = new Database(dbPath, {
+      verbose: process.env.NODE_ENV === 'development' ? (message?: unknown, ...args: unknown[]) => logger.debug(message, ...args) : undefined
+    });
     this.initSchema();
   }
 
   private initSchema() {
     this.db.pragma('journal_mode = WAL');
+    MigrationManager.runMigrations(this.db);
+    ScanStateMachine.recoverDanglingScans(this);
+  }
 
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS scans (
-        scanId TEXT PRIMARY KEY,
-        target TEXT NOT NULL,
-        status TEXT NOT NULL,
-        startTime TEXT NOT NULL,
-        endTime TEXT,
-        config TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS scan_status (
-        scanId TEXT NOT NULL,
-        scanner TEXT NOT NULL,
-        status TEXT NOT NULL,
-        PRIMARY KEY (scanId, scanner),
-        FOREIGN KEY (scanId) REFERENCES scans(scanId) ON DELETE CASCADE
-      );
-
-      CREATE TABLE IF NOT EXISTS findings (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        scanId TEXT NOT NULL,
-        scanner TEXT NOT NULL,
-        type TEXT,
-        name TEXT,
-        severity TEXT,
-        url TEXT,
-        description TEXT,
-        rawJson TEXT,
-        FOREIGN KEY (scanId) REFERENCES scans(scanId) ON DELETE CASCADE
-      );
-    `);
+  getRawDatabase(): Database.Database {
+    return this.db;
   }
 
   // Scans
@@ -63,6 +47,11 @@ export class DatabaseService {
       const stmt = this.db.prepare('UPDATE scans SET status = ? WHERE scanId = ?');
       stmt.run(status, scanId);
     }
+  }
+
+  getDanglingScans(): { scanId: string; status: string }[] {
+    const stmt = this.db.prepare("SELECT scanId, status FROM scans WHERE status IN ('RUNNING', 'VALIDATING', 'PARSING', 'QUEUED')");
+    return stmt.all() as { scanId: string; status: string }[];
   }
 
   updateScannerStatus(scanId: string, scanner: string, status: string) {
@@ -97,6 +86,28 @@ export class DatabaseService {
     });
   }
 
+  deleteScan(scanId: string) {
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM findings WHERE scanId = ?').run(scanId);
+      this.db.prepare('DELETE FROM observations WHERE scanId = ?').run(scanId);
+      this.db.prepare('DELETE FROM endpoints WHERE scanId = ?').run(scanId);
+      this.db.prepare('DELETE FROM scan_status WHERE scanId = ?').run(scanId);
+      this.db.prepare('DELETE FROM scans WHERE scanId = ?').run(scanId);
+    });
+    tx();
+  }
+
+  clearAllScans() {
+    const tx = this.db.transaction(() => {
+      this.db.prepare('DELETE FROM findings').run();
+      this.db.prepare('DELETE FROM observations').run();
+      this.db.prepare('DELETE FROM endpoints').run();
+      this.db.prepare('DELETE FROM scan_status').run();
+      this.db.prepare('DELETE FROM scans').run();
+    });
+    tx();
+  }
+
   getScanById(scanId: string) {
     const scan = this.db.prepare('SELECT * FROM scans WHERE scanId = ?').get(scanId);
     if (!scan) return null;
@@ -127,18 +138,26 @@ export class DatabaseService {
 
   insertFindings(scanId: string, scanner: string, findings: Record<string, unknown>[]) {
     const stmt = this.db.prepare(`
-      INSERT INTO findings (scanId, scanner, type, name, severity, url, description, rawJson)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO findings (scanId, scanner, type, name, severity, url, description, rawJson, fingerprint)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
 
     const insertMany = this.db.transaction((items: Record<string, unknown>[]) => {
       for (const finding of items) {
-        const type = finding.id || 'unknown';
-        const name = finding.name || 'Unknown Finding';
-        const severity = finding.severity || 'info';
-        const url = finding.url || '';
-        const description = finding.description || '';
-        stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding));
+        const type = String(finding.id || 'unknown');
+        const name = String(finding.name || 'Unknown Finding');
+        const severity = String(finding.severity || 'info');
+        const url = String(finding.url || '');
+        const description = String(finding.description || '');
+        const fingerprint = computeFindingFingerprint({
+          scanner,
+          type,
+          name,
+          url,
+          param: String(finding.param || '')
+        });
+        finding.fingerprint = fingerprint;
+        stmt.run(scanId, scanner, type, name, severity, url, description, JSON.stringify(finding), fingerprint);
       }
     });
 
@@ -191,6 +210,7 @@ export class DatabaseService {
         const row = rowRaw as Record<string, unknown>;
         const parsed = JSON.parse(row.rawJson as string);
         parsed._dbId = row.id;
+        parsed.fingerprint = row.fingerprint;
         return parsed;
       }),
       total: countRow.total,
@@ -202,8 +222,44 @@ export class DatabaseService {
   getFindings(scanId: string) {
     return this.db.prepare('SELECT * FROM findings WHERE scanId = ?').all(scanId).map((rowRaw: unknown) => {
       const row = rowRaw as Record<string, unknown>;
-      return JSON.parse(row.rawJson as string);
+      const parsed = JSON.parse(row.rawJson as string);
+      parsed.fingerprint = row.fingerprint;
+      return parsed;
     });
+  }
+
+  // Observations
+  insertObservation(scanId: string, toolName: string, assetType: string, value: string, metadata: Record<string, unknown> = {}) {
+    const stmt = this.db.prepare(`
+      INSERT INTO observations (scanId, toolName, assetType, value, metadata, createdAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(scanId, toolName, assetType, value, JSON.stringify(metadata), new Date().toISOString());
+  }
+
+  getObservations(scanId: string) {
+    return this.db.prepare('SELECT * FROM observations WHERE scanId = ? ORDER BY id ASC').all(scanId) as Record<string, unknown>[];
+  }
+
+  // Triage Decisions
+  setTriageDecision(fingerprint: string, status: string, reason?: string, actor?: string, expiresAt?: string) {
+    const stmt = this.db.prepare(`
+      INSERT INTO triage_decisions (fingerprint, status, reason, actor, timestamp, expiresAt)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `);
+    stmt.run(fingerprint, status, reason || '', actor || 'operator', new Date().toISOString(), expiresAt || null);
+  }
+
+  getTriageDecisions(fingerprint?: string) {
+    if (fingerprint) {
+      return this.db.prepare('SELECT * FROM triage_decisions WHERE fingerprint = ? ORDER BY id DESC').all(fingerprint) as Record<string, unknown>[];
+    }
+    return this.db.prepare('SELECT * FROM triage_decisions ORDER BY id DESC').all() as Record<string, unknown>[];
+  }
+
+  // Baseline Comparison
+  compareWithBaseline(currentScanId: string, baselineScanId: string): BaselineComparisonResult {
+    return BaselineComparator.compare(currentScanId, baselineScanId, this.db);
   }
 }
 
