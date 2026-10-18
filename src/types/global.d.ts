@@ -36,7 +36,12 @@ declare global {
       getSettings: () => Promise<any>;
       saveSettings: (settings: any) => Promise<any>;
       analyzeLogs: (logs: string, prompt: string) => Promise<string>;
+      getOllamaModels: (customBaseUrl?: string) => Promise<{ success: boolean; models: string[]; error?: string }>;
+      testAiConnection: (provider?: string, customBaseUrl?: string) => Promise<{ success: boolean; latencyMs: number; message: string; modelCount?: number }>;
+      analyzeScan: (scanId: string, preset: string, customPrompt?: string) => Promise<string>;
+      chatCopilot: (scanId: string, history: Array<{ role: 'user' | 'assistant'; content: string }>, message: string) => Promise<string>;
       onAiProgress: (callback: (event: unknown, msg: string) => void) => () => void;
+
       
       // Tool Manager & Health Matrix
       getToolsHealth: () => Promise<ToolHealthInfo[]>;

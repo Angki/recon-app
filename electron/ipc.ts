@@ -134,6 +134,23 @@ export function registerIpcHandlers() {
     return await aiService.analyzeLogs(event.sender, logs, prompt);
   });
 
+  ipcMain.handle('ai:getOllamaModels', async (event, customBaseUrl?: string) => {
+    return await aiService.getLocalOllamaModels(customBaseUrl);
+  });
+
+  ipcMain.handle('ai:testConnection', async (event, provider?: string, customBaseUrl?: string) => {
+    return await aiService.testConnection(provider, customBaseUrl);
+  });
+
+  ipcMain.handle('ai:analyzeScan', async (event, scanId: string, preset: string, customPrompt?: string) => {
+    return await aiService.analyzeScan(event.sender, scanId, preset, customPrompt);
+  });
+
+  ipcMain.handle('ai:chatCopilot', async (event, scanId: string, history: Array<{ role: 'user' | 'assistant'; content: string }>, message: string) => {
+    return await aiService.chatCopilot(event.sender, scanId, history, message);
+  });
+
+
   // System Diagnostics & Operational Logging
   ipcMain.handle('system:getDiagnostics', async () => {
     const { logger } = await import('./services/logger');

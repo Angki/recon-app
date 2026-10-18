@@ -49,11 +49,16 @@ contextBridge.exposeInMainWorld('api', {
 
   // AI Service
   analyzeLogs: (logs: string, prompt: string) => ipcRenderer.invoke('ai:analyzeLogs', logs, prompt),
+  getOllamaModels: (customBaseUrl?: string) => ipcRenderer.invoke('ai:getOllamaModels', customBaseUrl),
+  testAiConnection: (provider?: string, customBaseUrl?: string) => ipcRenderer.invoke('ai:testConnection', provider, customBaseUrl),
+  analyzeScan: (scanId: string, preset: string, customPrompt?: string) => ipcRenderer.invoke('ai:analyzeScan', scanId, preset, customPrompt),
+  chatCopilot: (scanId: string, history: Array<{ role: 'user' | 'assistant'; content: string }>, message: string) => ipcRenderer.invoke('ai:chatCopilot', scanId, history, message),
   onAiProgress: (callback: (event: unknown, msg: string) => void) => {
     const handler = (_event: IpcRendererEvent, msg: string) => callback(null, msg);
     ipcRenderer.on('ai:progress', handler);
     return () => { ipcRenderer.removeListener('ai:progress', handler); };
   },
+
 
   // Tool Engine & Health Matrix
   getToolsHealth: () => ipcRenderer.invoke('tools:get-health'),
