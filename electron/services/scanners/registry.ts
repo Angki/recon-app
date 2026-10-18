@@ -1,19 +1,33 @@
 import fs from 'fs';
 import path from 'path';
-import { app } from 'electron';
-import { IScannerAdapter, ScannerContext } from './types';
+import electron from 'electron';
+import type { IScannerAdapter, ScannerContext } from './types';
 import { XMLParser } from 'fast-xml-parser';
 import { logger } from '../logger';
+import { activeAdapters } from './activeValidation';
+import { storage } from '../storage';
 
 export const ScannerAdapters: Record<string, IScannerAdapter> = {
+  ...activeAdapters,
   nuclei: {
     getCommandArgs(ctx) {
-      const args = ['-u', ctx.targetUrl, '-severity', 'info,low,medium,high,critical', '-stats', '-duc', '-ni', '-o', ctx.outputFile, '-je', ctx.jsonFile];
+      let targetArgs = ['-u', ctx.targetUrl];
+      try {
+        const scanDir = storage.getScanDir(ctx.scanId);
+        const endpointsFile = path.join(scanDir, 'discovered_endpoints.txt');
+        if (fs.existsSync(endpointsFile) && fs.statSync(endpointsFile).size > 0) {
+          targetArgs = ['-l', endpointsFile];
+        }
+      } catch {
+        // Fallback to single targetUrl
+      }
+
+      const args = [...targetArgs, '-severity', 'info,low,medium,high,critical', '-stats', '-duc', '-ni', '-o', ctx.outputFile, '-je', ctx.jsonFile];
       if (ctx.config?.isWordpress) {
         args.splice(2, 0, '-tags', 'wordpress,wp-plugin,wp-theme');
       }
-      if (ctx.settings.nucleiTemplatesPath) {
-        args.push('-t', ctx.settings.nucleiTemplatesPath as string);
+      if ('nucleiTemplatesPath' in ctx.settings && ctx.settings.nucleiTemplatesPath) {
+        args.push('-t', String(ctx.settings.nucleiTemplatesPath));
       }
       return args;
     },
@@ -31,25 +45,53 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
-      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+      if (!content) return [];
       const findings: Record<string, unknown>[] = [];
+
+      const processItem = (data: Record<string, any>) => {
+        if (!data || typeof data !== 'object') return;
+        findings.push({
+          id: data['template-id'] || 'nuclei-finding',
+          name: data.info?.name || 'Unknown',
+          severity: data.info?.severity || 'info',
+          scanner: 'nuclei',
+          url: data['matched-at'] || data.host || '',
+          description: data.info?.description || '',
+          timestamp: data.timestamp || new Date().toISOString(),
+          extractedResults: Array.isArray(data['extracted-results']) ? data['extracted-results'] : (data['extracted-results'] ? [data['extracted-results']] : []),
+          curlCommand: data['curl-command'] || '',
+          references: Array.isArray(data.info?.reference) ? data.info.reference : (data.info?.reference ? [data.info.reference] : [])
+        });
+      };
+
+      // 1. Try parsing whole content as a JSON array or object
+      try {
+        const parsed = JSON.parse(content);
+        if (Array.isArray(parsed)) {
+          for (const item of parsed) {
+            processItem(item as Record<string, any>);
+          }
+          return findings;
+        } else if (parsed && typeof parsed === 'object') {
+          processItem(parsed as Record<string, any>);
+          return findings;
+        }
+      } catch {
+        // Fallback to line-by-line JSONL
+      }
+
+      // 2. Parse as JSON Lines (JSONL)
       const lines = content.split('\n').filter(l => l.trim() !== '');
       for (const line of lines) {
         try {
-          const data = JSON.parse(line);
-          findings.push({
-            id: data['template-id'] || 'nuclei-finding',
-            name: data.info?.name || 'Unknown',
-            severity: data.info?.severity || 'info',
-            scanner: 'nuclei',
-            url: data['matched-at'] || data.host || '',
-            description: data.info?.description || '',
-            timestamp: data.timestamp || new Date().toISOString(),
-            extractedResults: Array.isArray(data['extracted-results']) ? data['extracted-results'] : (data['extracted-results'] ? [data['extracted-results']] : []),
-            curlCommand: data['curl-command'] || '',
-            references: Array.isArray(data.info?.reference) ? data.info.reference : (data.info?.reference ? [data.info.reference] : [])
-          });
-        } catch { /* ignore parse error for a single line */ }
+          const item = JSON.parse(line.trim());
+          if (Array.isArray(item)) {
+            for (const sub of item) processItem(sub as Record<string, any>);
+          } else {
+            processItem(item as Record<string, any>);
+          }
+        } catch { /* ignore invalid line */ }
       }
       return findings;
     }
@@ -66,8 +108,14 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         '-o', ctx.jsonFile,
         '--flush-session',
         '--store-session', ctx.outDir,
-        '--no-bugreport'
+        '--no-bugreport',
+        '--max-attack-time', '180',
+        '--timeout', '8',
+        '--max-scan-time', '600'
       ];
+    },
+    isSuccessExitCode(code: number | null) {
+      return code === 0 || code === 2;
     },
     getEnv(ctx, env) {
       return { ...env, PYTHONIOENCODING: 'utf-8' };
@@ -79,7 +127,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (urlsMatch) {
         stats.wapiti.pages = parseInt(urlsMatch[1]);
       }
-      if (cleanMsg.includes('vulnerability found in')) {
+      if (cleanMsg.includes('vulnerability found in') || cleanMsg.includes('Blind command execution')) {
         stats.wapiti.vulns++;
       } else {
         const vulnPatterns = [/\[\+\] .*vulnerability found/, /\[!!\]/];
@@ -92,29 +140,67 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       }
     },
     parseFindings(ctx) {
-      if (!fs.existsSync(ctx.jsonFile)) return [];
-      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
-      const data = JSON.parse(content);
       const findings: Record<string, unknown>[] = [];
-      if (data.vulnerabilities) {
-        for (const [vulnType, vulns] of Object.entries(data.vulnerabilities)) {
-          const vulnArray = vulns as Array<{ level?: number, path?: string, info?: string, http_request?: string, curl_command?: string, parameter?: string }>;
-          for (const v of vulnArray) {
-            findings.push({
-              id: vulnType,
-              name: vulnType,
-              severity: v.level === 1 ? 'low' : v.level === 2 ? 'medium' : 'high',
-              scanner: 'wapiti',
-              url: v.path || '',
-              description: v.info || '',
-              timestamp: new Date().toISOString(),
-              httpRequest: v.http_request || '',
-              curlCommand: v.curl_command || '',
-              parameter: v.parameter || ''
-            });
+
+      // 1. Primary: Parse JSON output file if generated
+      if (fs.existsSync(ctx.jsonFile)) {
+        try {
+          const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+          const data = JSON.parse(content);
+          if (data.vulnerabilities) {
+            for (const [vulnType, vulns] of Object.entries(data.vulnerabilities)) {
+              const vulnArray = vulns as Array<{ level?: number, path?: string, info?: string, http_request?: string, curl_command?: string, parameter?: string }>;
+              for (const v of vulnArray) {
+                findings.push({
+                  id: vulnType,
+                  name: vulnType,
+                  severity: v.level === 1 ? 'low' : v.level === 2 ? 'medium' : 'high',
+                  scanner: 'wapiti',
+                  url: v.path || '',
+                  description: v.info || '',
+                  timestamp: new Date().toISOString(),
+                  httpRequest: v.http_request || '',
+                  curlCommand: v.curl_command || '',
+                  parameter: v.parameter || ''
+                });
+              }
+            }
           }
+          if (findings.length > 0) return findings;
+        } catch (e) {
+          logger.warn(`Failed to parse Wapiti JSON file: ${e}`);
         }
       }
+
+      // 2. Fallback: Parse stdout output if scanner timed out before generating final JSON report
+      if (fs.existsSync(ctx.outputFile)) {
+        try {
+          const txt = fs.readFileSync(ctx.outputFile, 'utf-8');
+          const rceMatches = txt.matchAll(/Blind command execution in (https?:\/\/[^\s]+) via injection in (the query string|the parameter [^\s]+)/g);
+          const seen = new Set<string>();
+          for (const match of rceMatches) {
+            const endpoint = match[1];
+            const injectionPoint = match[2];
+            const key = `${endpoint}:${injectionPoint}`;
+            if (!seen.has(key)) {
+              seen.add(key);
+              findings.push({
+                id: 'wapiti-blind-command-execution',
+                name: 'Command Execution (Blind / Time-based Heuristic)',
+                severity: 'high',
+                scanner: 'wapiti',
+                url: endpoint,
+                description: `Wapiti detected potential blind command injection via ${injectionPoint} based on response delay payloads. NOTE: Verify out-of-band to rule out high server latency / WAF rate-limiting false positive.`,
+                remediation: 'Sanitize query parameters and avoid passing user input directly to system command execution functions.',
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        } catch (e) {
+          logger.warn(`Failed to parse Wapiti text fallback output: ${e}`);
+        }
+      }
+
       return findings;
     }
   },
@@ -204,8 +290,8 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
           const data = JSON.parse(line);
           findings.push({
             id: `naabu-port-${data.port}`,
-            name: `Open Port Discovered`,
-            severity: 'low',
+            name: `Open Port Observation`,
+            severity: 'info',
             scanner: 'naabu',
             url: `${data.host}:${data.port}`,
             description: `Port ${data.port} is open on ${data.host} (${data.ip || ''})`,
@@ -276,8 +362,8 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (openPorts.length > 0) {
         return [{
           id: 'nmap-open-ports',
-          name: 'Nmap Open Ports',
-          severity: 'medium',
+          name: 'Nmap Port Observation',
+          severity: 'info',
           scanner: 'nmap',
           url: '',
           description: openPorts.join('\n'),
@@ -291,48 +377,105 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     getCommandArgs(ctx) {
       const zapHome = path.join(ctx.outDir, `zap_home_${ctx.timestamp}`);
       if (!fs.existsSync(zapHome)) fs.mkdirSync(zapHome, { recursive: true });
-      return ['-cmd', '-quickurl', ctx.targetUrl, '-quickout', ctx.jsonFile, '-quickprogress', '-dir', zapHome];
+      
+      // Determine ephemeral proxy port to prevent collision with port 8080 (e.g. Burp Suite or other local proxies)
+      const zapPort = ctx.config?.zapPort ? String(ctx.config.zapPort) : String(Math.floor(18000 + (Math.random() * 10000)));
+      
+      const baseArgs = [
+        '-cmd',
+        '-port', zapPort,
+        '-config', `network.localServers.mainProxy.port=${zapPort}`,
+        '-config', 'spider.maxDepth=3',
+        '-config', 'spider.maxChildren=20',
+        '-dir', zapHome
+      ];
+
+      if (ctx.config?.zapAutomationPlan) {
+        return [...baseArgs, '-autorun', String(ctx.config.zapAutomationPlan)];
+      }
+      if (ctx.config?.openapiUrl) {
+        return [...baseArgs, '-openapifile', String(ctx.config.openapiUrl), '-quickurl', ctx.targetUrl, '-quickout', ctx.jsonFile];
+      }
+      return [...baseArgs, '-quickurl', ctx.targetUrl, '-quickout', ctx.jsonFile, '-quickprogress'];
     },
     getProcessOptions(ctx, opts) {
-      const cwd = path.dirname(ctx.bin);
-      const isBat = ctx.bin.toLowerCase().endsWith('.bat') || ctx.bin.toLowerCase().endsWith('.cmd');
-      const executable = isBat ? path.basename(ctx.bin) : ctx.bin;
-      
-      let spawnExecutable = executable;
-      let spawnArgs = opts.args;
-      let useShell = opts.useShell;
-      
-      if (isBat && process.platform === 'win32') {
-        spawnExecutable = process.env.comspec || 'cmd.exe';
-        spawnArgs = ['/c', executable, ...opts.args];
-        useShell = false;
-      } else if (isBat) {
-        useShell = true;
-      }
-      return { executable: spawnExecutable, args: spawnArgs, useShell, cwd };
+      // ZAP on Windows uses zap.bat which runs 'java -jar zap-X.XX.X.jar' relative to its own folder
+      return {
+        ...opts,
+        cwd: path.dirname(ctx.bin)
+      };
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
-      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
-      const data = JSON.parse(content);
-      const findings: Record<string, unknown>[] = [];
-      const site = data?.site?.[0];
-      if (site && site.alerts) {
-        for (const alert of site.alerts) {
-          findings.push({
-            id: alert.pluginid || 'zap-alert',
-            name: alert.name || 'ZAP Finding',
-            severity: alert.riskdesc?.toLowerCase().includes('high') ? 'high' : 
-                      alert.riskdesc?.toLowerCase().includes('medium') ? 'medium' :
-                      alert.riskdesc?.toLowerCase().includes('low') ? 'low' : 'info',
-            scanner: 'zap',
-            url: alert.instances?.[0]?.uri || site['@name'] || '',
-            description: alert.desc || '',
-            timestamp: new Date().toISOString(),
-          });
+      try {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+        if (!content) return [];
+        const data = JSON.parse(content);
+        const findings: Record<string, unknown>[] = [];
+        
+        // Handle both data.site array or single site object, plus fallback to top-level alerts
+        const sites = Array.isArray(data?.site) ? data.site : (data?.site ? [data.site] : []);
+        
+        for (const site of sites) {
+          const siteAlerts = Array.isArray(site?.alerts) ? site.alerts : (site?.alerts ? [site.alerts] : []);
+          for (const alert of siteAlerts) {
+            const rawRisk = alert.risk || (alert.riskdesc ? alert.riskdesc.split('(')[0].trim() : '');
+            const risk = rawRisk.toLowerCase();
+            const severity = risk.startsWith('high') ? 'high' : 
+                             risk.startsWith('med') ? 'medium' :
+                             risk.startsWith('low') ? 'low' : 'info';
+            const firstInst = alert.instances?.[0];
+
+            findings.push({
+              id: alert.pluginid ? `zap-${alert.pluginid}` : 'zap-alert',
+              name: alert.name || alert.alert || 'ZAP Finding',
+              severity,
+              scanner: 'zap',
+              url: firstInst?.uri || site?.['@name'] || ctx.targetUrl,
+              param: firstInst?.param || undefined,
+              cwe: alert.cweid ? `CWE-${alert.cweid}` : undefined,
+              description: alert.desc || alert.description || '',
+              remediation: alert.solution || undefined,
+              reference: alert.reference || undefined,
+              confidence: (alert.confidence || 'Medium').toLowerCase(),
+              timestamp: new Date().toISOString(),
+              evidence: firstInst ? {
+                method: firstInst.method,
+                evidence: firstInst.evidence,
+                attack: firstInst.attack
+              } : undefined
+            });
+          }
         }
+
+        // Top-level alerts fallback (if ZAP exported flat alerts structure)
+        if (findings.length === 0 && Array.isArray(data?.alerts)) {
+          for (const alert of data.alerts) {
+            const rawRisk = alert.risk || (alert.riskdesc ? alert.riskdesc.split('(')[0].trim() : '');
+            const risk = rawRisk.toLowerCase();
+            const severity = risk.startsWith('high') ? 'high' : 
+                             risk.startsWith('med') ? 'medium' :
+                             risk.startsWith('low') ? 'low' : 'info';
+            findings.push({
+              id: alert.pluginid ? `zap-${alert.pluginid}` : 'zap-alert',
+              name: alert.name || alert.alert || 'ZAP Finding',
+              severity,
+              scanner: 'zap',
+              url: alert.instances?.[0]?.uri || ctx.targetUrl,
+              cwe: alert.cweid ? `CWE-${alert.cweid}` : undefined,
+              description: alert.desc || alert.description || '',
+              remediation: alert.solution || undefined,
+              confidence: (alert.confidence || 'Medium').toLowerCase(),
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+
+        return findings;
+      } catch (err) {
+        logger.error(`Failed to parse ZAP output: ${err}`);
+        return [];
       }
-      return findings;
     }
   },
   wpscan: {
@@ -353,6 +496,10 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         args.push('--api-token', ctx.settings.wpscanApiToken as string);
       }
       return args;
+    },
+    isSuccessExitCode(code: number | null) {
+      // 0: clean, 1: non-wordpress / redirect, 2: vulns found, 3: vulns with warnings, 4: aborted
+      return code === 0 || code === 1 || code === 2 || code === 3 || code === 4;
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
@@ -562,20 +709,21 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   acunetix: {
-    getCommandArgs(ctx) {
-      const isPackaged = app.isPackaged;
+    getCommandArgs(ctx): string[] {
+      const isPackaged = typeof electron === 'object' && electron !== null && 'app' in electron ? (electron as any).app.isPackaged : false;
       const runnerPath = isPackaged
         ? path.join(process.resourcesPath, 'scripts', 'acunetix_runner.js')
         : path.join(process.cwd(), 'electron', 'scripts', 'acunetix_runner.js');
-      const acunetixUrl = ctx.settings.acunetixUrl || 'https://127.0.0.1:13443';
-      const acunetixProfileId = ctx.settings.acunetixProfileId || '11111111-1111-1111-1111-111111111111';
+      const acunetixUrl = String(('acunetixUrl' in ctx.settings ? ctx.settings.acunetixUrl : '') || 'https://127.0.0.1:13443');
+      const acunetixProfileId = String(('acunetixProfileId' in ctx.settings ? ctx.settings.acunetixProfileId : '') || '11111111-1111-1111-1111-111111111111');
       return [runnerPath, ctx.targetUrl, ctx.jsonFile, ctx.xmlFile, acunetixUrl, '', acunetixProfileId];
     },
     getEnv(ctx, env) {
-      const e = { ...env, ELECTRON_RUN_AS_NODE: '1' };
-      if (ctx.settings.acunetixApiKey) e.ACUNETIX_API_KEY = ctx.settings.acunetixApiKey;
-      if (ctx.settings.acunetixEmail) e.ACUNETIX_EMAIL = ctx.settings.acunetixEmail;
-      if (ctx.settings.acunetixPassword) e.ACUNETIX_PASSWORD = ctx.settings.acunetixPassword;
+      const e: NodeJS.ProcessEnv = { ...env, ELECTRON_RUN_AS_NODE: '1' };
+      const s = ctx.settings as Record<string, unknown>;
+      if (s.acunetixApiKey) e.ACUNETIX_API_KEY = String(s.acunetixApiKey);
+      if (s.acunetixEmail) e.ACUNETIX_EMAIL = String(s.acunetixEmail);
+      if (s.acunetixPassword) e.ACUNETIX_PASSWORD = String(s.acunetixPassword);
       return e;
     },
     parseFindings(ctx) {
@@ -601,6 +749,671 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         });
       }
       return findings;
+    }
+  },
+
+  dalfox: {
+    getCommandArgs(ctx) {
+      let targetArgs = ['url', ctx.targetUrl];
+      try {
+        const scanDir = storage.getScanDir(ctx.scanId);
+        const endpointsFile = path.join(scanDir, 'discovered_endpoints.txt');
+        if (fs.existsSync(endpointsFile) && fs.statSync(endpointsFile).size > 0) {
+          targetArgs = ['file', endpointsFile];
+        }
+      } catch {
+        // Fallback to url ctx.targetUrl
+      }
+      return [...targetArgs, '--format', 'json', '-o', ctx.jsonFile, '--no-color', '--timeout', '8', '--workers', '5', '--skip-mining-dict'];
+    },
+    isSuccessExitCode(code: number | null) {
+      return code === 0 || code === 1 || code === 2;
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      const lines = content.split('\n').filter(l => l.trim() !== '');
+      for (const line of lines) {
+        try {
+          const item = JSON.parse(line);
+          const items = Array.isArray(item) ? item : [item];
+          for (const d of items) {
+            findings.push({
+              id: `dalfox-xss-${d.param || 'finding'}`,
+              name: `XSS (${d.type || 'Reflected / DOM'})`,
+              severity: (d.severity?.toLowerCase() || 'high'),
+              scanner: 'dalfox',
+              url: d.url || ctx.targetUrl,
+              description: `Vulnerable param: ${d.param || 'unknown'} | Payload: ${d.payload || ''}`,
+              timestamp: new Date().toISOString(),
+              cwe: d.cwe || 'CWE-79',
+              rawJson: JSON.stringify(d),
+            });
+          }
+        } catch { /* ignore */ }
+      }
+      return findings;
+    }
+  },
+
+  wafw00f: {
+    getCommandArgs(ctx) {
+      return [ctx.targetUrl, '-o', ctx.jsonFile, '-f', 'json'];
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      try {
+        const data = JSON.parse(content);
+        const list = Array.isArray(data) ? data : [data];
+        for (const item of list) {
+          if (item.detected || (item.firewall && item.firewall !== 'None')) {
+            findings.push({
+              id: 'wafw00f-detected',
+              name: `WAF Detected: ${item.firewall || 'Active Firewall'}`,
+              severity: 'info',
+              scanner: 'wafw00f',
+              url: item.url || ctx.targetUrl,
+              description: `Target is protected by: ${item.firewall} (${item.manufacturer || 'Unknown Manufacturer'})`,
+              timestamp: new Date().toISOString(),
+              rawJson: JSON.stringify(item),
+            });
+          }
+        }
+      } catch { /* ignore */ }
+      return findings;
+    }
+  },
+
+  whatweb: {
+    getCommandArgs(ctx) {
+      return ['--color=never', `--log-json=${ctx.jsonFile}`, ctx.targetUrl];
+    },
+    isSuccessExitCode(code: number | null) {
+      return code === 0;
+    },
+    parseFindings(ctx) {
+      const fileToRead = fs.existsSync(ctx.jsonFile) ? ctx.jsonFile : fs.existsSync(ctx.outputFile) ? ctx.outputFile : null;
+      if (!fileToRead) return [];
+      const content = fs.readFileSync(fileToRead, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      try {
+        if (content.trim().startsWith('{') || content.trim().startsWith('[')) {
+          const data = JSON.parse(content);
+          const list = Array.isArray(data) ? data : [data];
+          for (const item of list) {
+            const plugins = item.plugins ? Object.keys(item.plugins).join(', ') : 'None';
+            findings.push({
+              id: 'whatweb-tech',
+              name: `Tech Fingerprint (HTTP ${item.http_status || 200})`,
+              severity: 'info',
+              scanner: 'whatweb',
+              url: item.target || ctx.targetUrl,
+              description: `Detected technologies: ${plugins}`,
+              timestamp: new Date().toISOString(),
+              rawJson: JSON.stringify(item),
+            });
+          }
+          return findings;
+        }
+      } catch { /* fallback to text parsing */ }
+
+      const lines = content.split('\n').filter(l => l.trim() !== '');
+      for (const line of lines) {
+        if (line.includes('[') && line.includes(']')) {
+          findings.push({
+            id: 'whatweb-tech',
+            name: 'Web Technology Fingerprint',
+            severity: 'info',
+            scanner: 'whatweb',
+            url: ctx.targetUrl,
+            description: line.trim(),
+            timestamp: new Date().toISOString(),
+            rawJson: JSON.stringify({ stdout: line.trim() }),
+          });
+        }
+      }
+      return findings;
+    }
+  },
+
+  arjun: {
+    getCommandArgs(ctx) {
+      return ['-u', ctx.targetUrl, '-oJ', ctx.jsonFile, '--stable', '-t', '5'];
+    },
+    isSuccessExitCode(code: number | null) {
+      return code === 0 || code === 1;
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      try {
+        const data = JSON.parse(content);
+        for (const [url, params] of Object.entries(data)) {
+          const paramList = Array.isArray(params) ? params : [];
+          if (paramList.length > 0) {
+            findings.push({
+              id: 'arjun-hidden-params',
+              name: `Hidden Parameters Discovered (${paramList.length})`,
+              severity: 'info',
+              scanner: 'arjun',
+              url,
+              description: `Discovered parameters: ${paramList.join(', ')}`,
+              timestamp: new Date().toISOString(),
+              rawJson: JSON.stringify({ url, params }),
+            });
+          }
+        }
+      } catch { /* ignore */ }
+      return findings;
+    }
+  },
+
+  corsy: {
+    getCommandArgs(ctx) {
+      return ['-u', ctx.targetUrl, '-o', ctx.jsonFile];
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+      const findings: Record<string, unknown>[] = [];
+      try {
+        const data = JSON.parse(content);
+        for (const [url, issues] of Object.entries(data)) {
+          const issueList = Array.isArray(issues) ? issues : [issues];
+          for (const iss of issueList as Array<{ class?: string; severity?: string; description?: string }>) {
+            findings.push({
+              id: 'corsy-misconfig',
+              name: `CORS Misconfiguration: ${iss.class || 'Insecure Origin'}`,
+              severity: (iss.severity?.toLowerCase() || 'medium'),
+              scanner: 'corsy',
+              url,
+              description: iss.description || 'Insecure CORS policy configuration detected.',
+              timestamp: new Date().toISOString(),
+              rawJson: JSON.stringify(iss),
+            });
+          }
+        }
+      } catch { /* ignore */ }
+      return findings;
+    }
+  },
+
+  cmseek: {
+    getCommandArgs(ctx) {
+      return ['-u', ctx.targetUrl, '--batch', '-r'];
+    },
+    parseFindings(ctx) {
+      const possibleJson = path.join(ctx.outDir, 'cms.json');
+      const cwdJson = path.join(process.cwd(), 'Result', ctx.domain, 'cms.json');
+      const appDataJson = process.env.APPDATA ? path.join(process.env.APPDATA, 'ReconApp', 'tools', 'CMSeeK', 'Result', ctx.domain, 'cms.json') : null;
+      const targetFile = fs.existsSync(possibleJson) ? possibleJson : (appDataJson && fs.existsSync(appDataJson)) ? appDataJson : fs.existsSync(cwdJson) ? cwdJson : null;
+      if (!targetFile) return [];
+      try {
+        const content = fs.readFileSync(targetFile, 'utf-8');
+        const data = JSON.parse(content);
+        return [{
+          id: 'cmseek-cms',
+          name: `CMS Detected: ${data.cms_name || 'Web CMS'}`,
+          severity: data.vulnerabilities && data.vulnerabilities.length > 0 ? 'high' : 'info',
+          scanner: 'cmseek',
+          url: data.url || ctx.targetUrl,
+          description: `CMS: ${data.cms_name || 'Unknown'} (v${data.cms_version || 'unknown'}). ${data.vulnerabilities ? `Vulns: ${JSON.stringify(data.vulnerabilities)}` : ''}`,
+          timestamp: new Date().toISOString(),
+          rawJson: content,
+        }];
+      } catch { return []; }
+    }
+  },
+
+  gau: {
+    getCommandArgs(ctx) {
+      return [ctx.domain, '--json', '--o', ctx.jsonFile];
+    },
+    parseFindings(ctx) {
+      const fileToRead = fs.existsSync(ctx.jsonFile) ? ctx.jsonFile : fs.existsSync(ctx.outputFile) ? ctx.outputFile : null;
+      if (!fileToRead) return [];
+      const content = fs.readFileSync(fileToRead, 'utf-8');
+      const lines = content.split('\n').filter(l => l.trim() !== '');
+      if (lines.length > 0) {
+        return [{
+          id: 'gau-urls',
+          name: `Historical URLs & Endpoints (${lines.length})`,
+          severity: 'info',
+          scanner: 'gau',
+          url: ctx.domain,
+          description: `Discovered ${lines.length} historical URLs across Wayback, AlienVault OTX, and Common Crawl.`,
+          timestamp: new Date().toISOString(),
+          rawJson: JSON.stringify({ count: lines.length, sample: lines.slice(0, 20) }),
+        }];
+      }
+      return [];
+    }
+  },
+
+  crlfsuite: {
+    getCommandArgs(ctx) {
+      return ['-t', ctx.targetUrl, '-oJ', ctx.jsonFile, '-sL'];
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      try {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+        if (!content || content === '{}' || content === '[]') return [];
+        const data = JSON.parse(content);
+        const findings: Record<string, unknown>[] = [];
+        const items = Array.isArray(data) ? data : [data];
+        for (const item of items) {
+          if (!item || typeof item !== 'object') continue;
+          if (!item.payload && !item.parameter && !item.vuln) continue;
+          findings.push({
+            id: 'crlf-injection',
+            name: 'CRLF Injection / HTTP Response Splitting',
+            severity: 'medium',
+            scanner: 'crlfsuite',
+            url: item.url || ctx.targetUrl,
+            description: `Payload: ${item.payload || item.parameter || 'Header injection confirmed'}`,
+            timestamp: new Date().toISOString(),
+            rawJson: JSON.stringify(item),
+          });
+        }
+        return findings;
+      } catch { return []; }
+    }
+  },
+
+  sslyze: {
+    getCommandArgs(ctx) {
+      return ['--json_out', ctx.jsonFile, '--slow_connection', ctx.domain];
+    },
+    isSuccessExitCode(code: number | null) {
+      // SSLyze exits with 1 or 2 on minor warnings or partial module timeouts, while JSON is intact
+      return code === 0 || code === 1 || code === 2;
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      try {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+        if (!content) return [];
+        const data = JSON.parse(content);
+        const findings: Record<string, unknown>[] = [];
+        const results = data.server_scan_results || [];
+
+        for (const targetResult of results) {
+          const host = targetResult.server_location?.hostname || ctx.domain;
+          const scanCommands = targetResult.scan_commands_results || {};
+
+          // Certificate Validation
+          const certInfo = scanCommands.certificate_info;
+          if (certInfo && certInfo.certificate_deployments) {
+            for (const deployment of certInfo.certificate_deployments) {
+              const chainValidation = deployment.path_validation_results?.[0];
+              if (chainValidation && chainValidation.was_validation_successful === false) {
+                findings.push({
+                  id: 'sslyze-invalid-certificate',
+                  name: 'Untrusted or Invalid SSL/TLS Certificate',
+                  severity: 'high',
+                  scanner: 'sslyze',
+                  url: `https://${host}`,
+                  description: chainValidation.openssl_error_string || 'Certificate path validation failed: untrusted root or verification error.',
+                  timestamp: new Date().toISOString()
+                });
+              }
+
+              const leaf = deployment.received_certificate_chain?.[0];
+              if (leaf?.not_valid_after) {
+                const expiry = new Date(leaf.not_valid_after);
+                if (expiry < new Date()) {
+                  findings.push({
+                    id: 'sslyze-expired-certificate',
+                    name: 'Expired SSL/TLS Certificate',
+                    severity: 'high',
+                    scanner: 'sslyze',
+                    url: `https://${host}`,
+                    description: `Certificate expired on ${expiry.toISOString()}.`,
+                    timestamp: new Date().toISOString()
+                  });
+                }
+              }
+            }
+          }
+
+          // Insecure Protocols (SSL 2.0 / SSL 3.0 / TLS 1.0 / TLS 1.1)
+          const checkProtocol = (cmdKey: string, protocolName: string, sev: string) => {
+            const protoResult = scanCommands[cmdKey];
+            if (protoResult && protoResult.ciphers_supported && protoResult.ciphers_supported.length > 0) {
+              findings.push({
+                id: `sslyze-${protocolName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-enabled`,
+                name: `Deprecated Protocol Enabled: ${protocolName}`,
+                severity: sev,
+                scanner: 'sslyze',
+                url: `https://${host}`,
+                description: `${protocolName} is deprecated, insecure, and should be disabled in server configuration. Accepted ciphers: ${protoResult.ciphers_supported.length}`,
+                remediation: `Disable ${protocolName} in web server TLS settings and enforce TLS 1.2 and TLS 1.3 only.`,
+                timestamp: new Date().toISOString()
+              });
+            }
+          };
+
+          checkProtocol('ssl_2_0_cipher_suites', 'SSL 2.0', 'high');
+          checkProtocol('ssl_3_0_cipher_suites', 'SSL 3.0', 'high');
+          checkProtocol('tls_1_0_cipher_suites', 'TLS 1.0', 'medium');
+          checkProtocol('tls_1_1_cipher_suites', 'TLS 1.1', 'medium');
+
+          // Vulnerability checks
+          if (scanCommands.heartbleed?.is_vulnerable_to_heartbleed) {
+            findings.push({
+              id: 'sslyze-heartbleed-vulnerable',
+              name: 'Vulnerable to OpenSSL Heartbleed (CVE-2014-0160)',
+              severity: 'critical',
+              scanner: 'sslyze',
+              url: `https://${host}`,
+              description: 'Target server is vulnerable to Heartbleed memory leakage vulnerability.',
+              remediation: 'Upgrade OpenSSL immediately and regenerate private keys/certificates.',
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          if (scanCommands.robot?.robot_result && scanCommands.robot.robot_result !== 'NOT_VULNERABLE') {
+            findings.push({
+              id: 'sslyze-robot-vulnerable',
+              name: 'Vulnerable to Return of Bleichenbacher Attack (ROBOT)',
+              severity: 'high',
+              scanner: 'sslyze',
+              url: `https://${host}`,
+              description: `Target server is vulnerable to ROBOT attack: ${scanCommands.robot.robot_result}.`,
+              remediation: 'Disable RSA encryption cipher suites and utilize ECDHE key exchange.',
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+        return findings;
+      } catch (err) {
+        logger.error(`Failed to parse SSLyze output: ${err}`);
+        return [];
+      }
+    }
+  },
+
+  gitleaks: {
+    getCommandArgs(ctx) {
+      const isDir = fs.existsSync(ctx.targetUrl);
+      const mode = isDir ? 'dir' : 'git';
+      return [mode, ctx.targetUrl, '--report-format', 'json', '--report-path', ctx.jsonFile, '--redact', '--exit-code', '0'];
+    },
+    isSuccessExitCode(code: number | null) {
+      return code === 0 || code === 1;
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      try {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+        if (!content) return [];
+        const raw = JSON.parse(content);
+        const leaks = Array.isArray(raw) ? raw : [];
+        const findings: Record<string, unknown>[] = [];
+
+        for (const leak of leaks) {
+          const ruleId = leak.RuleID || 'gitleaks-secret';
+          const file = leak.File || 'unknown';
+          const line = leak.StartLine || 1;
+          const isKeyOrCloud = /private|rsa|aws|azure|gcp|slack|token|password|credential/i.test(ruleId);
+          
+          findings.push({
+            id: `gitleaks-${ruleId}`,
+            name: `Exposed Secret: ${leak.Description || ruleId}`,
+            severity: isKeyOrCloud ? 'critical' : 'high',
+            scanner: 'gitleaks',
+            url: file.startsWith('http') ? file : `file://${file}#L${line}`,
+            param: ruleId,
+            description: `Secret detected by rule '${ruleId}' in ${file}:${line}. The secret value has been redacted for confidentiality. Commit: ${leak.Commit || 'N/A'}.`,
+            remediation: 'Revoke and rotate the exposed credential immediately. Remove from Git history or configure .gitleaksignore if confirmed test fixture.',
+            evidence: {
+              ruleId,
+              file,
+              line,
+              commit: leak.Commit || undefined,
+              author: leak.Author || undefined,
+              date: leak.Date || undefined
+            },
+            timestamp: leak.Date || new Date().toISOString()
+          });
+        }
+        return findings;
+      } catch (err) {
+        logger.error(`Failed to parse Gitleaks output: ${err}`);
+        return [];
+      }
+    }
+  },
+
+  semgrep: {
+    getCommandArgs(ctx) {
+      const isRemoteUrl = ctx.targetUrl.startsWith('http://') || ctx.targetUrl.startsWith('https://');
+      const scanTarget = isRemoteUrl ? ctx.outDir : ctx.targetUrl;
+      return ['scan', '--config', 'auto', '--json', '--output', ctx.jsonFile, '--disable-version-check', scanTarget];
+    },
+    isSuccessExitCode(code: number | null) {
+      return code === 0 || code === 1 || code === 2;
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      try {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+        if (!content) return [];
+        const data = JSON.parse(content);
+        const results = Array.isArray(data.results) ? data.results : [];
+        const findings: Record<string, unknown>[] = [];
+
+        for (const item of results) {
+          const rawSev = (item.extra?.severity || 'INFO').toUpperCase();
+          const severity = rawSev === 'ERROR' ? 'high' : rawSev === 'WARNING' ? 'medium' : 'low';
+          const checkId = item.check_id || 'semgrep-rule';
+          const shortName = checkId.split('.').pop() || checkId;
+          const filePath = item.path || 'unknown';
+          const line = item.start?.line || 1;
+          const cweList = item.extra?.metadata?.cwe;
+          const cwe = Array.isArray(cweList) ? cweList[0] : (typeof cweList === 'string' ? cweList : undefined);
+
+          findings.push({
+            id: `semgrep-${checkId}`,
+            name: `SAST: ${shortName.replace(/[-_]/g, ' ')}`,
+            severity,
+            scanner: 'semgrep',
+            url: `file://${filePath}#L${line}`,
+            cwe,
+            description: item.extra?.message || `Semgrep finding for rule ${checkId}`,
+            remediation: item.extra?.metadata?.remediation || undefined,
+            evidence: {
+              checkId,
+              path: filePath,
+              start: item.start,
+              end: item.end,
+              lines: item.extra?.lines
+            },
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        if (findings.length === 0 && (ctx.targetUrl.startsWith('http://') || ctx.targetUrl.startsWith('https://'))) {
+          findings.push({
+            id: 'semgrep-sast-notice',
+            name: 'SAST Engine Notice: Local Source Code Only',
+            severity: 'info',
+            scanner: 'semgrep',
+            url: ctx.targetUrl,
+            description: 'Semgrep is an offline Static Application Security Testing (SAST) engine designed for local source repositories. For remote web application scanning, DAST engines (Nuclei, Wapiti, ZAP, Dalfox) are active.',
+            timestamp: new Date().toISOString()
+          });
+        }
+
+        return findings;
+      } catch (err) {
+        logger.error(`Failed to parse Semgrep output: ${err}`);
+        return [];
+      }
+    }
+  },
+
+  trivy: {
+    getCommandArgs(ctx) {
+      return ['fs', '--format', 'json', '--output', ctx.jsonFile, '--scanners', 'vuln,misconfig', ctx.targetUrl];
+    },
+    isSuccessExitCode(code: number | null) {
+      return code === 0 || code === 1;
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      try {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+        if (!content) return [];
+        const data = JSON.parse(content);
+        const results = Array.isArray(data.Results) ? data.Results : [];
+        const findings: Record<string, unknown>[] = [];
+
+        for (const res of results) {
+          const target = res.Target || 'Target Package';
+
+          if (Array.isArray(res.Vulnerabilities)) {
+            for (const v of res.Vulnerabilities) {
+              const rawSev = (v.Severity || 'UNKNOWN').toLowerCase();
+              const severity = rawSev === 'critical' ? 'critical' :
+                                rawSev === 'high' ? 'high' :
+                                rawSev === 'medium' ? 'medium' :
+                                rawSev === 'low' ? 'low' : 'info';
+
+              findings.push({
+                id: v.VulnerabilityID || 'trivy-vuln',
+                name: `Dependency Vulnerability: ${v.PkgName} (${v.VulnerabilityID})`,
+                severity,
+                scanner: 'trivy',
+                url: v.PrimaryURL || `package://${v.PkgName}@${v.InstalledVersion || 'unknown'}`,
+                cve: v.VulnerabilityID?.startsWith('CVE') ? v.VulnerabilityID : undefined,
+                cwe: v.CweIDs?.[0],
+                description: `${v.Title ? v.Title + ' - ' : ''}${v.Description || 'Known vulnerability in installed package.'} Installed: ${v.InstalledVersion}, Fixed in: ${v.FixedVersion || 'None'}.`,
+                remediation: v.FixedVersion ? `Upgrade ${v.PkgName} to version ${v.FixedVersion} or later.` : 'No fix version currently available. Monitor upstream updates.',
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+
+          if (Array.isArray(res.Misconfigurations)) {
+            for (const m of res.Misconfigurations) {
+              const rawSev = (m.Severity || 'UNKNOWN').toLowerCase();
+              const severity = rawSev === 'critical' ? 'critical' :
+                                rawSev === 'high' ? 'high' :
+                                rawSev === 'medium' ? 'medium' :
+                                rawSev === 'low' ? 'low' : 'info';
+
+              findings.push({
+                id: m.ID || 'trivy-misconfig',
+                name: `Misconfiguration: ${m.Title || m.ID}`,
+                severity,
+                scanner: 'trivy',
+                url: `file://${target}#L${m.IOMisconfig?.StartLine || 1}`,
+                description: m.Description || m.Message || 'Infrastructure or config file misconfiguration detected.',
+                remediation: m.Resolution || undefined,
+                timestamp: new Date().toISOString()
+              });
+            }
+          }
+        }
+        return findings;
+      } catch (err) {
+        logger.error(`Failed to parse Trivy output: ${err}`);
+        return [];
+      }
+    }
+  },
+
+  schemathesis: {
+    getCommandArgs(ctx) {
+      const schema = ctx.config?.schemathesisSchema ? String(ctx.config.schemathesisSchema) : ctx.targetUrl;
+      const args = [
+        'run',
+        schema,
+        '--url', ctx.targetUrl,
+        '--checks', 'all',
+        '--rate-limit', '10/s',
+        '--report', 'json',
+        '--report-json-path', ctx.jsonFile,
+        '--no-color'
+      ];
+      if (ctx.config?.schemathesisSafeOnly) {
+        args.push('--include-method', 'GET,HEAD,OPTIONS');
+      }
+      return args;
+    },
+    isSuccessExitCode(code: number | null) {
+      return code === 0 || code === 1;
+    },
+    getEnv(ctx, env) {
+      return {
+        ...env,
+        PYTHONIOENCODING: 'utf-8',
+        PYTHONUTF8: '1'
+      };
+    },
+    parseFindings(ctx) {
+      if (!fs.existsSync(ctx.jsonFile)) return [];
+      try {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+        if (!content) return [];
+        const data = JSON.parse(content);
+        const findings: Record<string, unknown>[] = [];
+
+        const events = Array.isArray(data.events) ? data.events : [];
+        for (const evt of events) {
+          if (evt.status === 'failure' || evt.status === 'error') {
+            const is5xx = Array.isArray(evt.checks) && evt.checks.some((c: any) => c.name === 'not_a_server_error' && c.status === 'failure');
+            const severity = is5xx ? 'high' : 'low';
+            const issueType = is5xx ? 'Unhandled Server Error (5xx Crash)' : 'API Quality: Schema Conformity Failure';
+
+            findings.push({
+              id: `schemathesis-${evt.method || 'REQ'}-${evt.path || 'endpoint'}`,
+              name: `${issueType}: ${evt.method || 'GET'} ${evt.path || ctx.targetUrl}`,
+              severity,
+              scanner: 'schemathesis',
+              url: `${ctx.targetUrl}${evt.path || ''}`,
+              description: evt.message || `Schemathesis reported ${issueType} during property-based test.`,
+              remediation: is5xx
+                ? 'Investigate server exception logs and prevent unhandled 500 error responses.'
+                : 'Update API schema specification or adjust response payload format to match schema.',
+              timestamp: new Date().toISOString()
+            });
+          }
+        }
+
+        if (findings.length === 0 && Array.isArray(data.tasks)) {
+          for (const task of data.tasks) {
+            if (Array.isArray(task.checks)) {
+              for (const chk of task.checks) {
+                if (chk.status === 'failure') {
+                  const is5xx = chk.name === 'not_a_server_error';
+                  findings.push({
+                    id: `schemathesis-${task.method || 'API'}-${chk.name}`,
+                    name: is5xx ? `Server Error: ${task.method} ${task.path}` : `API Quality Issue: ${chk.name}`,
+                    severity: is5xx ? 'high' : 'low',
+                    scanner: 'schemathesis',
+                    url: `${ctx.targetUrl}${task.path || ''}`,
+                    description: chk.message || `Check ${chk.name} failed during contract fuzzing.`,
+                    remediation: is5xx ? 'Handle input gracefully without crashing.' : 'Align response format with schema.',
+                    timestamp: new Date().toISOString()
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        return findings;
+      } catch (err) {
+        logger.error(`Failed to parse Schemathesis output: ${err}`);
+        return [];
+      }
     }
   }
 };
