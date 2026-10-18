@@ -44,9 +44,6 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       }
     },
     parseFindings(ctx) {
-      if (!fs.existsSync(ctx.jsonFile)) return [];
-      const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
-      if (!content) return [];
       const findings: Record<string, unknown>[] = [];
 
       interface NucleiRawItem {
@@ -81,34 +78,69 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         });
       };
 
-      // 1. Try parsing whole content as a JSON array or object
-      try {
-        const parsed = JSON.parse(content);
-        if (Array.isArray(parsed)) {
-          for (const item of parsed) {
-            processItem(item as NucleiRawItem);
+      // 1. Try parsing JSON/JSONL output file
+      if (fs.existsSync(ctx.jsonFile)) {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
+        if (content) {
+          try {
+            const parsed = JSON.parse(content);
+            if (Array.isArray(parsed)) {
+              for (const item of parsed) {
+                processItem(item as NucleiRawItem);
+              }
+            } else if (parsed && typeof parsed === 'object') {
+              processItem(parsed as NucleiRawItem);
+            }
+          } catch {
+            // Fallback to line-by-line JSONL
+            const lines = content.split('\n').filter(l => l.trim() !== '');
+            for (const line of lines) {
+              try {
+                const item = JSON.parse(line.trim());
+                if (Array.isArray(item)) {
+                  for (const sub of item) processItem(sub as NucleiRawItem);
+                } else {
+                  processItem(item as NucleiRawItem);
+                }
+              } catch { /* ignore invalid line */ }
+            }
           }
-          return findings;
-        } else if (parsed && typeof parsed === 'object') {
-          processItem(parsed as NucleiRawItem);
-          return findings;
         }
-      } catch {
-        // Fallback to line-by-line JSONL
       }
 
-      // 2. Parse as JSON Lines (JSONL)
-      const lines = content.split('\n').filter(l => l.trim() !== '');
-      for (const line of lines) {
+      // 2. Fallback: Parse stdout text output file if jsonFile was missing or empty
+      if (findings.length === 0 && fs.existsSync(ctx.outputFile)) {
         try {
-          const item = JSON.parse(line.trim());
-          if (Array.isArray(item)) {
-            for (const sub of item) processItem(sub as NucleiRawItem);
-          } else {
-            processItem(item as NucleiRawItem);
+          const txtContent = fs.readFileSync(ctx.outputFile, 'utf-8');
+          // eslint-disable-next-line no-control-regex
+          const cleanTxt = txtContent.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
+          const lines = cleanTxt.split('\n');
+          for (const rawLine of lines) {
+            const line = rawLine.trim();
+            if (!line || line.startsWith('[INF]') || line.startsWith('[WRN]') || line.startsWith('[DBG]')) continue;
+            // Format: [template-id] [protocol] [severity] url/host [extracted-results]
+            const match = line.match(/^\[([a-zA-Z0-9_-]+)\](?:\s*\[[^\]]+\])*\s*\[(info|low|medium|high|critical)\]\s*(\S+)(?:\s*(.*))?$/i);
+            if (match) {
+              const templateId = match[1];
+              const severity = match[2].toLowerCase();
+              const matchedUrl = match[3];
+              const extra = match[4]?.trim() || '';
+              findings.push({
+                id: templateId,
+                name: `Nuclei Detection: ${templateId}`,
+                severity,
+                scanner: 'nuclei',
+                url: matchedUrl,
+                description: `Nuclei matched template ${templateId} on ${matchedUrl}.${extra ? ' Extracted: ' + extra : ''}`,
+                timestamp: new Date().toISOString(),
+                extractedResults: extra ? [extra] : [],
+                references: []
+              });
+            }
           }
-        } catch { /* ignore invalid line */ }
+        } catch { /* ignore */ }
       }
+
       return findings;
     }
   },
@@ -379,18 +411,63 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (!fs.existsSync(ctx.outputFile)) return [];
       const content = fs.readFileSync(ctx.outputFile, 'utf-8');
       const openPorts = content.split('\n').filter(l => l.includes(' open '));
-      if (openPorts.length > 0) {
-        return [{
-          id: 'nmap-open-ports',
-          name: 'Nmap Port Observation',
-          severity: 'info',
-          scanner: 'nmap',
-          url: '',
-          description: openPorts.join('\n'),
-          timestamp: new Date().toISOString(),
-        }];
+      if (openPorts.length === 0) return [];
+
+      const findings: Record<string, unknown>[] = [];
+      const targetLocation = ctx.domain || ctx.targetUrl || '';
+
+      const sensitiveRules = [
+        {
+          pattern: /\b(3306|5432|1433|1521|27017|6379|9200)\/tcp\s+open\b/i,
+          id: 'nmap-exposed-database',
+          name: 'Exposed Database Listener Detected',
+          severity: 'high',
+          desc: 'Direct exposure of database services to the public internet enables unauthorized credential brute-force, potential authentication bypass, and remote exploit exposure.'
+        },
+        {
+          pattern: /\b(21|23|69|512|513|514)\/tcp\s+open\b/i,
+          id: 'nmap-unencrypted-service',
+          name: 'Insecure Cleartext Protocol Exposed (FTP/Telnet)',
+          severity: 'medium',
+          desc: 'Cleartext management or file transfer service exposed publicly. Credentials and payloads are transmitted without mandatory transport layer encryption.'
+        },
+        {
+          pattern: /\b(3389|5900|5901)\/tcp\s+open\b/i,
+          id: 'nmap-remote-desktop',
+          name: 'Remote Desktop Protocol (RDP/VNC) Exposed',
+          severity: 'medium',
+          desc: 'Direct graphical remote desktop access listener exposed to public network.'
+        }
+      ];
+
+      for (const rule of sensitiveRules) {
+        const matches = openPorts.filter(line => rule.pattern.test(line));
+        if (matches.length > 0) {
+          findings.push({
+            id: rule.id,
+            name: rule.name,
+            severity: rule.severity,
+            scanner: 'nmap',
+            url: targetLocation,
+            description: `${rule.desc}\n\nDetected Service(s):\n${matches.join('\n')}`,
+            remediation: 'Restrict access to trusted IP addresses or localhost using host firewall (UFW/iptables/Windows Defender) or cloud security groups.',
+            timestamp: new Date().toISOString(),
+          });
+        }
       }
-      return [];
+
+      // Always include baseline port observation
+      findings.push({
+        id: 'nmap-open-ports',
+        name: 'Nmap Port Observation',
+        severity: 'info',
+        scanner: 'nmap',
+        url: targetLocation,
+        description: openPorts.join('\n'),
+        timestamp: new Date().toISOString(),
+      });
+
+      return findings;
     }
   },
   zap: {
@@ -932,8 +1009,9 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
   arjun: {
     getCommandArgs(ctx) {
       const args = ['-u', ctx.targetUrl, '-oJ', ctx.jsonFile, '-t', '5'];
-      if (ctx.config?.activeValidation?.delaySeconds) {
-        args.push('-d', String(ctx.config.activeValidation.delaySeconds));
+      const activeVal = ctx.config?.activeValidation as { delaySeconds?: number } | undefined;
+      if (activeVal?.delaySeconds) {
+        args.push('-d', String(activeVal.delaySeconds));
       }
       return args;
     },
@@ -1432,7 +1510,26 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       };
     },
     parseFindings(ctx) {
-      if (!fs.existsSync(ctx.jsonFile)) return [];
+      if (!fs.existsSync(ctx.jsonFile)) {
+        if (fs.existsSync(ctx.outputFile)) {
+          try {
+            const out = fs.readFileSync(ctx.outputFile, 'utf-8');
+            if (/Schema Loading Error|Failed to load specification/i.test(out)) {
+              return [{
+                id: 'schemathesis-no-schema',
+                name: 'Schemathesis Notice: No OpenAPI Schema',
+                severity: 'info',
+                scanner: 'schemathesis',
+                url: ctx.targetUrl,
+                description: 'Target does not expose an OpenAPI/Swagger contract document at the tested URL. API fuzzing skipped.',
+                remediation: 'Provide an OpenAPI schema URL (e.g. /openapi.json or /api-docs) in scan configuration to enable contract fuzzing.',
+                timestamp: new Date().toISOString()
+              }];
+            }
+          } catch { /* ignore */ }
+        }
+        return [];
+      }
       try {
         const content = fs.readFileSync(ctx.jsonFile, 'utf-8').trim();
         if (!content) return [];
@@ -1518,9 +1615,10 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (token) {
         args.push('-token', token);
       }
-      const correlationId = (ctx.config?.correlationId as string) || ctx.scanId;
-      if (correlationId) {
-        args.push('-cid', correlationId);
+      const sessionDir = ctx.outDir || (ctx.jsonFile ? path.dirname(ctx.jsonFile) : undefined);
+      const sessionFile = sessionDir ? path.join(sessionDir, 'interactsh_session.yaml') : undefined;
+      if (sessionFile) {
+        args.push('-sf', sessionFile);
       }
       return args;
     },

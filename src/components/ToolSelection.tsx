@@ -158,6 +158,7 @@ export default function ToolSelection({
       if (commercialList.includes(t)) return false;
       if (['sqlmap', 'nikto', 'commix'].includes(t)) return false;
       if (isWebTarget && sourceOnlyTools.includes(t)) return false;
+      if (t === 'wpscan') return false; // Dedicated WordPress container; select explicitly or via WP profile
       return true;
     });
   }, [allTools, commercialList, isWebTarget, sourceOnlyTools]);

@@ -446,7 +446,7 @@ export class ScannerService {
     try {
     const args = adapter.getCommandArgs(context);
     
-    let env = { 
+    let env: NodeJS.ProcessEnv = { 
       ...process.env,
       PYTHONUNBUFFERED: '1',
       PYTHONIOENCODING: 'utf-8'

@@ -188,6 +188,16 @@ export class StorageService {
 
         if (scanner) {
           meta[`${scanner}Status`] = status;
+        } else {
+          meta.status = status;
+          if (ScanStateMachine.isTerminal(status as ScanState)) {
+            meta.endTime = meta.endTime || new Date().toISOString();
+            for (const key of Object.keys(meta)) {
+              if (key.endsWith('Status') && meta[key] === 'RUNNING') {
+                meta[key] = status;
+              }
+            }
+          }
         }
 
         const tools: string[] = meta.config?.tools || [];

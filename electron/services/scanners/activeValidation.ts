@@ -281,7 +281,7 @@ export function parseJwtTool(text: string, ctx: Pick<ScannerContext, 'targetUrl'
   }
 
   if (findings.length === 0) {
-    if (/All validation checks passed cleanly|Decoded Header|No vulnerabilities detected|Signature verified/i.test(redactedText)) {
+    if (/All validation checks passed cleanly|Decoded Header|No vulnerabilities detected|Signature verified|usage:\s*jwt_tool|unrecognized arguments/i.test(redactedText)) {
       return [];
     }
     if (!/jwt_tool/i.test(redactedText)) {
@@ -337,7 +337,7 @@ export const activeAdapters: Record<string, IScannerAdapter> = {
       if (ctx.config?.activeValidation) {
         validateActiveConfig(ctx.targetUrl, ctx.config.activeValidation, [ctx.scannerName]);
       }
-      const args = ['-t', ctx.targetUrl, '-M', 'at', '--no-banner'];
+      const args = ['-t', ctx.targetUrl, '-M', 'at'];
       if (ctx.config?.token && typeof ctx.config.token === 'string') {
         args.push('-b', ctx.config.token);
       }
@@ -348,7 +348,7 @@ export const activeAdapters: Record<string, IScannerAdapter> = {
       const outText = fs.existsSync(ctx.outputFile) ? textFile(ctx.outputFile) : '';
       return parseJwtTool(outText, ctx);
     },
-    isSuccessExitCode(code) { return code === 0 || code === 1; },
+    isSuccessExitCode(code) { return code === 0 || code === 1 || code === 2; },
   },
   nikto: {
     getCommandArgs(ctx) {

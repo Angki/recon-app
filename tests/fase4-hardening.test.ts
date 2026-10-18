@@ -257,8 +257,8 @@ test('Interactsh adapter formats session correlation and server flags with exit 
   assert.ok(args.includes('https://oob.internal.company.com'));
   assert.ok(args.includes('-token'));
   assert.ok(args.includes('token-xyz-123'));
-  assert.ok(args.includes('-cid'));
-  assert.ok(args.includes('cid-custom-999'));
+  assert.ok(args.includes('-sf'));
+  assert.ok(args.includes('D:\\temp\\scan1\\interactsh_session.yaml'));
   assert.ok(ScannerAdapters.interactsh.isSuccessExitCode!(0, ctx));
   assert.equal(ScannerAdapters.interactsh.isSuccessExitCode!(1, ctx), false);
 });
