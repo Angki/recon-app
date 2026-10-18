@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { aiService, isLoopbackHost } from '../electron/services/aiService';
+import { aiService, isLoopbackHost, AI_PRESETS } from '../electron/services/aiService';
 import { dbService } from '../electron/services/database';
 
 test('isLoopbackHost correctly validates local Ollama hosts', () => {
@@ -35,12 +35,12 @@ test('synthesizeFindingsContext formats SQLite findings into structured markdown
 });
 
 test('AI_PRESETS provides the 4 required cybersecurity analysis presets', () => {
-  const { AI_PRESETS } = require('../electron/services/aiService');
   assert.ok(AI_PRESETS.executive.includes('Executive Summary'));
   assert.ok(AI_PRESETS.attack_path.includes('Adversary Simulation'));
   assert.ok(AI_PRESETS.remediation.includes('technical remediation instructions'));
   assert.ok(AI_PRESETS.verification.includes('manual verification commands'));
 });
+
 
 test('testConnection checks connection status and reports latency', async () => {
   const result = await aiService.testConnection('ollama');

@@ -185,7 +185,6 @@ export class AIService {
     preset: string,
     customPrompt?: string
   ): Promise<string> {
-    const settings = settingsStore.get();
     const basePrompt = AI_PRESETS[preset] || customPrompt || AI_PRESETS.executive;
     const structuredContext = this.synthesizeFindingsContext(scanId);
 
@@ -269,9 +268,10 @@ export class AIService {
       return data.message?.content || 'No response generated.';
     } catch (err: unknown) {
       const error = err as Error;
-      throw new Error(`Copilot chat failed: ${error.message || 'Unknown error'}`);
+      throw new Error(`Copilot chat failed: ${error.message || 'Unknown error'}`, { cause: err });
     }
   }
+
 
   private async callOpenAIChat(
     apiKey: string,
