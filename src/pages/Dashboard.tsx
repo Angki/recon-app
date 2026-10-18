@@ -1,12 +1,20 @@
-import { useEffect } from 'react';
-import { RefreshCw, X, ShieldAlert, Loader2, Sparkles, Terminal } from 'lucide-react';
+import { useEffect, useState, useMemo } from 'react';
+import {Link} from 'react-router-dom';
+import { 
+  RefreshCw, X, ShieldAlert, Loader2, Sparkles, Terminal, 
+  CheckCircle2, AlertCircle, Timer, Radio, Cpu, Maximize2, Minimize2,
+  ChevronDown, Layers
+} from 'lucide-react';
 import TerminalPane from '../components/TerminalPane';
+import ErrorBoundary from '../components/ErrorBoundary';
 import VulnerabilityTable from '../components/VulnerabilityTable';
 import ScannerControls from '../components/ScannerControls';
 import ToolSelection from '../components/ToolSelection';
+import ActiveTestingPanel, { type ActivePlan } from '../components/ActiveTestingPanel';
 import FindingsSummary from '../components/FindingsSummary';
+import { ExportReportModal } from '../components/ExportReportModal';
 import type { Vulnerability } from '../types/vulnerability';
-import { useScanStore } from '../stores/useScanStore';
+import { useScanStore, allTools, initialScannerStatus } from '../stores/useScanStore';
 import type { ScannerType, ScannerStatus } from '../stores/useScanStore';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useLogStore } from '../stores/useLogStore';
@@ -24,6 +32,10 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     nucleiFindings, setNucleiFindings,
     wapitiVulns, setWapitiVulns,
     wapitiPages, setWapitiPages,
+    dashboardView, setDashboardView,
+    executionMode, setExecutionMode,
+    resetScanState,
+    testingDraft, setTestingDraft,
   } = useScanStore();
 
   const {
@@ -43,8 +55,39 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     aiProgressMsg, setAiProgressMsg,
   } = useLogStore();
 
-  const allToolsArray = ['nuclei', 'wapiti', 'wpscan', 'subfinder', 'alterx', 'dnsx', 'naabu', 'tlsx', 'httpx', 'nmap', 'zap', 'katana', 'ffuf', 'appscan', 'netsparker', 'acunetix'];
-  const tabs = ['findings', 'ai', 'nuclei', 'wapiti', 'wpscan', 'pdiscovery', 'nmap', 'zap', 'ffuf', 'appscan', 'netsparker', 'acunetix'];
+  const [showExportModal, setShowExportModal] = useState(false);
+  const [activePlan, setActivePlan] = useState<ActivePlan>({ scopeOrigin:'', parameters:[], timeoutMinutes:10, delaySeconds:1 });
+  useEffect(() => {
+    if (!testingDraft) return;
+    const target = new URL(testingDraft.target);
+    if (testingDraft.workflow.kind === 'endpoint') {
+      for (const parameter of testingDraft.parameters) if (!target.searchParams.has(parameter)) target.searchParams.set(parameter,'');
+    }
+    setTargetUrl(target.href);
+    setSelectedTools([testingDraft.tool]);
+    setActivePlan({scopeOrigin:testingDraft.scopeOrigin,parameters:testingDraft.parameters,timeoutMinutes:10,delaySeconds:1});
+  }, [testingDraft, setTargetUrl, setSelectedTools]);
+  const [consoleFilter, setConsoleFilter] = useState<'selected' | 'dast' | 'recon' | 'network' | 'secops' | 'all'>('selected');
+  const [severityFilter, setSeverityFilter] = useState<string>('all');
+  const [scanStartTime, setScanStartTime] = useState<number | null>(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
+
+  const allToolsArray = allTools;
+  const tabs = [
+    'sqlmap', 'nikto', 'commix',
+    'findings', 'ai', 'nuclei', 'wapiti', 'wpscan', 'pdiscovery', 
+    'dalfox', 'wafw00f', 'whatweb', 'arjun', 'corsy', 'cmseek', 'gau', 'crlfsuite', 
+    'nmap', 'zap', 'ffuf', 'gitleaks', 'semgrep', 'trivy', 'sslyze', 'schemathesis',
+    'appscan', 'netsparker', 'acunetix'
+  ];
+
+  // Tool categories for console filtering
+  const toolCategories = {
+    dast: ['sqlmap', 'nikto', 'commix', 'nuclei', 'wapiti', 'dalfox', 'corsy', 'cmseek', 'crlfsuite', 'zap', 'appscan', 'netsparker', 'acunetix'],
+    recon: ['subfinder', 'httpx', 'katana', 'dnsx', 'alterx', 'tlsx', 'gau', 'whatweb', 'wafw00f', 'wpscan', 'pdiscovery', 'sslyze'],
+    network: ['naabu', 'nmap', 'ffuf', 'arjun', 'schemathesis'],
+    secops: ['gitleaks', 'semgrep', 'trivy']
+  };
 
   // Scan output and stats listeners
   useEffect(() => {
@@ -53,6 +96,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     const handleOutput = (_event: unknown, data: { scanId: string; scanner: string; type: string; message: string }) => {
       if (data.scanId !== scanId) return;
       useLogStore.getState().appendRawLogs(`[${data.scanner.toUpperCase()}] ${data.message}\n`);
+      useLogStore.getState().appendScannerLog(data.scanner, data.message);
     };
 
     const handleStats = (_event: unknown, data: { scanId: string; stats: { nuclei: Record<string, number>, wapiti: { vulns: number, pages: number } } }) => {
@@ -98,7 +142,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         const anyFailed = Object.values(next).some(s => s === 'FAILED');
 
         const currentStatus = useScanStore.getState().status;
-        if (allDone && currentStatus !== 'IDLE') {
+        if (allDone && !['IDLE', 'STOPPING', 'STOPPED'].includes(currentStatus)) {
           useScanStore.getState().setStatus(anyFailed ? 'FAILED' : 'COMPLETED');
         }
 
@@ -118,6 +162,32 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       removeStatusListener();
       removeFindingsListener();
     };
+  }, [scanId]);
+
+  // Rehydrate scan findings and state if restoring after reload / HMR
+  useEffect(() => {
+    if (!scanId || !window.api) return;
+    window.api.getFindingsPaginated(scanId, { limit: 1000 }).then(res => {
+      if (res && res.findings && res.findings.length > 0) {
+        setAllFindings(res.findings);
+      }
+    }).catch(() => {});
+    // A short-lived tool may finish before the scan-id-dependent IPC listeners mount.
+    window.api.getHistory().then((history: Array<Record<string, unknown>>) => {
+      if (useScanStore.getState().scanId !== scanId) return;
+      const scan = history.find(item => item.scanId === scanId);
+      if (!scan) return;
+      const terminal = ['COMPLETED', 'FAILED', 'STOPPED'];
+      useScanStore.getState().setScannerStatus(previous => {
+        const next = {...previous};
+        for (const tool of allTools) {
+          const saved = scan[`${tool}Status`];
+          if (typeof saved === 'string' && terminal.includes(saved) && next[tool as ScannerType] !== 'STOPPED') next[tool as ScannerType] = saved as ScannerStatus;
+        }
+        return next;
+      });
+      if (terminal.includes(String(scan.status)) && !['STOPPED','STOPPING'].includes(useScanStore.getState().status)) useScanStore.getState().setStatus(String(scan.status));
+    }).catch(() => {});
   }, [scanId]);
 
   // Updater listeners
@@ -174,7 +244,6 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       // Re-check
       const deps = await window.api.checkDependencies();
       setDependencies(deps);
-      // Wait for 1.5s to show completion before possibly allowing close
       setTimeout(() => {
         setIsInstallingDependencies(false);
       }, 1500);
@@ -189,7 +258,6 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     try {
       const parsed = new URL(url.startsWith('http') ? url : `https://${url}`);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return false;
-      // Basic injection prevention
       if (/['";&|$<>]/.test(parsed.hostname)) return false;
       return true;
     } catch {
@@ -198,6 +266,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   };
 
   const handleStartScan = async () => {
+    if (['STARTING', 'RUNNING', 'STOPPING'].includes(useScanStore.getState().status)) return;
     let finalUrl = targetUrl.trim();
     if (!finalUrl.startsWith('http')) {
       finalUrl = `https://${finalUrl}`;
@@ -214,18 +283,18 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     setWapitiVulns(0);
     setWapitiPages(0);
     setAllFindings([]);
+    setScanStartTime(Date.now());
+    setElapsedSeconds(0);
+    setSeverityFilter('all');
     clearRawLogs();
     appendRawLogs(`Scan started against ${finalUrl} at ${new Date().toISOString()}\n\n`);
 
     setStatus('STARTING');
-    const initialStatus: Record<ScannerType, ScannerStatus> = {
-      nuclei: 'IDLE', wapiti: 'IDLE', subfinder: 'IDLE', alterx: 'IDLE', dnsx: 'IDLE', naabu: 'IDLE',
-      tlsx: 'IDLE', httpx: 'IDLE', nmap: 'IDLE', zap: 'IDLE', katana: 'IDLE', ffuf: 'IDLE',
-      appscan: 'IDLE', netsparker: 'IDLE', acunetix: 'IDLE', wpscan: 'IDLE', pdiscovery: 'IDLE'
-    };
+    const initialStatus: Record<ScannerType, ScannerStatus> = { ...initialScannerStatus };
     
-    selectedTools.forEach(tool => {
-      initialStatus[tool as ScannerType] = 'RUNNING';
+    selectedTools.forEach((tool, idx) => {
+      // In pipeline mode, first tool begins RUNNING, remaining are queued
+      initialStatus[tool as ScannerType] = (executionMode === 'pipeline' && idx > 0) ? 'QUEUED' : 'RUNNING';
       if (['subfinder', 'httpx', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].includes(tool)) {
         initialStatus.pdiscovery = 'RUNNING';
       }
@@ -236,7 +305,10 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     try {
       const res = await window.api.startScan(finalUrl, {
         tools: selectedTools,
-        isWordpress: isWordpressScan
+        isWordpress: isWordpressScan,
+        executionMode: executionMode,
+        activeValidation: activePlan,
+        ...(testingDraft ? {workflow:testingDraft.workflow} : {}),
       });
       if (res.success) {
         setScanId(res.scanId || null);
@@ -244,11 +316,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       } else {
         alert('Failed to start scan: ' + res.error);
         setStatus('FAILED');
-        setScannerStatus({
-          nuclei: 'IDLE', wapiti: 'IDLE', subfinder: 'IDLE', alterx: 'IDLE', dnsx: 'IDLE', naabu: 'IDLE',
-          tlsx: 'IDLE', httpx: 'IDLE', nmap: 'IDLE', zap: 'IDLE', katana: 'IDLE', ffuf: 'IDLE',
-          appscan: 'IDLE', netsparker: 'IDLE', acunetix: 'IDLE', wpscan: 'IDLE', pdiscovery: 'IDLE',
-        });
+        setScannerStatus(initialScannerStatus);
       }
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
@@ -256,6 +324,61 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       setStatus('FAILED');
     }
   };
+
+  // Timer effect for live telemetry
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    if (status === 'RUNNING') {
+      interval = setInterval(() => {
+        if (scanStartTime) {
+          setElapsedSeconds(Math.floor((Date.now() - scanStartTime) / 1000));
+        } else {
+          setElapsedSeconds(prev => prev + 1);
+        }
+      }, 1000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [status, scanStartTime]);
+
+  const formatDuration = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60);
+    const secs = totalSeconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const pipelineTelemetry = useMemo(() => {
+    const reconTools = ['subfinder', 'gau', 'dnsx', 'httpx', 'katana', 'alterx', 'tlsx', 'whatweb', 'wafw00f', 'sslyze'];
+    const networkTools = ['naabu', 'nmap'];
+    const dastTools = ['sqlmap', 'nikto', 'commix', 'nuclei', 'wapiti', 'dalfox', 'corsy', 'cmseek', 'crlfsuite', 'zap'];
+    const apiTools = ['ffuf', 'arjun', 'schemathesis', 'gitleaks', 'semgrep', 'trivy'];
+
+    const getPhaseState = (toolList: string[]) => {
+      const activeInPhase = toolList.filter(t => selectedTools.includes(t));
+      if (activeInPhase.length === 0) return 'DISABLED';
+      if (activeInPhase.some(t => scannerStatus[t as ScannerType] === 'RUNNING')) return 'RUNNING';
+      if (activeInPhase.every(t => ['COMPLETED', 'STOPPED', 'FAILED'].includes(scannerStatus[t as ScannerType]))) return 'COMPLETED';
+      return 'PENDING';
+    };
+
+    const runningTools = selectedTools.filter(t => scannerStatus[t as ScannerType] === 'RUNNING');
+    const completedTools = selectedTools.filter(t => scannerStatus[t as ScannerType] === 'COMPLETED');
+    const failedTools = selectedTools.filter(t => scannerStatus[t as ScannerType] === 'FAILED');
+
+    return {
+      phases: [
+        { id: 'p1', name: 'Recon & Surface', state: getPhaseState(reconTools) },
+        { id: 'p2', name: 'Port & Network', state: getPhaseState(networkTools) },
+        { id: 'p3', name: 'DAST & Probing', state: getPhaseState(dastTools) },
+        { id: 'p4', name: 'API & Supply Chain', state: getPhaseState(apiTools) },
+      ],
+      runningCount: runningTools.length,
+      completedCount: completedTools.length,
+      failedCount: failedTools.length,
+      runningTools
+    };
+  }, [selectedTools, scannerStatus]);
 
   const handleStopScan = async () => {
     if (!scanId) return;
@@ -265,7 +388,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       setStatus('STOPPED');
       setScannerStatus(prev => {
         const next = { ...prev };
-        for (const k in next) if (next[k as ScannerType] === 'RUNNING') next[k as ScannerType] = 'STOPPED';
+        for (const k in next) if (['RUNNING', 'QUEUED'].includes(next[k as ScannerType])) next[k as ScannerType] = 'STOPPED';
         return next;
       });
     }
@@ -297,16 +420,16 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     setActiveTab('ai');
     setIsAnalyzing(true);
     setAiResponse('');
-    setAiProgressMsg('Analyzing logs with AI... This might take a minute depending on the log size.');
+    setAiProgressMsg('Synthesizing engine findings with AI Security Analyst...');
 
     try {
-      const prompt = `You are a cybersecurity expert. Analyze these automated scan logs for ${targetUrl}. Summarize the vulnerabilities, state the most critical risks, and suggest remediation steps. Provide a clear, actionable executive summary.`;
+      const prompt = `You are a Principal Cyber Security Analyst. Analyze these automated scan logs for ${targetUrl}. Summarize the vulnerabilities, prioritize top critical risks, and suggest concrete remediation steps. Provide a clear, actionable executive report.`;
       const response = await window.api.analyzeLogs(logs, prompt);
       setAiResponse(response);
     } catch (err: unknown) {
       let msg = err instanceof Error ? err.message : String(err);
       if (msg.includes('Is Ollama running?')) {
-        msg = `Could not connect to Ollama. Please ensure the Ollama app is running locally, or change the AI Provider in Settings.\n\nTechnical details: ${(err as Error).message}`;
+        msg = `Could not connect to Ollama. Please ensure Ollama is running locally, or configure an alternative AI Provider in Settings.\n\nTechnical details: ${(err as Error).message}`;
       } else {
         msg = `Error during AI Analysis:\n\n${(err as Error).message}\n\nPlease check your configuration in Settings.`;
       }
@@ -333,8 +456,20 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     }
   };
 
+  // Determine consoles to show in the switcher bar
+  const consoleTools = tabs.filter(t => t !== 'findings' && t !== 'ai').filter(tool => {
+    if (consoleFilter === 'selected') {
+      return selectedTools.includes(tool) || scannerStatus[tool as ScannerType] === 'RUNNING';
+    }
+    if (consoleFilter === 'dast') return toolCategories.dast.includes(tool);
+    if (consoleFilter === 'recon') return toolCategories.recon.includes(tool);
+    if (consoleFilter === 'network') return toolCategories.network.includes(tool);
+    if (consoleFilter === 'secops') return toolCategories.secops.includes(tool);
+    return true; // 'all'
+  });
+
   return (
-    <div className="flex flex-col h-full space-y-4">
+    <div className="flex flex-col h-full space-y-2 overflow-hidden">
       {/* Header Controls */}
       <ScannerControls
         targetUrl={targetUrl} setTargetUrl={setTargetUrl}
@@ -343,102 +478,326 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         handleStartScan={handleStartScan} handleStopScan={handleStopScan}
         handleOpenFolder={handleOpenFolder} handleAnalyzeAI={handleAnalyzeAI}
         handleCopyLogsForAI={handleCopyLogsForAI} handleUpdateTools={handleUpdateTools}
+        handleClearLiveView={() => {
+          resetScanState();
+          clearRawLogs();
+          setScanStartTime(null);
+          setElapsedSeconds(0);
+          setSeverityFilter('all');
+        }}
+        onOpenExportReport={() => setShowExportModal(true)}
         isAnalyzing={isAnalyzing} isUpdating={isUpdating}
+        dashboardView={dashboardView} setDashboardView={setDashboardView}
+        executionMode={executionMode} setExecutionMode={setExecutionMode}
       />
 
-      {/* Tool Selection */}
-      <ToolSelection
-        allTools={allToolsArray} selectedTools={selectedTools}
-        setSelectedTools={setSelectedTools} status={status}
-      />
+      {/* Tool Selection Section (Collapsible & Compact) */}
+      {testingDraft && <div className="theme-card rounded-xl p-3 text-sm shrink-0 border border-[var(--border-card)]">
+        <strong>{testingDraft.workflow.kind === 'retest' ? 'Linked retest' : 'Selected endpoint test'}</strong> · Source: {testingDraft.workflow.sourceScanId}
+        <p className="text-xs mt-1">Review the URL and parameters, then use Start Scan. Fill sample values for newly discovered parameters. Nikto tests the whole origin.</p>
+        <div className="flex gap-4 mt-2"><Link className="underline" to="/endpoints">View inventory and linked results</Link><button disabled={['STARTING','RUNNING','STOPPING'].includes(status)} onClick={()=>setTestingDraft(null)} className="underline disabled:opacity-40">Detach draft</button></div>
+      </div>}
+      {selectedTools.some(tool => ['sqlmap', 'nikto', 'commix'].includes(tool)) && <ActiveTestingPanel target={targetUrl} tools={selectedTools} value={activePlan} onChange={setActivePlan} disabled={['STARTING','RUNNING','STOPPING'].includes(status)}/>}
+      {dashboardView?.showToolSelection ? (
+        <ToolSelection
+          allTools={allToolsArray} selectedTools={selectedTools}
+          setSelectedTools={setSelectedTools} status={status}
+        />
+      ) : (
+        <div className="theme-card p-2 px-3.5 rounded-xl border border-[var(--border-card)] shadow-sm shrink-0 flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <Layers className="w-3.5 h-3.5 text-cyan-400" />
+            <span className="font-mono text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-bold">Suite Tools:</span>
+            <span className="font-bold text-xs text-[var(--text-primary)] font-mono">{selectedTools.length} Armed</span>
+            <span className="text-[10px] font-mono text-cyan-400 hidden sm:inline">
+              ({selectedTools.slice(0, 5).join(', ')}{selectedTools.length > 5 ? ` +${selectedTools.length - 5} lainnya` : ''})
+            </span>
+          </div>
+          <button
+            onClick={() => setDashboardView(prev => ({ ...prev, showToolSelection: true }))}
+            className="text-[11px] text-[var(--accent-primary)] hover:underline cursor-pointer flex items-center gap-1 font-semibold"
+          >
+            <span>Buka Panel Tools</span>
+            <ChevronDown className="w-3 h-3" />
+          </button>
+        </div>
+      )}
 
-      {/* Tab Navigation */}
-      <div className="flex space-x-2 border-b border-[var(--border-card)] overflow-x-auto pb-1 scrollbar-thin">
-        {tabs.map(tab => {
+      {/* Cyber Operations Telemetry HUD */}
+      {dashboardView?.showTelemetry && (
+        <div className="theme-card relative z-0 p-2 px-3.5 rounded-xl border border-[var(--border-card)] shadow-sm shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+        {/* Left: Pipeline Phase Stepper */}
+        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-none">
+          <div className="flex items-center gap-1.5 mr-2 shrink-0">
+            <Radio className={`w-3.5 h-3.5 ${status === 'RUNNING' ? 'text-emerald-400 animate-pulse' : 'text-[var(--text-muted)]'}`} />
+            <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-[var(--text-muted)]">
+              Pipeline:
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {pipelineTelemetry.phases.map((phase, idx) => {
+              const isPhaseRunning = phase.state === 'RUNNING';
+              const isPhaseDone = phase.state === 'COMPLETED';
+              const isPhaseDisabled = phase.state === 'DISABLED';
+
+              return (
+                <div key={phase.id} className="flex items-center gap-1">
+                  <div
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg text-[10px] font-mono transition-all border ${
+                      isPhaseRunning
+                        ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 shadow-[0_0_10px_rgba(16,185,129,0.2)] font-bold'
+                        : isPhaseDone
+                          ? 'bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border-[var(--border-glow)]'
+                          : isPhaseDisabled
+                            ? 'opacity-40 text-[var(--text-muted)] border-transparent'
+                            : 'text-[var(--text-muted)] border-[var(--border-card)] bg-black/20'
+                    }`}
+                  >
+                    {isPhaseRunning ? (
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                      </span>
+                    ) : isPhaseDone ? (
+                      <CheckCircle2 className="w-3 h-3 text-[var(--accent-primary)]" />
+                    ) : (
+                      <span className="w-1.5 h-1.5 rounded-full bg-[var(--text-muted)] opacity-50" />
+                    )}
+                    <span>{phase.name}</span>
+                  </div>
+                  {idx < pipelineTelemetry.phases.length - 1 && (
+                    <span className="text-[var(--text-muted)] text-[10px] opacity-40">→</span>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Right: Telemetry Counter Chips */}
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+          {/* Active Engines Badge */}
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-card)] text-[10px] font-mono">
+            <Cpu className="w-3 h-3 text-cyan-400" />
+            <span className="text-cyan-400 font-bold tabular-nums">{pipelineTelemetry.runningCount} Active</span>
+            <span className="text-[var(--text-muted)]">•</span>
+            <span className="text-emerald-400 font-bold tabular-nums">{pipelineTelemetry.completedCount} Done</span>
+            {pipelineTelemetry.failedCount > 0 && (
+              <>
+                <span className="text-[var(--text-muted)]">•</span>
+                <span className="text-rose-400 font-bold tabular-nums">{pipelineTelemetry.failedCount} Failed</span>
+              </>
+            )}
+          </div>
+
+          {/* Live Elapsed Duration */}
+          <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-lg bg-[var(--bg-app)] border border-[var(--border-card)] text-[10px] font-mono font-bold text-[var(--text-primary)]">
+            <Timer className={`w-3 h-3 ${status === 'RUNNING' ? 'text-amber-400 animate-spin' : 'text-[var(--text-muted)]'}`} />
+            <span className="tabular-nums">{formatDuration(elapsedSeconds)}</span>
+          </div>
+
+          {/* Target Domain Badge */}
+          {targetUrl && (
+            <div className="text-[10px] font-mono text-[var(--text-muted)] max-w-[180px] truncate hidden lg:inline" title={targetUrl}>
+              🎯 {targetUrl.replace(/^https?:\/\//, '')}
+            </div>
+          )}
+        </div>
+      </div>
+      )}
+
+      {/* Master Workspace Bar: Primary Tabs + Live Console Switcher */}
+      <div className="theme-card relative z-0 p-1.5 px-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-2 shadow-sm border border-[var(--border-card)] shrink-0">
+        {/* Left: Primary Workspaces */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <button
+            onClick={() => setActiveTab('findings')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'findings'
+                ? 'bg-[var(--accent-primary)] text-white shadow-md shadow-[var(--accent-glow)]'
+                : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <ShieldAlert className="w-3.5 h-3.5 text-rose-400" />
+            <span>Findings & Vulns</span>
+            {allFindings.length > 0 && (
+              <span className="bg-rose-500 text-white text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold shadow-sm tabular-nums">
+                {allFindings.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={() => setActiveTab('ai')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              activeTab === 'ai'
+                ? 'bg-purple-600 text-white shadow-md shadow-purple-900/40'
+                : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Sparkles className="w-3.5 h-3.5 text-purple-300" />
+            <span>AI Analyst</span>
+          </button>
+
+          {/* Quick Focus / Maximize Toggle */}
+          <button
+            onClick={() => {
+              const isFocus = dashboardView?.mode === 'focus';
+              setDashboardView({
+                mode: isFocus ? 'standard' : 'focus',
+                showToolSelection: isFocus,
+                showTelemetry: isFocus,
+                showSummaryCards: isFocus,
+              });
+            }}
+            title={dashboardView?.mode === 'focus' ? 'Kembali ke Tampilan Standar' : 'Fokus Hasil (Sembunyikan panel atas & maksimalkan ruang tabel temuan)'}
+            className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer border ${
+              dashboardView?.mode === 'focus'
+                ? 'bg-cyan-500/15 text-cyan-400 border-cyan-500/40 shadow-sm'
+                : 'bg-white/5 text-[var(--text-muted)] hover:text-[var(--text-primary)] border-transparent hover:border-[var(--border-card)]'
+            }`}
+          >
+            {dashboardView?.mode === 'focus' ? (
+              <>
+                <Minimize2 className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Normal</span>
+              </>
+            ) : (
+              <>
+                <Maximize2 className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">Fokus Hasil</span>
+              </>
+            )}
+          </button>
+        </div>
+
+        {/* Right: Console Streams Filter & Navigation */}
+        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+          <div className="flex items-center gap-1 bg-[var(--bg-surface)] p-0.5 rounded-lg border border-[var(--border-card)]">
+            <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase tracking-wider px-1.5 hidden sm:inline">Stream:</span>
+            
+            {(['selected', 'dast', 'recon', 'network', 'secops', 'all'] as const).map(filterKey => (
+              <button
+                key={filterKey}
+                onClick={() => setConsoleFilter(filterKey)}
+                className={`px-2 py-0.5 rounded-md text-[10px] font-mono uppercase tracking-wider transition-all cursor-pointer ${
+                  consoleFilter === filterKey
+                    ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] font-bold border border-[var(--border-glow)]'
+                    : 'text-[var(--text-muted)] hover:text-[var(--text-primary)]'
+                }`}
+              >
+                {filterKey === 'selected' ? 'Active' : filterKey === 'secops' ? 'Secrets/Code' : filterKey}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Sub-bar: Active Engine Console Tabs */}
+      <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin px-0.5 shrink-0">
+        {consoleTools.map(tab => {
           const isActive = activeTab === tab;
-          const isRunning = tab !== 'findings' && tab !== 'ai' && scannerStatus[tab as ScannerType] === 'RUNNING';
+          const scannerStat = scannerStatus[tab as ScannerType];
+          const isRunning = scannerStat === 'RUNNING';
+          const isFailed = scannerStat === 'FAILED';
+          const isCompleted = scannerStat === 'COMPLETED';
+
           return (
             <button
               key={tab}
-              onClick={() => setActiveTab(tab as 'findings' | 'ai' | ScannerType)}
-              className={`px-4 py-2 font-medium text-xs tracking-wider uppercase transition-all duration-200 border-b-2 whitespace-nowrap flex items-center space-x-2 rounded-t-lg ${
+              onClick={() => setActiveTab(tab as ScannerType)}
+              className={`px-2.5 py-1 rounded-lg font-mono text-[11px] uppercase tracking-wider font-semibold transition-all flex items-center gap-1.5 border whitespace-nowrap cursor-pointer ${
                 isActive
-                  ? 'border-[var(--accent-primary)] text-[var(--accent-primary)] bg-[var(--accent-primary)]/10 font-bold shadow-[0_2px_12px_var(--accent-glow)]'
-                  : 'border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)]/50'
+                  ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] border-[var(--border-glow)] shadow-sm'
+                  : 'bg-[var(--bg-card)] text-[var(--text-muted)] border-[var(--border-card)] hover:text-[var(--text-primary)] hover:border-[var(--text-muted)]'
               }`}
             >
-              {tab === 'findings' && <ShieldAlert className="w-4 h-4 text-red-400" />}
-              {tab === 'ai' && <Sparkles className="w-4 h-4 text-purple-400" />}
-              {tab !== 'findings' && tab !== 'ai' && <Terminal className="w-3.5 h-3.5 opacity-70" />}
-              <span>{tab}</span>
               {isRunning && (
-                <span className="relative flex h-2 w-2 ml-1.5">
+                <span className="relative flex h-2 w-2">
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
                 </span>
               )}
-              {tab === 'findings' && allFindings.length > 0 && (
-                <span className="ml-1.5 bg-red-500/20 text-red-400 border border-red-500/30 text-[10px] px-1.5 py-0.2 rounded-full font-mono font-bold">
-                  {allFindings.length}
-                </span>
-              )}
+              {isCompleted && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+              {isFailed && <AlertCircle className="w-3 h-3 text-rose-400" />}
+              {!isRunning && !isCompleted && !isFailed && <Terminal className="w-3 h-3 opacity-50" />}
+              <span>{tab}</span>
             </button>
           );
         })}
       </div>
 
-      {/* Scanners Tab View */}
-      <div className="flex-1 min-h-0 relative">
-        <div className={`absolute inset-0 ${activeTab === 'findings' ? 'block z-10' : 'hidden'}`}>
-          <VulnerabilityTable scanId={scanId} refreshTrigger={allFindings.length} />
-        </div>
-        <div className={`absolute inset-0 bg-[var(--bg-card)] border border-[var(--border-card)] rounded-2xl p-6 overflow-y-auto ${activeTab === 'ai' ? 'block z-10' : 'hidden'}`}>
-          <div className="max-w-4xl mx-auto space-y-6">
-            <div className="flex items-center space-x-3 pb-4 border-b border-[var(--border-card)]">
-              <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.2)]">
-                <Sparkles className="w-6 h-6 animate-pulse" />
-              </div>
-              <div>
-                <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
-                  AI Security Analyst Engine
-                </h2>
-                <p className="text-xs text-[var(--text-muted)]">Automated correlation, threat intelligence analysis, and guided remediation matrix</p>
-              </div>
-            </div>
-
-            {isAnalyzing ? (
-              <div className="flex items-center space-x-3 text-purple-400 p-8 bg-[var(--bg-surface)] rounded-2xl border border-purple-500/30 shadow-lg">
-                <Loader2 className="w-6 h-6 animate-spin shrink-0 text-purple-400" />
-                <span className="animate-pulse text-sm font-medium">{aiProgressMsg}</span>
-              </div>
-            ) : aiResponse ? (
-              <div className="prose prose-invert max-w-none">
-                <pre className="whitespace-pre-wrap bg-[var(--bg-surface)] p-6 rounded-2xl text-[var(--text-secondary)] font-mono text-xs border border-[var(--border-card)] shadow-inner leading-relaxed">
-                  {aiResponse}
-                </pre>
-              </div>
-            ) : (
-              <div className="text-center py-12 px-4 rounded-2xl bg-[var(--bg-surface)]/50 border border-dashed border-[var(--border-card)]">
-                <Sparkles className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3 opacity-40" />
-                <p className="text-sm font-medium text-[var(--text-secondary)]">Ready for Intelligence Analysis</p>
-                <p className="text-xs text-[var(--text-muted)] mt-1 max-w-md mx-auto">
-                  Run a multi-tool scan and click <span className="text-[var(--accent-primary)] font-semibold">"AI Analyst"</span> in the command bar to synthesize findings into actionable triage reports.
-                </p>
-              </div>
-            )}
-          </div>
-        </div>
-        {tabs.filter(t => t !== 'findings' && t !== 'ai').map(tab => (
-          <div key={tab} className={`absolute inset-0 transition-opacity duration-200 ${activeTab === tab ? 'opacity-100 z-10' : 'opacity-0 pointer-events-none z-0'}`}>
-            <TerminalPane
-              title={`${tab.charAt(0).toUpperCase() + tab.slice(1)} Console`}
-              scanner={tab as ScannerType}
-              scanId={scanId}
-              status={scannerStatus[tab as ScannerType]}
-              isVisible={activeTab === tab}
+      {/* Workspaces & Scanners Tab View Area (Fills 100% remaining height) */}
+      <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner">
+        {/* Findings View */}
+        {activeTab === 'findings' && (
+          <div className="h-full w-full">
+            <VulnerabilityTable 
+              scanId={scanId} 
+              refreshTrigger={allFindings.length} 
+              onOpenExportReport={() => setShowExportModal(true)}
+              externalSeverityFilter={severityFilter}
+              onSeverityFilterChange={setSeverityFilter}
             />
           </div>
-        ))}
+        )}
+
+        {/* AI Security Analyst View */}
+        {activeTab === 'ai' && (
+          <div className="h-full w-full p-6 overflow-y-auto">
+            <div className="max-w-4xl mx-auto space-y-6">
+              <div className="flex items-center space-x-3 pb-4 border-b border-[var(--border-card)]">
+                <div className="p-2.5 rounded-xl bg-purple-500/10 border border-purple-500/20 text-purple-400 shadow-[0_0_15px_rgba(168,85,247,0.2)]">
+                  <Sparkles className="w-6 h-6 animate-pulse" />
+                </div>
+                <div>
+                  <h2 className="text-xl font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-indigo-400 bg-clip-text text-transparent">
+                    AI Security Analyst Engine
+                  </h2>
+                  <p className="text-xs text-[var(--text-muted)]">Automated correlation, threat intelligence analysis, and guided remediation matrix</p>
+                </div>
+              </div>
+
+              {isAnalyzing ? (
+                <div className="flex items-center space-x-3 text-purple-400 p-8 bg-[var(--bg-surface)] rounded-2xl border border-purple-500/30 shadow-lg">
+                  <Loader2 className="w-6 h-6 animate-spin shrink-0 text-purple-400" />
+                  <span className="animate-pulse text-sm font-medium">{aiProgressMsg}</span>
+                </div>
+              ) : aiResponse ? (
+                <div className="prose prose-invert max-w-none">
+                  <pre className="whitespace-pre-wrap bg-[var(--bg-surface)] p-6 rounded-2xl text-[var(--text-secondary)] font-mono text-xs border border-[var(--border-card)] shadow-inner leading-relaxed">
+                    {aiResponse}
+                  </pre>
+                </div>
+              ) : (
+                <div className="text-center py-12 px-4 rounded-2xl bg-[var(--bg-surface)]/50 border border-dashed border-[var(--border-card)]">
+                  <Sparkles className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3 opacity-40" />
+                  <p className="text-sm font-medium text-[var(--text-secondary)]">Ready for Intelligence Analysis</p>
+                  <p className="text-xs text-[var(--text-muted)] mt-1 max-w-md mx-auto">
+                    Run a multi-tool scan and click <span className="text-[var(--accent-primary)] font-semibold">"AI Analyst"</span> in the command bar to synthesize findings into actionable triage reports.
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Active Console View: Dynamically and cleanly mounts ONLY the currently viewed console */}
+        {activeTab !== 'findings' && activeTab !== 'ai' && (
+          <div className="h-full w-full">
+            <ErrorBoundary key={activeTab} fallbackTitle={`${activeTab.toUpperCase()} Console Interrupted`}>
+              <TerminalPane
+                key={activeTab}
+                title={`${activeTab.toUpperCase()} Live Console`}
+                scanner={activeTab as ScannerType}
+                scanId={scanId}
+                status={scannerStatus[activeTab as ScannerType]}
+                isVisible={true}
+              />
+            </ErrorBoundary>
+          </div>
+        )}
       </div>
 
       {/* Findings Summary Area */}
@@ -446,6 +805,21 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         nucleiFindings={nucleiFindings} 
         wapitiVulns={wapitiVulns} 
         wapitiPages={wapitiPages} 
+        allFindings={allFindings}
+        activeSeverityFilter={severityFilter}
+        compact={dashboardView?.mode === 'focus' || !dashboardView?.showSummaryCards}
+        onFilterSeverity={(sev) => {
+          setSeverityFilter(sev);
+          setActiveTab('findings');
+        }}
+      />
+
+      {/* Export Report Modal */}
+      <ExportReportModal
+        isOpen={showExportModal}
+        onClose={() => setShowExportModal(false)}
+        scanId={scanId}
+        targetUrl={targetUrl}
       />
 
       {/* Update Tools Modal */}
@@ -503,83 +877,47 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
               )}
             </div>
 
-            <div className="p-6 bg-[var(--bg-card)] overflow-y-auto space-y-4">
+            <div className="p-6 bg-[var(--bg-surface)]/80 flex-1 overflow-y-auto space-y-4">
               <p className="text-xs text-[var(--text-secondary)]">
-                Some security tools required for the active scan pipeline are missing from your environment.
+                The following security tools can be automatically managed or updated:
               </p>
-
-              {/* Automatic Tools */}
-              {dependencies.filter(d => !d.isInstalled && !d.requiresManual).length > 0 && (
-                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-card)]">
-                  <h3 className="text-xs font-bold text-emerald-400 uppercase tracking-wider mb-2.5 flex items-center space-x-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
-                    <span>Can Be Installed Automatically</span>
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {dependencies.filter(d => !d.isInstalled && !d.requiresManual).map(d => (
-                      <span key={d.name} className="px-3 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-mono font-medium">
-                        {d.name}
-                      </span>
-                    ))}
+              
+              <div className="space-y-2">
+                {dependencies.map((dep, idx) => (
+                  <div key={idx} className="flex items-center justify-between p-3 rounded-xl bg-[var(--bg-card)] border border-[var(--border-card)]">
+                    <span className="text-xs font-mono font-bold text-[var(--text-primary)] uppercase">{dep.name}</span>
+                    <span className={`text-[11px] font-mono px-2 py-0.5 rounded-full ${dep.isInstalled ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/10 text-amber-400 border border-amber-500/30'}`}>
+                      {dep.isInstalled ? 'Installed' : dep.requiresManual ? 'Manual Install' : 'Auto-Install Available'}
+                    </span>
                   </div>
-                </div>
-              )}
+                ))}
+              </div>
 
-              {/* Manual Tools */}
-              {dependencies.filter(d => !d.isInstalled && d.requiresManual).length > 0 && (
-                <div className="p-4 rounded-xl bg-[var(--bg-surface)] border border-[var(--border-card)]">
-                  <h3 className="text-xs font-bold text-amber-400 uppercase tracking-wider mb-2.5 flex items-center space-x-1.5">
-                    <span className="w-2 h-2 rounded-full bg-amber-400"></span>
-                    <span>Requires Manual Installation</span>
-                  </h3>
-                  <div className="flex flex-wrap gap-2">
-                    {dependencies.filter(d => !d.isInstalled && d.requiresManual).map(d => (
-                      <span key={d.name} className="px-3 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg text-xs font-mono font-medium">
-                        {d.name}
-                      </span>
-                    ))}
-                  </div>
-                  <p className="text-[11px] text-[var(--text-muted)] mt-2.5 leading-relaxed">
-                    Heavy scanners such as Nmap (requires Npcap driver), ZAP (requires Java runtime), and Wapiti (requires Python pip) should be installed via their official installers or system package managers.
-                  </p>
-                </div>
-              )}
-
-              {/* Installation Logs */}
               {dependencyLogs.length > 0 && (
-                <div className="bg-[var(--bg-surface)] p-4 rounded-xl font-mono text-xs text-[var(--text-secondary)] h-32 overflow-y-auto border border-[var(--border-card)] space-y-1 scrollbar-thin">
-                  {dependencyLogs.map((log, idx) => (
-                    <div key={idx} className="break-words leading-relaxed">{log}</div>
+                <div className="p-3 bg-black/40 rounded-xl font-mono text-[11px] text-[var(--text-muted)] space-y-1 max-h-36 overflow-y-auto">
+                  {dependencyLogs.map((log, i) => (
+                    <div key={i}>{log}</div>
                   ))}
                 </div>
               )}
             </div>
 
-            <div className="p-4 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex justify-end space-x-3">
+            <div className="p-4 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex justify-end gap-3">
               <button
                 onClick={() => setShowDependencyModal(false)}
                 disabled={isInstallingDependencies}
-                className="px-5 py-2 bg-[var(--bg-card)] hover:bg-[var(--border-card)] disabled:opacity-50 text-[var(--text-primary)] border border-[var(--border-card)] rounded-xl text-xs font-semibold transition-all shadow-sm"
+                className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--border-card)] text-[var(--text-secondary)] text-xs font-semibold rounded-xl transition-all"
               >
-                Skip for now
+                Later
               </button>
-              
-              {dependencies.some(d => !d.isInstalled && !d.requiresManual) && (
-                <button
-                  onClick={handleInstallDependencies}
-                  disabled={isInstallingDependencies}
-                  className="flex items-center space-x-2 px-5 py-2 bg-[var(--accent-primary)] hover:opacity-90 disabled:opacity-50 text-white rounded-xl text-xs font-semibold transition-all shadow-md shadow-blue-500/20"
-                >
-                  {isInstallingDependencies ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Installing Tools...</span>
-                    </>
-                  ) : (
-                    <span>Install Automatic Tools</span>
-                  )}
-                </button>
-              )}
+              <button
+                onClick={handleInstallDependencies}
+                disabled={isInstallingDependencies}
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-900/30 flex items-center space-x-2"
+              >
+                {isInstallingDependencies && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isInstallingDependencies ? 'Installing...' : 'Install Missing Engines'}</span>
+              </button>
             </div>
           </div>
         </div>

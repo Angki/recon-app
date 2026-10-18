@@ -70,7 +70,8 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
     setUpdatingTool(toolName);
     setLogs((prev) => [...prev, `\n[*] Initiating update for ${toolName}...`]);
     try {
-      await window.api.updateTool(toolName);
+      const ok = await window.api.updateTool(toolName);
+      if (!ok) setLogs(prev => [...prev, `[-] ${toolName} installation/update did not complete. See the error above; existing configuration was retained.`]);
       await fetchHealth();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);

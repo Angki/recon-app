@@ -6,6 +6,7 @@ import { Terminal as TerminalIcon, Search, Copy, Check, Trash2 } from 'lucide-re
 import { useThemeStore } from '../stores/useThemeStore';
 import type { AppTheme } from '../stores/useThemeStore';
 import type { ScannerType } from '../stores/useScanStore';
+import { useLogStore } from '../stores/useLogStore';
 import 'xterm/css/xterm.css';
 
 interface TerminalPaneProps {
@@ -102,8 +103,15 @@ export default function TerminalPane({
   const [searchTerm, setSearchTerm] = useState('');
   const [autoScroll, setAutoScroll] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [hasBeenVisible, setHasBeenVisible] = useState(isVisible || false);
 
   const currentTheme = useThemeStore((state) => state.theme);
+
+  useEffect(() => {
+    if (isVisible && !hasBeenVisible) {
+      setHasBeenVisible(true);
+    }
+  }, [isVisible, hasBeenVisible]);
 
   useEffect(() => {
     autoScrollRef.current = autoScroll;
@@ -127,7 +135,7 @@ export default function TerminalPane({
         try {
           const el = xtermRef.current?.element;
           const core = (xtermRef.current as any)?._core;
-          if (el && el.clientWidth > 0 && el.clientHeight > 0 && core && core._renderService) {
+          if (el && el.clientWidth > 0 && el.clientHeight > 0 && core?._renderService?._renderer?.value?.dimensions) {
             const dims = fitAddonRef.current?.proposeDimensions();
             if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
               fitAddonRef.current?.fit();
@@ -145,7 +153,7 @@ export default function TerminalPane({
     }
   }, [isVisible]);
 
-  // Initialize xterm
+  // Initialize xterm lazily when component becomes visible
   useEffect(() => {
     if (!terminalRef.current) return;
 
@@ -162,48 +170,104 @@ export default function TerminalPane({
 
     term.loadAddon(fitAddon);
     term.loadAddon(searchAddon);
+
     term.open(terminalRef.current);
-    
-    const initialFitTimeout = setTimeout(() => {
-      try {
-        const core = (term as any)._core;
-        if (term.element && term.element.clientWidth > 0 && term.element.clientHeight > 0 && core && core._renderService) {
-          const dims = fitAddon.proposeDimensions();
-          if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
-            fitAddon.fit();
+
+    // Guard against unhandled dimensions crash in xterm Viewport and RenderService
+    try {
+      const core = (term as any)._core;
+
+      // 1. Monkey-patch RenderService.prototype.dimensions to guarantee safe fallback
+      if (core?._renderService) {
+        const renderProto = Object.getPrototypeOf(core._renderService);
+        if (renderProto && !(renderProto as any).__safeDimensionsPatched) {
+          (renderProto as any).__safeDimensionsPatched = true;
+          const origDesc = Object.getOwnPropertyDescriptor(renderProto, 'dimensions');
+          if (origDesc?.get) {
+            const origGet = origDesc.get;
+            Object.defineProperty(renderProto, 'dimensions', {
+              get() {
+                try {
+                  if (this._renderer?.value?.dimensions) {
+                    return origGet.call(this);
+                  }
+                } catch {
+                  // Fallback to safe mock metrics
+                }
+                return {
+                  device: { cell: { height: 16, width: 9 }, char: { height: 16, width: 9 } },
+                  css: { cell: { height: 16, width: 9 }, canvas: { height: 100, width: 100 } }
+                };
+              },
+              configurable: true,
+              enumerable: true
+            });
           }
         }
-      } catch {
-        // ignore
       }
-    }, 100);
+
+      // 2. Monkey-patch Viewport._innerRefresh to safely check dimensions readiness
+      if (core?.viewport) {
+        const vp = core.viewport;
+        const origRefresh = vp._innerRefresh?.bind(vp);
+        if (origRefresh) {
+          vp._innerRefresh = () => {
+            try {
+              if (core._renderService?._renderer?.value?.dimensions) {
+                origRefresh();
+              }
+            } catch {
+              // Silently suppress unhandled dimensions access during resize/unmount
+            }
+          };
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    // Replay stored logs immediately
+    if (logs && logs.length > 0) {
+      term.write(logs.join(''));
+      processedLogsCount.current = logs.length;
+    } else if (scanner) {
+      const stored = useLogStore.getState().scannerLogs[scanner];
+      if (stored && stored.length > 0) {
+        term.write(stored.join(''));
+      }
+    }
 
     xtermRef.current = term;
     fitAddonRef.current = fitAddon;
     searchAddonRef.current = searchAddon;
 
-    const handleResize = () => {
+    const safeFit = () => {
       try {
+        if (!term.element) return;
+        const width = term.element.clientWidth;
+        const height = term.element.clientHeight;
+        if (width <= 0 || height <= 0) return;
         const core = (term as any)._core;
-        if (term.element && term.element.clientWidth > 0 && term.element.clientHeight > 0 && core && core._renderService) {
-          const dims = fitAddon.proposeDimensions();
-          if (dims && dims.cols && dims.rows && !isNaN(dims.cols) && !isNaN(dims.rows)) {
-            fitAddon.fit();
-          }
+        if (!core?._renderService?._renderer?.value?.dimensions?.css?.cell?.height) return;
+        const dims = fitAddon.proposeDimensions();
+        if (dims && dims.cols > 0 && dims.rows > 0 && !isNaN(dims.cols) && !isNaN(dims.rows)) {
+          fitAddon.fit();
         }
       } catch {
-        // ignore
+        // Safe no-op
       }
     };
+
+    const initialFitTimeout = setTimeout(safeFit, 100);
 
     let resizeObserver: ResizeObserver | null = null;
     if (terminalRef.current) {
       resizeObserver = new ResizeObserver(() => {
-        handleResize();
+        safeFit();
       });
       resizeObserver.observe(terminalRef.current);
     } else {
-      window.addEventListener('resize', handleResize);
+      window.addEventListener('resize', safeFit);
     }
 
     const currentTerminalRef = terminalRef.current;
@@ -213,8 +277,24 @@ export default function TerminalPane({
       if (resizeObserver && currentTerminalRef) {
         resizeObserver.disconnect();
       } else {
-        window.removeEventListener('resize', handleResize);
+        window.removeEventListener('resize', safeFit);
       }
+
+      // Neutralize viewport refresh before disposing to prevent post-unmount rAF execution
+      try {
+        const core = (term as any)._core;
+        if (core?.viewport) {
+          if (core.viewport._refreshAnimationFrame) {
+            const win = core._coreBrowserService?.window || window;
+            win.cancelAnimationFrame(core.viewport._refreshAnimationFrame);
+            core.viewport._refreshAnimationFrame = null;
+          }
+          core.viewport._innerRefresh = () => {};
+        }
+      } catch {
+        // ignore
+      }
+
       try {
         term.dispose();
       } catch {
@@ -234,7 +314,7 @@ export default function TerminalPane({
     writeBuffer.current = '';
 
     const removeListener = window.api.onScanOutput((_event, data) => {
-      if (data.scanId === scanId && xtermRef.current) {
+      if (data.scanId === scanId) {
         const shouldWrite = scanner === 'pdiscovery' 
           ? ['subfinder', 'httpx', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].includes(data.scanner)
           : data.scanner === scanner;
@@ -244,7 +324,7 @@ export default function TerminalPane({
             const prefix = scanner === 'pdiscovery' ? `\x1b[36m[${data.scanner}]\x1b[0m ` : '';
             const msg = prefix + data.message;
             
-            if (!xtermRef.current.element || xtermRef.current.element.clientWidth === 0) {
+            if (!xtermRef.current || !xtermRef.current.element || xtermRef.current.element.clientWidth === 0) {
               writeBuffer.current += msg;
               return;
             }

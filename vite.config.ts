@@ -6,6 +6,19 @@ import tailwindcss from '@tailwindcss/vite';
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  server: {
+    watch: {
+      ignored: [
+        '**/reports/**',
+        '**/backups/**',
+        '**/*.sqlite*',
+        '**/*.log',
+        '**/*.crlfsuite',
+        '**/*.scan',
+        '**/.staging/**'
+      ]
+    }
+  },
   plugins: [
     tailwindcss(),
     react(),

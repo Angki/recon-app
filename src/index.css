@@ -130,3 +130,30 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-muted);
 }
+
+/* Cyber-UI & Design-Engineering Utilities */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+.text-balance {
+  text-wrap: balance;
+}
+
+@keyframes cyber-radar {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.animate-cyber-radar {
+  animation: cyber-radar 4s linear infinite;
+}
+
+@keyframes cyber-glow-pulse {
+  0%, 100% { opacity: 0.8; filter: drop-shadow(0 0 4px var(--accent-glow)); }
+  50% { opacity: 1; filter: drop-shadow(0 0 10px var(--accent-glow)); }
+}
+
+.animate-cyber-glow {
+  animation: cyber-glow-pulse 2s ease-in-out infinite;
+}
