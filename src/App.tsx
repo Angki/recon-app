@@ -4,6 +4,7 @@ import { Shield, History, Settings as SettingsIcon, Cpu, Layers } from 'lucide-r
 import Dashboard from './pages/Dashboard';
 import HistoryPage from './pages/History';
 import SettingsPage from './pages/Settings';
+import Endpoints from './pages/Endpoints';
 import { CommandHeader } from './components/CommandHeader';
 import { ToolsHubModal } from './components/ToolsHubModal';
 import './App.css';
@@ -31,10 +32,10 @@ function App() {
           </div>
           <div>
             <h1 className="text-lg font-bold tracking-tight bg-gradient-to-r from-[var(--text-primary)] to-[var(--accent-primary)] bg-clip-text text-transparent">
-              SecOps Recon
+              Resonix Suite
             </h1>
             <span className="text-[10px] font-mono uppercase tracking-wider text-[var(--text-muted)]">
-              Cyber Command v1.1
+              Enterprise SecOps v2.0
             </span>
           </div>
         </div>
@@ -55,6 +56,7 @@ function App() {
             <History className="w-4 h-4" />
             <span>Scan History</span>
           </Link>
+          <Link to="/endpoints" className={getNavClass('/endpoints')}><Layers className="w-4 h-4"/><span>Endpoint Inventory</span></Link>
           <Link to="/settings" className={getNavClass('/settings')}>
             <SettingsIcon className="w-4 h-4" />
             <span>Settings</span>
@@ -81,16 +83,19 @@ function App() {
         <CommandHeader onOpenToolsHub={() => setShowToolsHub(true)} />
 
         {/* Content View */}
-        <main className="flex-1 overflow-auto p-6 relative">
-          <div className={location.pathname === '/' ? 'block h-full' : 'hidden h-full'}>
+        <main className="flex-1 overflow-hidden p-3 md:p-4 flex flex-col min-h-0 relative">
+          <div className={location.pathname === '/' ? 'h-full flex flex-col min-h-0' : 'hidden'}>
             <Dashboard onOpenToolsHub={() => setShowToolsHub(true)} />
           </div>
 
-          <Routes>
-            <Route path="/" element={<div />} />
-            <Route path="/history" element={<HistoryPage />} />
-            <Route path="/settings" element={<SettingsPage />} />
-          </Routes>
+          <div className={location.pathname !== '/' ? 'h-full overflow-y-auto' : 'hidden'}>
+            <Routes>
+              <Route path="/" element={<div />} />
+              <Route path="/history" element={<HistoryPage />} />
+              <Route path="/endpoints" element={<Endpoints />} />
+              <Route path="/settings" element={<SettingsPage />} />
+            </Routes>
+          </div>
         </main>
       </div>
 

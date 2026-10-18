@@ -1,129 +1,112 @@
-# Recon-App 🛡️
+# Resonix Security Suite 🛡️
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
-![Electron](https://img.shields.io/badge/Electron-Desktop-lightgrey.svg?logo=electron)
-![React](https://img.shields.io/badge/React-UI-blue.svg?logo=react)
+![Electron](https://img.shields.io/badge/Electron-42.3-lightgrey.svg?logo=electron)
+![React](https://img.shields.io/badge/React-19-blue.svg?logo=react)
 ![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue.svg?logo=typescript)
+![SQLite](https://img.shields.io/badge/Storage-SQLite3%20WAL-emerald.svg?logo=sqlite)
 
-**Recon-App** is a robust, enterprise-grade desktop application built with Electron and React. It serves as a unified command center for automated security reconnaissance, vulnerability scanning, and AI-powered log analysis. Designed for penetration testers and DevSecOps professionals, it orchestrates industry-standard CLI tools seamlessly within a modern, dark-themed UI.
-
----
-
-## ✨ Features
-
-### 🚀 Unified Scanning Ecosystem
-Run and monitor the most powerful open-source security tools from a single dashboard:
-- **ProjectDiscovery Ecosystem:** Nuclei, Subfinder, HTTPX, Naabu, DNSX, AlterX, TLSX, Katana
-  *(Includes granular JSON parsing for structured technical findings)*
-- **Vulnerability Scanners:** Wapiti, Nmap, WPScan, ZAP
-- **Commercial/Enterprise (Via Interface):** AppScan, Netsparker, Acunetix
-
-### 🧠 AI-Powered Threat Analysis
-Automatically feed raw scan logs into integrated AI models for immediate context, risk prioritization, and remediation advice.
-- **Local Privacy:** Full support for local **Ollama** models (Llama 3, Mistral) for air-gapped or sensitive environments.
-- **Cloud Intelligence:** Native integrations with **OpenAI (GPT-4)**, **Anthropic (Claude 3)**, and **Google Gemini**.
-
-### 💻 Real-Time Terminal Emulation
-- View stdout/stderr streams instantly with integrated **xterm.js**.
-- Searchable logs, auto-scrolling, and clipboard integration.
-
-### 📊 Persistence & History
-- Automatic scan metadata management and state tracking.
-- Retrieve past scan results from the internal storage history.
+**Resonix Security Suite** is an enterprise-grade desktop cybersecurity command center built on Electron, React, and high-performance native SQLite. It unifies reconnaissance, active attack surface discovery, parameter fuzzing, and dynamic application security testing (DAST) into an automated, chained workflow designed for penetration testers, security engineers, and red teams.
 
 ---
 
-## 🏗️ Architecture
+## ⚡ Key Highlights
 
-Recon-App follows the standard IPC (Inter-Process Communication) model of Electron applications:
-- **Frontend (Renderer):** Built with React 18, Vite, and Tailwind CSS. Acts as the control plane.
-- **Backend (Main Process):** Node.js environment responsible for spawning child processes (`child_process.spawn`), managing local storage (`fs`), and orchestrating the AI service daemons.
-- **Communication:** Secured via `contextBridge` in `preload.ts` ensuring a strict boundary between Node.js internals and the React UI.
+### 🔄 Intelligent Discovery-to-DAST Pipeline Chaining
+- **Automated Recon -> DAST Pipeline**: When crawlers (**Katana**, **GAU**, **Arjun**) discover active endpoints and parameters, Resonix automatically compiles them and feeds them directly into deep audit engines (**Nuclei** via target lists and **Dalfox** via file mode).
+- **Phased Execution**: Prevents WAF rate-limiting and connection saturation by executing in structured stages:
+  1. *Passive Recon & DNS Profiling*: Subfinder, AlterX, DNSX, Naabu, Wafw00f, CMSeeK.
+  2. *Active Crawling & Endpoint Discovery*: Katana, GAU, FFUF.
+  3. *Parameter Mining & Fuzzing*: Arjun, CRLFSuite, Corsy, Schemathesis.
+  4. *Deep DAST & Vulnerability Auditing*: Nuclei, Wapiti, Dalfox, OWASP ZAP, WPScan, SQLmap, Commix.
 
----
+### 🛡️ Enterprise Attack Surface & Endpoint Inventory
+- **Centralized Endpoint Repository**: View, filter, and inspect discovered endpoints, methods, parameters, and discovery sources in real time.
+- **Active Retest Workflow**: Directly dispatch targeted active verification (SQLmap, Dalfox, CRLFSuite, Commix) against specific endpoints from the UI.
+- **Deduplication & Fingerprinting**: Automatic finding fingerprinting ensures reliable baseline diffing and resolution tracking across repeat assessments.
 
-## 🛠️ Prerequisites
+### 💾 High-Throughput SQLite Storage Engine
+- **Idempotent Versioned Migrations**: Automated database schema migrations (v1 to v5) ensure backward compatibility and zero data corruption.
+- **WAL Mode & Streaming Buffer Protection**: Safe parsing for discovery outputs up to hundreds of megabytes with strict buffer slicing.
+- **Automated Backups & Retention**: Rolling SQLite backups with integrity checks and configurable retention policies.
 
-Before installing Recon-App, ensure your operating system has the following dependencies installed and available in your system's `PATH`:
+### 📑 Comprehensive Compliance & Reporting
+- **OASIS SARIF 2.1.0 Export**: Full compliance for CI/CD integration with GitHub Code Scanning, GitLab Security, and DefectDojo.
+- **Executive HTML Reports**: Print-ready, professionally styled audits with executive vulnerability summaries and remediation recommendations.
+- **Technical Exports**: Detailed JSON and Markdown reporting with risk heuristics and reproduction commands.
 
-### 1. Core Development Dependencies
-- **Node.js** (v18.0.0 or higher)
-- **npm** or **yarn**
-
-### 2. Required Security Tools
-Recon-App orchestrates external binaries. You must install the tools you intend to use:
-- [Nuclei](https://github.com/projectdiscovery/nuclei) & [ProjectDiscovery Suite](https://projectdiscovery.io/)
-- [Nmap](https://nmap.org/download.html)
-- [Wapiti](https://github.com/wapiti-scanner/wapiti)
-- [WPScan](https://wpscan.com/) (Optional, for WordPress scanning)
-
-*Note: Ensure all installed tools can be executed globally from your command line (e.g., running `nuclei -version` should succeed).*
-
-### 3. AI Capabilities (Optional but Recommended)
-- [Ollama](https://ollama.com/) (For local LLM execution without internet)
-- Valid API Keys for external providers (OpenAI, Anthropic, Gemini) if using cloud AI features.
-
----
-
-## ⚙️ Installation & Setup
-
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/Angki/recon-app.git
-   cd recon-app
-   ```
-
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-3. **Start the application in development mode:**
-   ```bash
-   npm run dev
-   ```
-   *This command leverages Vite to start the React frontend and concurrently compiles/launches the Electron main process.*
+### 🎨 Cyber Command Center UI
+- **Multi-Theme Engine**: Seamless toggle between *Obsidian Obsidian*, *Glassmorphism Cyber*, *Modern Dark*, and *High-Contrast Light* themes.
+- **Real-Time Terminal Streams**: High-performance xterm.js integration with search, auto-scroll, and ansi color support.
+- **AI Triage & Analysis**: Local Ollama execution (Llama 3, Mistral) and cloud providers (OpenAI, Claude, Gemini) for contextual finding analysis.
 
 ---
 
-## 📦 Building for Production
+## 🛠️ Architecture
 
-To package the application for distribution on your current operating system, run:
+```
+┌─────────────────────────────────────────────────────────────────┐
+│               React 19 Renderer (UI / Control Plane)            │
+│  Bento Dashboard • Tools Hub • Endpoint Inventory • Live Term   │
+└───────────────────────────────┬─────────────────────────────────┘
+                                │ ContextBridge IPC (Safe Boundary)
+┌───────────────────────────────▼─────────────────────────────────┐
+│               Electron Main Process (Security Core)             │
+│  Scanner Orchestrator • Tool Catalog • Process Sandboxing       │
+└───────┬───────────────────────┬─────────────────────────┬───────┘
+        │                       │                         │
+┌───────▼──────────────┐ ┌──────▼──────────────────┐ ┌────▼───────┐
+│  Scanner Adapters    │ │ SQLite Native Database  │ │ AI Service │
+│  (25+ CLI Tools)     │ │ WAL Mode • Migrations   │ │ Ollama/API │
+└──────────────────────┘ └─────────────────────────┘ └────────────┘
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Prerequisites
+- **Node.js** (v20.0.0 or higher, v24 LTS recommended)
+- **Git**
+
+### 2. Installation
+```bash
+git clone https://github.com/Angki/recon-app.git
+cd recon-app
+npm install
+```
+
+### 3. Running in Development
+```bash
+npm run dev
+```
+
+### 4. Running Verification Test Suite
+```bash
+npm run test
+```
+*Executes the complete test suite across all 5 verification phases.*
+
+---
+
+## 📦 Packaging & Distribution
+
+To build the standalone Windows installer and portable executable:
 
 ```bash
-npm run build
+npm run dist
 ```
-This will generate the compiled executables in the `dist/` or `release/` folder based on your `electron-builder` configuration.
+
+Artifacts will be produced in the `release/` directory:
+- **Installer**: `release/Resonix Security Suite Setup 1.0.0.exe`
+- **Portable**: `release/Resonix Security Suite 1.0.0.exe`
 
 ---
 
-## 📝 Roadmap & Future Enhancements
+## ⚖️ License & Disclaimer
 
-- [ ] **Strategy Pattern Orchestrator:** Modularizing the `scanner.ts` backend to strictly adhere to SOLID principles.
-- [ ] **Throttled IPC Logging:** Enhancing memory management and UI performance during heavy parallel scans.
-- [ ] **Asynchronous Storage:** Migrating from synchronous filesystem reads to local SQLite or asynchronous key-value stores to prevent race conditions.
-- [ ] **Dependency Manager:** Auto-fetching/updating of external CLI tools directly from within the UI into a sandboxed app directory.
+**Resonix Security Suite is designed strictly for authorized penetration testing, vulnerability assessment, and educational research.**
+Explicit written permission from asset owners must be obtained before scanning. The developers and contributors assume no liability for misuse.
 
----
-
-## 🤝 Contributing
-
-Contributions are welcome! If you're looking to help improve Recon-App:
-1. Fork the project.
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`).
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`).
-4. Push to the branch (`git push origin feature/AmazingFeature`).
-5. Open a Pull Request.
-
-Please ensure your code strictly follows the existing styling and ESLint rules.
-
----
-
-## 🛡️ Disclaimer
-
-**Recon-App is designed strictly for authorized security auditing, educational purposes, and professional penetration testing.**
-The authors and contributors are not responsible for any misuse, unauthorized access, or damage caused by this tool. Always ensure you have explicit permission to scan the target domains or networks.
-
----
-*Developed with ❤️ by the Open Source Security Community.*
+Released under the [MIT License](LICENSE).
