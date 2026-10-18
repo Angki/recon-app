@@ -1,6 +1,28 @@
 import { app, BrowserWindow, shell } from 'electron';
 import path from 'path';
+import os from 'os';
+import fs from 'fs';
 import { scannerService } from './ipc';
+
+// Prepend tool binary directories to process.env.PATH on app startup
+const binDir = path.join(os.homedir(), 'AppData', 'Roaming', 'ReconApp', 'bin');
+const goBin = path.join(os.homedir(), 'go', 'bin');
+const extraToolDirs = [
+  binDir,
+  goBin,
+  path.join(os.homedir(), 'AppData', 'Roaming', 'Python', 'Python314', 'Scripts'),
+  path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Python', 'Python312', 'Scripts'),
+  'C:\\Python314\\Scripts',
+  'C:\\Program Files (x86)\\Nmap',
+  'C:\\Program Files\\Nmap',
+  'C:\\Program Files\\ZAP\\Zed Attack Proxy',
+];
+
+const existingDirs = extraToolDirs.filter(d => fs.existsSync(d));
+if (existingDirs.length > 0) {
+  process.env.PATH = existingDirs.join(path.delimiter) + path.delimiter + (process.env.PATH || '');
+}
+process.env.PYTHONIOENCODING = 'utf-8';
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -29,12 +51,33 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // Handle window routing internally
+  // Deny opening new secondary browser windows, route allowed http(s) links externally
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+        shell.openExternal(url);
+      }
+    } catch {
+      // ignore invalid URLs
+    }
+    return { action: 'deny' };
+  });
+
+  // Handle window navigation: prevent rogue navigation and allowlist external links
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    // Prevent default navigation
-    if (!url.startsWith(process.env.VITE_DEV_SERVER_URL || 'file://')) {
+    const devUrl = process.env.VITE_DEV_SERVER_URL;
+    const isAllowedInternal = devUrl ? url.startsWith(devUrl) : url.startsWith('file://');
+    if (!isAllowedInternal) {
       event.preventDefault();
-      shell.openExternal(url);
+      try {
+        const parsed = new URL(url);
+        if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+          shell.openExternal(url);
+        }
+      } catch {
+        // ignore invalid URLs
+      }
     }
   });
 }

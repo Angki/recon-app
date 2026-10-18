@@ -3,11 +3,33 @@ import { settingsStore } from './settings';
 import { exec } from 'child_process';
 import type * as Electron from 'electron';
 
+export function isLoopbackHost(urlStr: string): boolean {
+  try {
+    const parsed = new URL(urlStr);
+    const host = parsed.hostname.toLowerCase();
+    return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
+  } catch {
+    return false;
+  }
+}
+
 export class AIService {
   async analyzeLogs(sender: Electron.WebContents, logs: string, prompt: string): Promise<string> {
     const settings = settingsStore.get();
-    const provider = settings.aiProvider;
+    const provider = settings.aiProvider || 'ollama';
+    const policy = settings.aiPolicy || 'local-only';
     const apiKey = settings.aiApiKey;
+
+    // Enforce local-only policy
+    if (policy === 'local-only') {
+      if (provider !== 'ollama') {
+        throw new Error(`AI Policy Violation: Policy is set to 'local-only'. Cloud provider '${provider}' is blocked.`);
+      }
+      const baseUrl = settings.aiBaseUrl || 'http://127.0.0.1:11434';
+      if (!isLoopbackHost(baseUrl)) {
+        throw new Error(`AI Policy Violation: 'local-only' policy forbids external endpoint '${baseUrl}'.`);
+      }
+    }
 
     if (!apiKey && provider !== 'ollama') {
       throw new Error('AI API Key is not configured in Settings.');
@@ -21,9 +43,9 @@ export class AIService {
       } else if (provider === 'anthropic') {
         return await this.callAnthropic(apiKey, logs, prompt);
       } else if (provider === 'ollama') {
-        return await this.callOllama(sender, apiKey, logs, prompt);
+        return await this.callOllama(sender, settings.aiBaseUrl, settings.aiModel, logs, prompt);
       } else {
-        throw new Error('Unknown AI Provider');
+        throw new Error(`Unknown AI Provider '${provider}'`);
       }
     } catch (err: unknown) {
       const error = err as Error;
@@ -51,7 +73,7 @@ export class AIService {
       throw new Error(`Gemini API Error: ${errText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as { candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> };
     return data.candidates?.[0]?.content?.parts?.[0]?.text || 'No response generated.';
   }
 
@@ -60,7 +82,7 @@ export class AIService {
     const payload = {
       model: 'gpt-4o',
       messages: [
-        { role: 'system', content: 'You are a cybersecurity expert.' },
+        { role: 'system', content: 'You are an advisory cybersecurity assistant. Your analysis is strictly informational and cannot modify finding severity or close issues.' },
         { role: 'user', content: `${prompt}\n\nLogs:\n${logs}` }
       ]
     };
@@ -79,7 +101,7 @@ export class AIService {
       throw new Error(`OpenAI API Error: ${errText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as { choices?: Array<{ message?: { content?: string } }> };
     return data.choices?.[0]?.message?.content || 'No response generated.';
   }
 
@@ -108,44 +130,43 @@ export class AIService {
       throw new Error(`Anthropic API Error: ${errText}`);
     }
 
-    const data = await response.json();
+    const data = (await response.json()) as { content?: Array<{ text?: string }> };
     return data.content?.[0]?.text || 'No response generated.';
   }
 
-  private async callOllama(sender: Electron.WebContents, apiKey: string, logs: string, prompt: string): Promise<string> {
-    // Treat API Key as "url,model" or just "model" or leave empty for defaults
-    let baseUrl = 'http://127.0.0.1:11434';
-    let model = 'minimax-m3:cloud'; // Default Ollama model
-    
-    if (apiKey) {
-      if (apiKey.includes(',')) {
-        const parts = apiKey.split(',');
-        baseUrl = parts[0].trim() || baseUrl;
-        model = parts[1].trim() || model;
-      } else if (apiKey.startsWith('http')) {
-        baseUrl = apiKey.trim();
-      } else {
-        model = apiKey.trim();
-      }
-    }
+  private async callOllama(
+    sender: Electron.WebContents,
+    configuredBaseUrl: string,
+    configuredModel: string,
+    logs: string,
+    prompt: string
+  ): Promise<string> {
+    let baseUrl = configuredBaseUrl || 'http://127.0.0.1:11434';
+    const model = configuredModel || 'qwen2.5:7b';
 
     // Force 127.0.0.1 instead of localhost to prevent IPv6 resolution issues
     baseUrl = baseUrl.replace('http://localhost', 'http://127.0.0.1');
 
     const url = `${baseUrl}/api/generate`;
-    // Truncate logs to reduce prompt eval time (15K chars ≈ 5K tokens)
-    const truncatedLogs = logs.length > 15000 ? logs.substring(logs.length - 15000) : logs;
+    // Truncate logs to reduce prompt eval time (15K chars ≈ 5K tokens) with disclosure
+    let truncatedLogs = logs;
+    let disclosure = '';
+    if (logs.length > 15000) {
+      truncatedLogs = logs.substring(logs.length - 15000);
+      disclosure = '\n[NOTICE: Log stream truncated to most recent 15,000 characters for context budget]\n';
+    }
     
-    // For qwen3 models, prepend /no_think to skip internal chain-of-thought (saves ~60-90s)
+    // For qwen3 models, prepend /no_think to skip internal chain-of-thought
     const isThinkingModel = model.toLowerCase().startsWith('qwen3');
+    const advisoryHeader = 'Advisory role: Provide insights grounded strictly in the logs and finding evidence below. Do not attempt to reclassify severity or close issues.\n';
     const finalPrompt = isThinkingModel
-      ? `/no_think\n${prompt}\n\nLogs:\n${truncatedLogs}`
-      : `${prompt}\n\nLogs:\n${truncatedLogs}`;
+      ? `/no_think\n${advisoryHeader}${prompt}${disclosure}\n\nLogs:\n${truncatedLogs}`
+      : `${advisoryHeader}${prompt}${disclosure}\n\nLogs:\n${truncatedLogs}`;
 
     const payload = {
       model: model,
       prompt: finalPrompt,
-      stream: true // Enable streaming to prevent socket timeouts
+      stream: true
     };
 
     let response;
@@ -274,7 +295,7 @@ export class AIService {
       }
     } else {
       // Fallback if reader isn't available (e.g. older Electron fetch impl)
-      const data = await response.json();
+      const data = (await response.json()) as { response?: string };
       fullText = data.response || 'No response generated.';
     }
 

@@ -7,21 +7,27 @@ const targetUrl = process.argv[2];
 const jsonFile = process.argv[3];
 const xmlFile = process.argv[4];
 let apiUrl = process.argv[5] || 'https://127.0.0.1:13443';
-let apiKey = process.env.ACUNETIX_API_KEY || process.argv[6];
-const profileId = process.argv[7] || '11111111-1111-1111-1111-111111111111';
-const acunetixEmail = process.env.ACUNETIX_EMAIL || 'admin@admin.com';
-const acunetixPassword = process.env.ACUNETIX_PASSWORD || 'Admin123';
+let apiKey = process.env.ACUNETIX_API_KEY || (process.argv[6] && process.argv[6] !== 'undefined' ? process.argv[6] : '');
+const profileId = process.argv[7] || process.env.ACUNETIX_PROFILE_ID || '';
+const acunetixEmail = process.env.ACUNETIX_EMAIL || '';
+const acunetixPassword = process.env.ACUNETIX_PASSWORD || '';
 
 if (!targetUrl || !jsonFile || !xmlFile) {
   console.error('[ERROR] Missing target URL or output files.');
   process.exit(1);
 }
 
+if (!apiKey && (!acunetixEmail || !acunetixPassword)) {
+  console.error('[ERROR] Acunetix credentials missing: either ACUNETIX_API_KEY or ACUNETIX_EMAIL + ACUNETIX_PASSWORD must be provided.');
+  process.exit(1);
+}
+
 // Remove trailing slash
 if (apiUrl.endsWith('/')) apiUrl = apiUrl.slice(0, -1);
 
-// Disable self-signed cert checks for local Docker deployments
-const agent = new https.Agent({ rejectUnauthorized: false });
+// TLS verification: active by default; insecure override requires explicit audit flag
+const allowInsecure = process.env.ACUNETIX_INSECURE_TLS === 'true' || process.env.ACUNETIX_ALLOW_INSECURE === '1';
+const agent = new https.Agent({ rejectUnauthorized: !allowInsecure });
 
 const request = (method, endpoint, body = null) => {
   return new Promise((resolve, reject) => {
@@ -128,8 +134,8 @@ function findAcunetixContainer() {
     }
   } catch {}
 
-  // Last resort: try the known container ID from user's system
-  return '4fb15847b3d4f';
+  // No local container found
+  return null;
 }
 
 /**
@@ -137,6 +143,12 @@ function findAcunetixContainer() {
  * Will auto-launch Docker Desktop if needed, then start the container.
  */
 async function ensureDockerAndContainer() {
+  const isLocal = apiUrl.includes('127.0.0.1') || apiUrl.includes('localhost');
+  if (!isLocal) {
+    console.log('[Remote] Target Acunetix API is a remote endpoint. Skipping local Docker daemon lifecycle management.');
+    return;
+  }
+
   console.log('[Docker] Checking Docker daemon status...');
 
   if (!isDockerRunning()) {
@@ -144,11 +156,12 @@ async function ensureDockerAndContainer() {
 
     const launched = launchDockerDesktop();
     if (!launched) {
-      throw new Error('Docker Desktop not found. Please install Docker Desktop or start it manually.');
+      console.log('[Docker] Docker Desktop executable not found. Assuming Acunetix is running natively or managed externally.');
+      return;
     }
 
-    // Wait for Docker daemon to become responsive (up to 120 seconds)
-    const maxWait = 120;
+    // Wait for Docker daemon to become responsive (up to 60 seconds)
+    const maxWait = 60;
     let waited = 0;
     while (!isDockerRunning() && waited < maxWait) {
       const remaining = maxWait - waited;
@@ -159,7 +172,8 @@ async function ensureDockerAndContainer() {
     console.log(''); // newline after \r
 
     if (!isDockerRunning()) {
-      throw new Error(`Docker daemon did not start within ${maxWait} seconds. Please start Docker Desktop manually.`);
+      console.log(`[Docker] Docker daemon did not start within ${maxWait} seconds. Proceeding to direct API attempt...`);
+      return;
     }
 
     console.log('[Docker] Docker daemon is now running!');
@@ -169,6 +183,10 @@ async function ensureDockerAndContainer() {
 
   // Now check the Acunetix container
   const containerId = findAcunetixContainer();
+  if (!containerId) {
+    console.log('[Docker] No local Acunetix container found. Proceeding with direct API connection.');
+    return;
+  }
   console.log(`[Docker] Found Acunetix container: ${containerId}`);
 
   try {

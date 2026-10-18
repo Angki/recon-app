@@ -1,5 +1,6 @@
-import { ChildProcess } from 'child_process';
-import Electron from 'electron';
+import type { ChildProcess } from 'child_process';
+import type Electron from 'electron';
+import type { AppSettings } from '../settings';
 
 export interface ScannerContext {
   scanId: string;
@@ -14,7 +15,7 @@ export interface ScannerContext {
   jsonFile: string;
   xmlFile: string;
   sender: Electron.WebContents;
-  settings: Record<string, unknown>;
+  settings: AppSettings | Record<string, unknown>;
 }
 
 export interface IScannerAdapter {
@@ -28,5 +29,7 @@ export interface IScannerAdapter {
 
   processStdout?(context: ScannerContext, msg: string, stats: Record<string, Record<string, number>>): void;
 
-  parseFindings?(context: ScannerContext): unknown[];
+  parseFindings?(context: ScannerContext): Record<string, unknown>[];
+
+  isSuccessExitCode?(code: number | null, context: ScannerContext): boolean;
 }

@@ -1,36 +1,47 @@
-import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron';
 
-// Increase max listeners to prevent MaxListenersExceededWarning when rendering many TerminalPanes
+// Increase max listeners to prevent MaxListenersExceededWarning
 ipcRenderer.setMaxListeners(50);
 
-// Expose secure API to renderer
+// Expose secure, validated API to renderer
 contextBridge.exposeInMainWorld('api', {
   // Scanners
   startScan: (targetUrl: string, config: Record<string, unknown>) => ipcRenderer.invoke('scan:start', targetUrl, config),
   stopScan: (scanId: string) => ipcRenderer.invoke('scan:stop', scanId),
   
-  // Real-time events — use addListener/removeListener pattern (not removeAllListeners)
-  onScanOutput: (callback: (event: IpcRendererEvent, data: { scanId: string, scanner: string, type: string, message: string }) => void) => {
-    ipcRenderer.on('scan:output', callback);
-    return () => { ipcRenderer.removeListener('scan:output', callback); };
+  // Real-time events — safe event wrapping (strips internal Electron event object)
+  onScanOutput: (callback: (event: unknown, data: { scanId: string, scanner: string, type: string, message: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { scanId: string, scanner: string, type: string, message: string }) => callback(null, data);
+    ipcRenderer.on('scan:output', handler);
+    return () => { ipcRenderer.removeListener('scan:output', handler); };
   },
-  onScanStatus: (callback: (event: IpcRendererEvent, data: { scanId: string, status: string, scanner: string }) => void) => {
-    ipcRenderer.on('scan:status', callback);
-    return () => { ipcRenderer.removeListener('scan:status', callback); };
+  onScanStatus: (callback: (event: unknown, data: { scanId: string, status: string, scanner: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { scanId: string, status: string, scanner: string }) => callback(null, data);
+    ipcRenderer.on('scan:status', handler);
+    return () => { ipcRenderer.removeListener('scan:status', handler); };
   },
-  onScanFindings: (callback: (event: IpcRendererEvent, data: { scanId: string, scanner: string, findings: Record<string, unknown>[] }) => void) => {
-    ipcRenderer.on('scan:findings', callback);
-    return () => { ipcRenderer.removeListener('scan:findings', callback); };
+  onScanFindings: (callback: (event: unknown, data: { scanId: string, scanner: string, findings: Record<string, unknown>[] }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { scanId: string, scanner: string, findings: Record<string, unknown>[] }) => callback(null, data);
+    ipcRenderer.on('scan:findings', handler);
+    return () => { ipcRenderer.removeListener('scan:findings', handler); };
   },
-  onScanStats: (callback: (event: IpcRendererEvent, data: { scanId: string, stats: { nuclei: unknown, wapiti: unknown } }) => void) => {
-    ipcRenderer.on('scan:stats', callback);
-    return () => { ipcRenderer.removeListener('scan:stats', callback); };
+  onScanStats: (callback: (event: unknown, data: { scanId: string, stats: { nuclei: unknown, wapiti: unknown } }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { scanId: string, stats: { nuclei: unknown, wapiti: unknown } }) => callback(null, data);
+    ipcRenderer.on('scan:stats', handler);
+    return () => { ipcRenderer.removeListener('scan:stats', handler); };
   },
   
   // Storage & History
+  getEndpoints: (scanId: string, options: {page?:number;search?:string}) => ipcRenderer.invoke('inventory:list',scanId,options),
+  prepareTestingWorkflow: (reference: import('../src/types/workflow').WorkflowRef, tool?: string) => ipcRenderer.invoke('inventory:prepare',reference,tool),
+  getWorkflowRuns: (scanId: string) => ipcRenderer.invoke('inventory:runs',scanId),
   getHistory: () => ipcRenderer.invoke('storage:getHistory'),
   getFindingsPaginated: (scanId: string, options: Record<string, unknown>) => ipcRenderer.invoke('storage:getFindingsPaginated', scanId, options),
   openReportFolder: (scanId: string) => ipcRenderer.invoke('storage:openFolder', scanId),
+  deleteScan: (scanId: string) => ipcRenderer.invoke('storage:deleteScan', scanId),
+  clearAllScans: () => ipcRenderer.invoke('storage:clearAllScans'),
+  exportReport: (scanId: string, format: 'html' | 'md' | 'json' | 'sarif') => ipcRenderer.invoke('report:export', scanId, format),
+  getReportStats: (scanId: string) => ipcRenderer.invoke('report:getStats', scanId),
   
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -38,43 +49,58 @@ contextBridge.exposeInMainWorld('api', {
 
   // AI Service
   analyzeLogs: (logs: string, prompt: string) => ipcRenderer.invoke('ai:analyzeLogs', logs, prompt),
-  onAiProgress: (callback: (event: IpcRendererEvent, msg: string) => void) => {
-    ipcRenderer.on('ai:progress', callback);
-    return () => { ipcRenderer.removeListener('ai:progress', callback); };
+  onAiProgress: (callback: (event: unknown, msg: string) => void) => {
+    const handler = (_event: IpcRendererEvent, msg: string) => callback(null, msg);
+    ipcRenderer.on('ai:progress', handler);
+    return () => { ipcRenderer.removeListener('ai:progress', handler); };
   },
 
   // Tool Engine & Health Matrix
   getToolsHealth: () => ipcRenderer.invoke('tools:get-health'),
   updateTool: (toolName: string) => ipcRenderer.invoke('tools:update-single', toolName),
   updateAllTools: () => ipcRenderer.invoke('tools:update-all'),
-  onToolUpdateProgress: (callback: (event: IpcRendererEvent, data: { tool: string, message: string }) => void) => {
-    ipcRenderer.on('tools:update-progress', callback);
-    return () => { ipcRenderer.removeListener('tools:update-progress', callback); };
+  onToolUpdateProgress: (callback: (event: unknown, data: { tool: string, message: string }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { tool: string, message: string }) => callback(null, data);
+    ipcRenderer.on('tools:update-progress', handler);
+    return () => { ipcRenderer.removeListener('tools:update-progress', handler); };
   },
-  onToolUpdateStatus: (callback: (event: IpcRendererEvent, status: string) => void) => {
-    ipcRenderer.on('tools:update-status', callback);
-    return () => { ipcRenderer.removeListener('tools:update-status', callback); };
+  onToolUpdateStatus: (callback: (event: unknown, status: string) => void) => {
+    const handler = (_event: IpcRendererEvent, status: string) => callback(null, status);
+    ipcRenderer.on('tools:update-status', handler);
+    return () => { ipcRenderer.removeListener('tools:update-status', handler); };
   },
 
   // Dependencies (Legacy compatibility)
   checkDependencies: () => ipcRenderer.invoke('dependency:check'),
   installDependencies: () => ipcRenderer.invoke('dependency:installAll'),
-  onInstallProgress: (callback: (event: IpcRendererEvent, msg: string) => void) => {
-    ipcRenderer.on('dependency:installProgress', callback);
-    return () => { ipcRenderer.removeListener('dependency:installProgress', callback); };
+  onInstallProgress: (callback: (event: unknown, msg: string) => void) => {
+    const handler = (_event: IpcRendererEvent, msg: string) => callback(null, msg);
+    ipcRenderer.on('dependency:installProgress', handler);
+    return () => { ipcRenderer.removeListener('dependency:installProgress', handler); };
   },
 
   // Updater (Legacy compatibility)
   updateTools: () => ipcRenderer.invoke('tools:update'),
-  onUpdateOutput: (callback: (event: IpcRendererEvent, msg: string) => void) => {
-    ipcRenderer.on('update:output', callback);
-    return () => { ipcRenderer.removeListener('update:output', callback); };
+  onUpdateOutput: (callback: (event: unknown, msg: string) => void) => {
+    const handler = (_event: IpcRendererEvent, msg: string) => callback(null, msg);
+    ipcRenderer.on('update:output', handler);
+    return () => { ipcRenderer.removeListener('update:output', handler); };
   },
-  onUpdateStatus: (callback: (event: IpcRendererEvent, status: string) => void) => {
-    ipcRenderer.on('update:status', callback);
-    return () => { ipcRenderer.removeListener('update:status', callback); };
+  onUpdateStatus: (callback: (event: unknown, status: string) => void) => {
+    const handler = (_event: IpcRendererEvent, status: string) => callback(null, status);
+    ipcRenderer.on('update:status', handler);
+    return () => { ipcRenderer.removeListener('update:status', handler); };
   },
 
   // Shell
   openExternal: (url: string) => ipcRenderer.invoke('shell:openExternal', url),
+
+  // System Diagnostics & Operational Logging
+  getDiagnostics: () => ipcRenderer.invoke('system:getDiagnostics'),
+  getRecentLogs: (maxLines?: number) => ipcRenderer.invoke('system:getRecentLogs', maxLines),
+
+  // Database Backup & Retention
+  createBackup: () => ipcRenderer.invoke('db:createBackup'),
+  listBackups: () => ipcRenderer.invoke('db:listBackups'),
+  enforceRetention: (maxDays?: number, maxTotalBytes?: number) => ipcRenderer.invoke('db:enforceRetention', maxDays, maxTotalBytes),
 });

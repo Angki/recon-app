@@ -3,12 +3,17 @@ import { logger } from './logger';
 import { storage } from './storage';
 import { settingsStore } from './settings';
 import { dependencyService } from './dependencyManager';
+import { toolManager } from './toolManager';
 import { dbService } from './database';
 import path from 'path';
 import { getAdapter } from './scanners/registry';
-import { ScannerContext, IScannerAdapter } from './scanners/types';
+import type { ScannerContext, IScannerAdapter } from './scanners/types';
 import fs from 'fs';
 import os from 'os';
+import { toolCatalog } from './catalog';
+import { ScanStateMachine } from './runner/stateMachine';
+import { activeRuntime, isActiveValidationTool, validateActiveConfig } from './scanners/activeValidation';
+import { endpointInventory, DISCOVERY_TOOLS } from './endpointInventory';
 
 /** Safely send IPC to renderer — no-op if the window was already closed */
 function safeSend(sender: Electron.WebContents, channel: string, data: unknown) {
@@ -52,46 +57,93 @@ class IpcBatcher {
 const stdoutBatcher = new IpcBatcher();
 const stderrBatcher = new IpcBatcher();
 
+/** Execution priority mapping for phased pipeline scan mode */
+export const TOOL_PIPELINE_PRIORITY: Record<string, number> = {
+  // Phase 1: Passive Recon, DNS, Network & Port Profiling
+  subfinder: 10,
+  alterx: 11,
+  dnsx: 12,
+  wafw00f: 13,
+  whatweb: 14,
+  cmseek: 15,
+  naabu: 16,
+  nmap: 17,
+  tlsx: 18,
+  sslyze: 19,
+  testssl: 20,
+  gitleaks: 21,
+  semgrep: 22,
+  trivy: 23,
+
+  // Phase 2: Active Web Crawling & Endpoint Discovery
+  httpx: 30,
+  katana: 31,
+  gau: 32,
+  ffuf: 33,
+
+  // Phase 3: Parameter Discovery & Fuzzing
+  arjun: 40,
+  crlfsuite: 41,
+  corsy: 42,
+  schemathesis: 43,
+
+  // Phase 4: Deep DAST & Vulnerability Auditing
+  nuclei: 50,
+  wapiti: 51,
+  dalfox: 52,
+  zap: 53,
+  wpscan: 54,
+  nikto: 55,
+  sqlmap: 59,
+  commix: 60,
+  appscan: 56,
+  netsparker: 57,
+  acunetix: 58,
+};
 
 export class ScannerService {
   private activeScans: Map<string, { [scanner: string]: ChildProcess }> = new Map();
+  private scanRemainingTools: Map<string, Set<string>> = new Map();
   private scanStats: Map<string, Record<string, Record<string, number>>> = new Map();
   private statEmitIntervals: Map<string, NodeJS.Timeout> = new Map();
+  private stoppedScans: Set<string> = new Set();
 
-  /** Check if a CLI tool is available on PATH */
+  /** Check if a CLI tool is available on PATH or via toolManager */
   async checkTool(name: string): Promise<{ available: boolean; version?: string; resolvedPath?: string }> {
     try {
       if (path.isAbsolute(name) && fs.existsSync(name)) {
         return { available: true, resolvedPath: name };
       }
 
-      // Check ReconApp bin first
-      const appDataBin = path.join(os.homedir(), 'AppData', 'Roaming', 'ReconApp', 'bin', process.platform === 'win32' ? `${name}.exe` : name);
-      if (fs.existsSync(appDataBin)) {
-        return { available: true, resolvedPath: appDataBin };
+      if (name === 'docker') {
+        const cmd = process.platform === 'win32' ? 'where docker' : 'which docker';
+        const output = execSync(cmd, { stdio: 'pipe' }).toString().trim();
+        return { available: true, resolvedPath: output.split('\n')[0].trim() };
       }
 
-      // Prioritize Go bin directory for ProjectDiscovery tools to avoid clashes (e.g. Python's httpx)
-      if (process.platform === 'win32' && ['httpx', 'subfinder', 'nuclei', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'].includes(name)) {
-        const goPath = path.join(os.homedir(), 'go', 'bin', `${name}.exe`);
-        if (fs.existsSync(goPath)) {
-          return { available: true, resolvedPath: goPath };
-        }
+      // Try toolManager resolution first
+      const toolBaseName = path.basename(name).replace(/\.exe$/i, '').replace(/\.bat$/i, '').replace(/\.cmd$/i, '');
+      const resolved = toolManager.resolveToolPath(toolBaseName);
+      if (resolved && fs.existsSync(resolved)) {
+        return { available: true, resolvedPath: resolved };
       }
 
-      const cmd = process.platform === 'win32' ? `where ${name}` : `which ${name}`;
+      const cmd = process.platform === 'win32' ? `where ${toolBaseName}` : `which ${toolBaseName}`;
       const output = execSync(cmd, { stdio: 'pipe' }).toString().trim();
       const firstPath = output.split('\n')[0].trim();
       return { available: true, resolvedPath: firstPath };
     } catch {
       // Windows fallbacks
-      if (process.platform === 'win32' && name === 'nmap') {
-        const fallbacks = [
-          'C:\\Program Files (x86)\\Nmap\\nmap.exe',
-          'C:\\Program Files\\Nmap\\nmap.exe'
-        ];
-        for (const p of fallbacks) {
-          if (fs.existsSync(p)) return { available: true, resolvedPath: p };
+      if (process.platform === 'win32') {
+        const toolBaseName = path.basename(name).replace(/\.exe$/i, '').replace(/\.bat$/i, '');
+        if (toolBaseName === 'nmap') {
+          const fallbacks = [
+            'C:\\Program Files (x86)\\Nmap\\nmap.exe',
+            'C:\\Program Files\\Nmap\\nmap.exe'
+          ];
+          for (const p of fallbacks) {
+            if (fs.existsSync(p)) return { available: true, resolvedPath: p };
+          }
         }
       }
       return { available: false };
@@ -117,29 +169,58 @@ export class ScannerService {
       const domain = urlObj.hostname;
 
       // Extract requested tools from config, default to nuclei and wapiti if none provided
-      const requestedTools = config.tools || ['nuclei', 'wapiti'];
+      const requestedTools = Array.isArray(config.tools)
+        ? [...new Set(config.tools as string[])]
+        : ['nuclei', 'wapiti'];
 
-      // Mapping of tool names to their configured binaries
-      const toolBinaries: Record<string, string> = {
-        nuclei: settings.nucleiPath || dependencyService.getBinPath('nuclei'),
-        wapiti: settings.wapitiPath || dependencyService.getBinPath('wapiti'),
-        subfinder: settings.subfinderPath || dependencyService.getBinPath('subfinder'),
-        httpx: settings.httpxPath || dependencyService.getBinPath('httpx'),
-        nmap: settings.nmapPath || dependencyService.getBinPath('nmap'),
-        zap: settings.zapPath || dependencyService.getBinPath('zap'),
-        katana: settings.katanaPath || dependencyService.getBinPath('katana'),
-        ffuf: settings.ffufPath || dependencyService.getBinPath('ffuf'),
-        alterx: settings.alterxPath || dependencyService.getBinPath('alterx'),
-        dnsx: settings.dnsxPath || dependencyService.getBinPath('dnsx'),
-        naabu: settings.naabuPath || dependencyService.getBinPath('naabu'),
-        tlsx: settings.tlsxPath || path.join(os.homedir(), 'AppData', 'Roaming', 'ReconApp', 'bin', 'tlsx.exe'),
-        appscan: settings.appscanPath || 'C:\\Program Files (x86)\\HCL\\AppScan Standard\\AppScanCMD.exe',
-        netsparker: settings.netsparkerPath || path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Invicti Professional Edition', 'Netsparker.exe'),
-        acunetix: process.execPath, // We use bundled Electron Node to run the API runner script
-        wpscan: 'docker', // wpscan runs via docker
-      };
+      if (requestedTools.length === 0) {
+        return { success: false, error: 'No tools selected for scanning. Please select at least one scanner engine.' };
+      }
+      if (requestedTools.some(t => typeof t !== 'string' || !toolCatalog.get(t))) throw new Error('Unknown scanner requested.');
+      endpointInventory.validateLaunch(targetUrl,config);
+      const activeTools = requestedTools.filter(isActiveValidationTool);
+      const activeRuntimes: Record<string, ReturnType<typeof activeRuntime>> = {};
+      if (activeTools.length) {
+        config = { ...config, activeValidation: validateActiveConfig(targetUrl, config.activeValidation, activeTools) };
+        for (const tool of activeTools) activeRuntimes[tool] = activeRuntime(tool, settings as unknown as Record<string, unknown>);
+        config.activeRuntimes = activeRuntimes;
+      }
+
+      // Mapping of tool names to their configured binaries using toolCatalog & toolManager resolution
+      const toolBinaries: Record<string, string> = {};
+      for (const t of requestedTools) {
+        if (isActiveValidationTool(t)) {
+          toolBinaries[t] = activeRuntimes[t].executable;
+        } else if (t === 'acunetix') {
+          toolBinaries[t] = process.execPath;
+        } else if (t === 'appscan') {
+          toolBinaries[t] = (settings.appscanPath as string) || 'C:\\Program Files (x86)\\HCL\\AppScan Standard\\AppScanCMD.exe';
+        } else if (t === 'netsparker') {
+          toolBinaries[t] = (settings.netsparkerPath as string) || path.join(process.env['ProgramFiles(x86)'] || 'C:\\Program Files (x86)', 'Invicti Professional Edition', 'Netsparker.exe');
+        } else if (t === 'wpscan') {
+          toolBinaries[t] = 'docker';
+        } else {
+          const resolved = toolManager.resolveToolPath(t);
+          if (resolved) {
+            toolBinaries[t] = resolved;
+          } else {
+            const manifest = toolCatalog.get(t);
+            if (manifest) {
+              if (manifest.installStrategy.type === 'system-manual' && manifest.installStrategy.defaultPaths) {
+                const found = manifest.installStrategy.defaultPaths.find(p => fs.existsSync(p));
+                toolBinaries[t] = found || manifest.installStrategy.exeName;
+              } else {
+                toolBinaries[t] = manifest.installStrategy.exeName;
+              }
+            }
+          }
+        }
+      }
 
       const toolsToRun = requestedTools.filter((t: string) => toolBinaries[t]);
+      if (toolsToRun.length === 0) {
+        return { success: false, error: 'None of the requested tools are recognized or configured.' };
+      }
 
       // Pre-flight: verify requested tools exist
       const checks = await Promise.all(toolsToRun.map((t: string) => this.checkTool(toolBinaries[t])));
@@ -162,7 +243,7 @@ export class ScannerService {
 
       const { scanId, scanDir, nucleiDir, wapitiDir } = storage.createScanDirectory(domain);
       
-      storage.saveMetadata(scanId, {
+      await storage.saveMetadata(scanId, {
         scanId,
         target: targetUrl,
         domain,
@@ -181,11 +262,30 @@ export class ScannerService {
         if (stats) safeSend(sender, 'scan:stats', { scanId, stats });
       }, 1000));
 
+      const executionMode = config.executionMode === 'concurrent' ? 'concurrent' : 'pipeline';
+      const orderedTools = executionMode === 'pipeline'
+        ? [...toolsToRun].sort((a, b) => (TOOL_PIPELINE_PRIORITY[a] ?? 99) - (TOOL_PIPELINE_PRIORITY[b] ?? 99))
+        : toolsToRun;
+
+      this.scanRemainingTools.set(scanId, new Set(orderedTools));
+
       // Start requested tools
-      for (const tool of toolsToRun) {
-        // We reuse the scanDir (or existing subdirs) for output
-        const outDir = tool === 'nuclei' ? nucleiDir : tool === 'wapiti' ? wapitiDir : scanDir;
-        this.runGenericTool(sender, scanId, targetUrl, domain, tool, toolBinaries[tool], outDir, config);
+      if (executionMode === 'concurrent') {
+        for (const tool of orderedTools) {
+          const outDir = tool === 'nuclei' ? nucleiDir : tool === 'wapiti' ? wapitiDir : scanDir;
+          this.runGenericTool(sender, scanId, targetUrl, domain, tool, toolBinaries[tool], outDir, config);
+        }
+      } else {
+        // Mode Bertahap (Phased Pipeline): execute orderly per phase to avoid network choking & WAF bans
+        (async () => {
+          for (const tool of orderedTools) {
+            if (this.stoppedScans.has(scanId)) break;
+            const outDir = tool === 'nuclei' ? nucleiDir : tool === 'wapiti' ? wapitiDir : scanDir;
+            await this.runGenericTool(sender, scanId, targetUrl, domain, tool, toolBinaries[tool], outDir, config);
+          }
+        })().catch(err => {
+          logger.error(`Error in phased pipeline scan for ${scanId}:`, err);
+        });
       }
 
       return { success: true, scanId };
@@ -205,8 +305,9 @@ export class ScannerService {
     bin: string,
     outDir: string,
     config?: Record<string, unknown>
-  ) {
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '');
+  ): Promise<void> {
+    return new Promise((resolve) => {
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '');
     const outputFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.txt`);
     const jsonFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.json`);
     const xmlFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.xml`);
@@ -218,6 +319,9 @@ export class ScannerService {
       settings: settingsStore.get()
     };
 
+    let processInstance: ChildProcess;
+    let executable = bin;
+    try {
     const args = adapter.getCommandArgs(context);
     
     let env = { ...process.env };
@@ -225,16 +329,15 @@ export class ScannerService {
       env = adapter.getEnv(context, env);
     }
     
-    let executable = bin;
     let useShell = false;
-    let cwd = process.cwd();
+    let cwd = outDir;
     let spawnArgs = args;
 
     const isBat = bin.toLowerCase().endsWith('.bat') || bin.toLowerCase().endsWith('.cmd');
     if (isBat && process.platform === 'win32') {
       executable = process.env.comspec || 'cmd.exe';
-      spawnArgs = ['/c', path.basename(bin), ...args];
-      cwd = path.dirname(bin);
+      spawnArgs = ['/c', bin, ...args];
+      cwd = outDir;
     } else if (isBat) {
       useShell = true;
     }
@@ -247,12 +350,37 @@ export class ScannerService {
       if (opts.cwd) cwd = opts.cwd;
     }
 
-    const processInstance = spawn(executable, spawnArgs, { 
-      env, 
-      cwd, 
-      shell: useShell,
-      windowsVerbatimArguments: false 
-    });
+      processInstance = spawn(executable, spawnArgs, { 
+        env, 
+        cwd, 
+        shell: useShell,
+        windowsHide: true,
+        windowsVerbatimArguments: false 
+      });
+    } catch (err: unknown) {
+      const error = err instanceof Error ? err : new Error(String(err));
+      logger.error(`Failed to spawn ${scannerName}:`, error);
+      safeSend(sender, 'scan:output', { 
+        scanId, 
+        scanner: scannerName, 
+        type: 'stderr', 
+        message: `[SYSTEM ERROR] Failed to spawn process: ${error.message}\nPlease check permissions or if your antivirus is blocking ${executable}.` 
+      });
+      storage.updateStatus(scanId, scannerName, 'FAILED');
+      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'FAILED' });
+      const remaining = this.scanRemainingTools.get(scanId);
+      if (remaining) remaining.delete(scannerName);
+      if (!remaining?.size) {
+        const interval = this.statEmitIntervals.get(scanId);
+        if (interval) clearInterval(interval);
+        this.statEmitIntervals.delete(scanId);
+        this.activeScans.delete(scanId);
+        this.scanRemainingTools.delete(scanId);
+        this.scanStats.delete(scanId);
+      }
+      resolve();
+      return;
+    }
     
     if (processInstance.stdin && adapter.handleStdin) {
       adapter.handleStdin(context, processInstance);
@@ -261,12 +389,17 @@ export class ScannerService {
       processInstance.stdin.end();
     }
 
+    safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'RUNNING' });
+    void storage.updateStatus(scanId, scannerName, 'RUNNING');
     const scanSession = this.activeScans.get(scanId);
     if (scanSession) scanSession[scannerName] = processInstance;
 
     processInstance.stdout?.on('data', (data) => {
       const msg = data.toString();
       stdoutBatcher.send(sender, scanId, scannerName, 'stdout', msg);
+      try {
+        fs.appendFileSync(outputFile, msg);
+      } catch { /* ignore */ }
       
       const stats = this.scanStats.get(scanId);
       if (stats && adapter.processStdout) {
@@ -276,19 +409,41 @@ export class ScannerService {
 
     processInstance.stderr?.on('data', (data) => {
       stderrBatcher.send(sender, scanId, scannerName, 'stderr', data.toString());
+      if (isActiveValidationTool(scannerName)) {
+        try { fs.appendFileSync(outputFile, data.toString()); } catch { /* parser fails if output unavailable */ }
+      }
     });
+
+    // Per-tool execution timeout safeguard
+    let timedOut = false;
+    const timeoutMs = isActiveValidationTool(scannerName)
+      ? validateActiveConfig(targetUrl, config?.activeValidation, [scannerName]).timeoutMinutes * 60_000
+      : (typeof config?.timeoutMinutes === 'number' && config.timeoutMinutes > 0)
+      ? config.timeoutMinutes * 60 * 1000
+      : toolCatalog.getTimeout(scannerName);
+    const timeoutTimer = setTimeout(() => {
+      if (processInstance.exitCode === null && !processInstance.killed) {
+        timedOut = true;
+        logger.warn(`Scanner ${scannerName} for ${scanId} exceeded timeout (${timeoutMs}ms). Terminating process.`);
+        safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stderr', message: `\n[SYSTEM TIMEOUT] Scanner ${scannerName} exceeded timeout limit and was terminated.` });
+        this.killProcess(processInstance);
+      }
+    }, timeoutMs);
+    processInstance.once('close', () => clearTimeout(timeoutTimer));
 
     processInstance.on('error', (err) => {
       logger.error(`Failed to start ${scannerName}:`, err);
-      safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stderr', message: `[SYSTEM ERROR] Failed to spawn process: ${err.message}\nPlease check if the tool is installed and the path is correct in Settings.` });
-      storage.updateStatus(scanId, scannerName, 'FAILED');
-      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'FAILED' });
+      safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stderr', message: `[SYSTEM ERROR] Process error: ${err.message}\nPlease check if the tool is installed and executable.` });
+      const finalStatus = this.stoppedScans.has(scanId) ? 'STOPPED' : 'FAILED';
+      storage.updateStatus(scanId, scannerName, finalStatus);
+      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: finalStatus });
     });
 
-    processInstance.on('exit', (code) => {
-      logger.info(`${scannerName} process for ${scanId} exited with code ${code}`);
+    // Listen to 'close' to ensure stdio streams are fully drained and buffers flushed
+    processInstance.on('close', (code) => {
+      logger.info(`${scannerName} process for ${scanId} closed with code ${code}`);
       
-      const fileToRead = ['alterx', 'nmap'].includes(scannerName) ? outputFile : 
+      const fileToRead = ['alterx', 'nmap', 'sqlmap'].includes(scannerName) ? outputFile : 
                          ['appscan', 'netsparker'].includes(scannerName) ? xmlFile : jsonFile;
       if (fs.existsSync(fileToRead)) {
         try {
@@ -312,41 +467,59 @@ export class ScannerService {
       }
 
       // Attempt to parse findings if they exist
-      this.parseAndSendFindings(context, adapter);
+      const parsed = this.parseAndSendFindings(context, adapter);
 
-      // Clean up interval if this was the last active process for the scan
+      // Clean up interval and memory when all processes in this session finish
+      const remaining = this.scanRemainingTools.get(scanId);
+      if (remaining) remaining.delete(scannerName);
+
       const scanSession = this.activeScans.get(scanId);
-      let allDone = true;
+      let anyProcRunning = false;
       if (scanSession) {
          for (const proc of Object.values(scanSession)) {
+           if (proc === processInstance) continue; // close already fired, including signal-only termination
            if (proc.exitCode === null && !proc.killed) {
-             allDone = false; break;
+             anyProcRunning = true; break;
            }
          }
       }
+      const allDone = ((!remaining || remaining.size === 0) && !anyProcRunning) || this.stoppedScans.has(scanId);
+      const wasCancelled = this.stoppedScans.has(scanId) || processInstance.killed || Boolean((processInstance as unknown as { _wasTerminated?: boolean })._wasTerminated);
+      const exitSemantic = toolCatalog.getExitCodeSemantic(scannerName, code);
+      const isSuccess = adapter.isSuccessExitCode 
+        ? adapter.isSuccessExitCode(code, context) 
+        : (exitSemantic === 'clean' || exitSemantic === 'findings_found');
+      const finalStatus = timedOut ? 'FAILED' : wasCancelled ? 'STOPPED' : isSuccess && parsed ? 'COMPLETED' : 'FAILED';
+      storage.updateStatus(scanId, scannerName, finalStatus);
+      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: finalStatus, code });
+
       if (allDone) {
          const interval = this.statEmitIntervals.get(scanId);
          if (interval) { clearInterval(interval); this.statEmitIntervals.delete(scanId); }
+         this.activeScans.delete(scanId);
+         this.scanRemainingTools.delete(scanId);
+         this.scanStats.delete(scanId);
+         setTimeout(() => this.stoppedScans.delete(scanId), 10000);
       }
-
-      storage.updateStatus(scanId, scannerName, code === 0 ? 'COMPLETED' : 'FAILED');
-      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: code === 0 ? 'COMPLETED' : 'FAILED', code });
+      resolve();
     });
-
-    processInstance.on('error', (err) => {
-      logger.error(`${scannerName} process error for ${scanId}`, err);
-      storage.updateStatus(scanId, scannerName, 'FAILED');
-      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'FAILED', error: err.message });
-    });
-  }
+  });
+}
 
   async stopScan(scanId: string) {
+    this.stoppedScans.add(scanId);
     const processes = this.activeScans.get(scanId);
+    const remaining = this.scanRemainingTools.get(scanId);
+    if (remaining) {
+      for (const tool of remaining) {
+        storage.updateStatus(scanId, tool, 'STOPPED');
+      }
+      this.scanRemainingTools.delete(scanId);
+    }
     if (processes) {
       for (const proc of Object.values(processes)) {
         this.killProcess(proc);
       }
-      this.activeScans.delete(scanId);
       const interval = this.statEmitIntervals.get(scanId);
       if (interval) { clearInterval(interval); this.statEmitIntervals.delete(scanId); }
       storage.updateStatus(scanId, null, 'STOPPED');
@@ -359,12 +532,18 @@ export class ScannerService {
   private parseAndSendFindings(context: ScannerContext, adapter: IScannerAdapter) {
     if (adapter.parseFindings) {
       try {
+        if (DISCOVERY_TOOLS.includes(context.scannerName)) {
+          const count = endpointInventory.capture(context);
+          safeSend(context.sender, 'scan:output', {scanId:context.scanId,scanner:context.scannerName,type:'stdout',message:`[INVENTORY] ${count} endpoint observations imported. Open Endpoint Inventory to review and test.\n`});
+          return true;
+        }
         const findings = adapter.parseFindings(context);
         if (findings && findings.length > 0) {
           try {
-            dbService.insertFindings(context.scanId, context.scannerName, findings);
+            dbService.insertFindings(context.scanId, context.scannerName, findings as Record<string, unknown>[]);
           } catch(e) {
             logger.error(`Error inserting findings to DB for ${context.scannerName}`, e);
+            return false;
           }
           
           // Chunk IPC sends to prevent renderer UI freezing
@@ -377,13 +556,17 @@ export class ScannerService {
       } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : String(e);
         logger.error(`Error parsing findings for ${context.scannerName}: ${errMsg}`, e);
+        safeSend(context.sender, 'scan:output', { scanId: context.scanId, scanner: context.scannerName, type: 'stderr', message: `[RESULT ERROR] ${errMsg}\n` });
+        return false;
       }
     }
+    return true;
   }
 
   /** Kill all running scans — called on app quit */
   killAll() {
     for (const [scanId, processes] of this.activeScans) {
+      this.stoppedScans.add(scanId);
       for (const proc of Object.values(processes)) {
         this.killProcess(proc);
       }
@@ -398,6 +581,7 @@ export class ScannerService {
   private killProcess(proc?: ChildProcess) {
     if (!proc || proc.killed) return;
     try {
+      (proc as unknown as { _wasTerminated?: boolean })._wasTerminated = true;
       if (process.platform === 'win32' && proc.pid) {
         // taskkill /F /T kills the entire process tree on Windows
         execSync(`taskkill /F /T /PID ${proc.pid}`, { stdio: 'ignore' });
@@ -409,3 +593,6 @@ export class ScannerService {
     }
   }
 }
+
+export const scannerService = new ScannerService();
+

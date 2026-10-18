@@ -6,11 +6,14 @@ import axios from 'axios';
 import extract from 'extract-zip';
 import { logger } from './logger';
 import { settingsStore } from './settings';
+import { activeRuntime, isActiveValidationTool } from './scanners/activeValidation';
+import type { ToolCategory } from './catalog/types';
+import { installActiveTool, supportsActiveInstall } from './activeToolInstaller';
 
 export interface ToolDef {
   name: string;
   displayName: string;
-  category: 'recon' | 'dast' | 'fuzz' | 'network';
+  category: ToolCategory;
   repo: string;
   exeName: string;
   assetPrefix: string;
@@ -22,7 +25,7 @@ export interface ToolDef {
 export interface ToolHealthInfo {
   name: string;
   displayName: string;
-  category: 'recon' | 'dast' | 'fuzz' | 'network';
+  category: ToolCategory;
   installed: boolean;
   currentVersion: string;
   latestVersion: string;
@@ -31,20 +34,22 @@ export interface ToolHealthInfo {
   requiresManual?: boolean;
 }
 
-export const MANAGED_TOOLS: ToolDef[] = [
-  { name: 'nuclei', displayName: 'Nuclei Engine', category: 'dast', repo: 'projectdiscovery/nuclei', exeName: 'nuclei.exe', assetPrefix: 'nuclei_', assetSuffix: '_windows_amd64.zip', versionFlag: '-version' },
-  { name: 'subfinder', displayName: 'Subfinder', category: 'recon', repo: 'projectdiscovery/subfinder', exeName: 'subfinder.exe', assetPrefix: 'subfinder_', assetSuffix: '_windows_amd64.zip', versionFlag: '-version' },
-  { name: 'httpx', displayName: 'HTTPX', category: 'recon', repo: 'projectdiscovery/httpx', exeName: 'httpx.exe', assetPrefix: 'httpx_', assetSuffix: '_windows_amd64.zip', versionFlag: '-version' },
-  { name: 'naabu', displayName: 'Naabu Port Scanner', category: 'recon', repo: 'projectdiscovery/naabu', exeName: 'naabu.exe', assetPrefix: 'naabu_', assetSuffix: '_windows_amd64.zip', versionFlag: '-version' },
-  { name: 'katana', displayName: 'Katana Spider', category: 'recon', repo: 'projectdiscovery/katana', exeName: 'katana.exe', assetPrefix: 'katana_', assetSuffix: '_windows_amd64.zip', versionFlag: '-version' },
-  { name: 'dnsx', displayName: 'DNSX Resolver', category: 'recon', repo: 'projectdiscovery/dnsx', exeName: 'dnsx.exe', assetPrefix: 'dnsx_', assetSuffix: '_windows_amd64.zip', versionFlag: '-version' },
-  { name: 'alterx', displayName: 'Alterx Permutation', category: 'recon', repo: 'projectdiscovery/alterx', exeName: 'alterx.exe', assetPrefix: 'alterx_', assetSuffix: '_windows_amd64.zip', versionFlag: '-version' },
-  { name: 'tlsx', displayName: 'TLSX SSL/TLS Grabber', category: 'recon', repo: 'projectdiscovery/tlsx', exeName: 'tlsx.exe', assetPrefix: 'tlsx_', assetSuffix: '_windows_amd64.zip', versionFlag: '-version' },
-  { name: 'ffuf', displayName: 'FFUF Web Fuzzer', category: 'fuzz', repo: 'ffuf/ffuf', exeName: 'ffuf.exe', assetPrefix: 'ffuf_', assetSuffix: '_windows_amd64.zip', versionFlag: '-V' },
-  { name: 'wapiti', displayName: 'Wapiti DAST', category: 'dast', repo: '', exeName: 'wapiti', assetPrefix: '', assetSuffix: '', versionFlag: '--version', requiresManual: true },
-  { name: 'nmap', displayName: 'Nmap Network Scanner', category: 'network', repo: '', exeName: 'nmap.exe', assetPrefix: '', assetSuffix: '', versionFlag: '-V', requiresManual: true },
-  { name: 'zap', displayName: 'OWASP ZAP', category: 'dast', repo: '', exeName: 'zap.bat', assetPrefix: '', assetSuffix: '', versionFlag: '-version', requiresManual: true }
-];
+import { toolCatalog } from './catalog';
+
+export const MANAGED_TOOLS: ToolDef[] = toolCatalog.getAll().map(tool => {
+  const strategy = tool.installStrategy;
+  return {
+    name: tool.id,
+    displayName: tool.displayName,
+    category: tool.category,
+    repo: strategy.type === 'github-release' ? strategy.repo : '',
+    exeName: strategy.exeName,
+    assetPrefix: strategy.type === 'github-release' ? strategy.assetPrefix : '',
+    assetSuffix: strategy.type === 'github-release' ? strategy.assetSuffix : '',
+    versionFlag: tool.versionFlag,
+    requiresManual: tool.requiresManual || tool.isCommercial
+  };
+});
 
 export class ToolManager {
   private binDir: string;
@@ -85,23 +90,68 @@ export class ToolManager {
     const tool = MANAGED_TOOLS.find(t => t.name === toolName);
     const exeName = tool ? tool.exeName : (process.platform === 'win32' ? `${toolName}.exe` : toolName);
 
-    // 1. Check AppData binDir
+    // 1. Check packaged resources directory if running inside packaged electron app
+    if (process.resourcesPath) {
+      const inResources = path.join(process.resourcesPath, 'bin', exeName);
+      if (fs.existsSync(inResources)) return inResources;
+    }
+
+    // 2. Check AppData binDir
     const inBin = path.join(this.binDir, exeName);
     if (fs.existsSync(inBin)) return inBin;
 
-    // 2. Check ~/go/bin on Windows
+    // 3. Check ~/go/bin on Windows
     if (process.platform === 'win32') {
       const inGo = path.join(os.homedir(), 'go', 'bin', exeName);
       if (fs.existsSync(inGo)) return inGo;
     }
 
-    // 3. Fallback to raw name for PATH resolution
+    // 3. Check Python Scripts directories on Windows (for tools like wafw00f, arjun, crlfsuite)
+    if (process.platform === 'win32') {
+      const pythonScriptsPaths = [
+        path.join(os.homedir(), 'AppData', 'Roaming', 'Python', 'Python314', 'Scripts', exeName),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'Python', 'Python313', 'Scripts', exeName),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'Python', 'Python312', 'Scripts', exeName),
+        path.join(os.homedir(), 'AppData', 'Roaming', 'Python', 'Python311', 'Scripts', exeName),
+        path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Python', 'Python314', 'Scripts', exeName),
+        path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Python', 'Python313', 'Scripts', exeName),
+        path.join('C:\\Python314', 'Scripts', exeName),
+        path.join('C:\\Python313', 'Scripts', exeName),
+        path.join('C:\\Python312', 'Scripts', exeName),
+      ];
+      for (const p of pythonScriptsPaths) {
+        if (fs.existsSync(p)) return p;
+      }
+    }
+
+    // 4. Fallback for Nmap / ZAP on Windows
+    if (process.platform === 'win32') {
+      if (toolName === 'nmap') {
+        const fallbacks = [
+          'C:\\Program Files (x86)\\Nmap\\nmap.exe',
+          'C:\\Program Files\\Nmap\\nmap.exe'
+        ];
+        for (const p of fallbacks) {
+          if (fs.existsSync(p)) return p;
+        }
+      }
+      if (toolName === 'zap') {
+        const zapFb = 'C:\\Program Files\\ZAP\\Zed Attack Proxy\\zap.bat';
+        if (fs.existsSync(zapFb)) return zapFb;
+      }
+    }
+
+    // 5. Fallback to raw name for PATH resolution
     return tool ? tool.exeName : toolName;
   }
 
   async getInstalledVersion(tool: ToolDef, resolvedPath: string): Promise<string> {
     return new Promise((resolve) => {
-      const child = spawn(resolvedPath, [tool.versionFlag], { shell: true });
+      const isBat = resolvedPath.toLowerCase().endsWith('.bat') || resolvedPath.toLowerCase().endsWith('.cmd');
+      const executable = isBat ? (process.env.comspec || 'cmd.exe') : resolvedPath;
+      const args = isBat ? ['/c', path.basename(resolvedPath), tool.versionFlag] : [tool.versionFlag];
+      const cwd = isBat ? path.dirname(resolvedPath) : undefined;
+      const child = spawn(executable, args, { cwd, shell: !isBat && !path.isAbsolute(resolvedPath) });
       let output = '';
 
       child.stdout?.on('data', (d) => { output += d.toString(); });
@@ -157,8 +207,34 @@ export class ToolManager {
     const results: ToolHealthInfo[] = [];
 
     for (const tool of MANAGED_TOOLS) {
+      if (isActiveValidationTool(tool.name)) {
+        let resolvedPath = '';
+        let currentVersion: string;
+        let installed = false;
+        try {
+          const runtime = activeRuntime(tool.name, settingsStore.get() as unknown as Record<string, unknown>);
+          resolvedPath = runtime.script;
+          const result = await new Promise<string>((resolve) => {
+            const args = runtime.kind === 'docker'
+              ? ['run','--rm','--pull=never','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges',runtime.image,tool.versionFlag]
+              : [runtime.script, tool.versionFlag];
+            const child = spawn(runtime.executable, args, { shell: false, cwd: runtime.kind === 'script' ? path.dirname(runtime.script) : undefined, windowsHide: true });
+            let output = '';
+            const collect = (data: Buffer) => { output = (output + data.toString()).slice(0, 8192); };
+            child.stdout?.on('data', collect);
+            child.stderr?.on('data', collect);
+            const timer = setTimeout(() => { child.kill(); resolve(''); }, 5000);
+            child.on('error', () => { clearTimeout(timer); resolve(''); });
+            child.on('close', code => { clearTimeout(timer); resolve(code === 0 ? output.trim() : ''); });
+          });
+          installed = Boolean(result);
+          currentVersion = result.match(/Nikto\s+v?[\d.]+/i)?.[0] || result.split('\n')[0].slice(0, 80) || 'Runtime check failed';
+        } catch (error) { currentVersion = error instanceof Error ? error.message : String(error); }
+        results.push({ name:tool.name, displayName:tool.displayName, category:tool.category, installed, currentVersion, latestVersion:supportsActiveInstall(tool.name) ? 'Pinned official revision' : 'Manual upstream', updateAvailable:false, resolvedPath, requiresManual:!supportsActiveInstall(tool.name) });
+        continue;
+      }
       const resolved = this.resolveToolPath(tool.name);
-      let installed = false;
+      let installed: boolean;
 
       if (path.isAbsolute(resolved)) {
         installed = fs.existsSync(resolved);
@@ -223,6 +299,14 @@ export class ToolManager {
     };
 
     sendOutput(`[*] Starting update for ${toolName}...`);
+    if (supportsActiveInstall(toolName)) {
+      try { return await installActiveTool(toolName,sendOutput); }
+      catch (error) { sendOutput(`[-] Installation failed; previous runtime retained: ${error instanceof Error ? error.message : String(error)}`); return false; }
+    }
+    if (isActiveValidationTool(toolName)) {
+      sendOutput(`[!] Install the official ${toolName} source and configure its interpreter and script in Dashboard > Active Testing. No automatic update was performed.`);
+      return false;
+    }
 
     if (toolName === 'nuclei-templates') {
       const nucleiBin = this.resolveToolPath('nuclei');
@@ -232,11 +316,60 @@ export class ToolManager {
       return ok;
     }
 
-    if (toolName === 'wapiti') {
-      sendOutput('[+] Upgrading Wapiti via pip...');
-      const ok = await this.runProcess('pip', ['install', '--upgrade', 'wapiti3'], sendOutput);
-      sendOutput(ok ? '[+] Wapiti updated successfully!' : '[-] Failed to upgrade Wapiti via pip.');
+    if (toolName === 'whatweb') {
+      sendOutput('[i] WhatWeb uses Ruby, not pip. Install from https://github.com/urbanadventurer/WhatWeb and configure its wrapper in the ReconApp bin directory. Automatic source updates are not supported.');
+      return false;
+    }
+
+    // Python pip packages
+    const pipTools: Record<string, string> = {
+      wapiti: 'wapiti3',
+      wafw00f: 'wafw00f',
+      arjun: 'arjun',
+      crlfsuite: 'crlfsuite',
+    };
+
+    if (pipTools[toolName]) {
+      const pkg = pipTools[toolName];
+      sendOutput(`[+] Upgrading ${toolName} (${pkg}) via pip...`);
+      const ok = await this.runProcess('pip', ['install', '--upgrade', pkg], sendOutput);
+      if (ok) {
+        // Copy freshly updated executable to binDir
+        const pyDirs = [
+          path.join(os.homedir(), 'AppData', 'Roaming', 'Python', 'Python314', 'Scripts'),
+          path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Python', 'Python312', 'Scripts'),
+          'C:\\Python314\\Scripts'
+        ];
+        for (const dir of pyDirs) {
+          const src = path.join(dir, `${toolName}.exe`);
+          const dst = path.join(this.binDir, `${toolName}.exe`);
+          if (fs.existsSync(src)) {
+            try { fs.copyFileSync(src, dst); } catch { /* ignore copy error */ }
+          }
+        }
+      }
+      sendOutput(ok ? `[+] ${toolName} updated successfully!` : `[-] Failed to upgrade ${toolName} via pip.`);
       return ok;
+    }
+
+    // Git tools
+    if (['corsy', 'cmseek'].includes(toolName)) {
+      const folderName = toolName === 'corsy' ? 'Corsy' : 'CMSeeK';
+      const targetDir = path.join(os.homedir(), 'AppData', 'Roaming', 'ReconApp', 'tools', folderName);
+      if (fs.existsSync(targetDir)) {
+        sendOutput(`[+] Pulling latest git changes for ${toolName}...`);
+        await this.runProcess('git', ['-C', targetDir, 'pull'], sendOutput);
+      } else {
+        const repo = toolName === 'corsy' ? 'https://github.com/s0md3v/Corsy.git' : 'https://github.com/Tuhinshubhra/CMSeeK.git';
+        sendOutput(`[+] Cloning ${toolName} from ${repo}...`);
+        await this.runProcess('git', ['clone', '--depth', '1', repo, targetDir], sendOutput);
+      }
+      const scriptName = toolName === 'corsy' ? 'corsy.py' : 'cmseek.py';
+      const cmdContent = `@echo off\r\nset PYTHONIOENCODING=utf-8\r\npython "${path.join(targetDir, scriptName)}" %*\r\n`;
+      fs.writeFileSync(path.join(this.binDir, `${toolName}.cmd`), cmdContent);
+      fs.writeFileSync(path.join(this.binDir, `${toolName}.bat`), cmdContent);
+      sendOutput(`[+] ${toolName} updated successfully!`);
+      return true;
     }
 
     const tool = MANAGED_TOOLS.find(t => t.name === toolName);
@@ -250,46 +383,103 @@ export class ToolManager {
       return true;
     }
 
-    // Layer 1: Attempt native -update flag
-    const resolvedPath = this.resolveToolPath(tool.name);
-    sendOutput(`[+] Layer 1: Attempting native CLI update via ${resolvedPath} -update...`);
-    const cliSuccess = await this.runProcess(resolvedPath, ['-update'], sendOutput);
+    // Layer 1: Attempt native -update flag ONLY for ProjectDiscovery tools that natively support it
+    const toolsSupportingCliUpdate = ['nuclei', 'subfinder', 'httpx', 'katana', 'alterx', 'dnsx', 'naabu', 'tlsx'];
+    if (toolsSupportingCliUpdate.includes(tool.name)) {
+      const resolvedPath = this.resolveToolPath(tool.name);
+      sendOutput(`[+] Layer 1: Attempting native CLI update via ${resolvedPath} -update...`);
+      const cliSuccess = await this.runProcess(resolvedPath, ['-update'], sendOutput);
 
-    if (cliSuccess) {
-      sendOutput(`[+] Successfully updated ${tool.displayName} via native CLI!`);
-      return true;
+      if (cliSuccess) {
+        sendOutput(`[+] Successfully updated ${tool.displayName} via native CLI!`);
+        return true;
+      }
+      sendOutput(`[!] Layer 1 CLI update failed or returned non-zero. Activating Layer 2: Direct GitHub Release Downloader...`);
+    } else {
+      sendOutput(`[i] Native -update flag not supported by ${tool.name}. Activating Direct GitHub Release Downloader...`);
     }
 
     // Layer 2: Fallback to direct GitHub Release Download
-    sendOutput(`[!] Layer 1 CLI update failed or not supported. Activating Layer 2: Direct GitHub Release Downloader...`);
     return await this.downloadAndExtractRelease(tool, sendOutput);
   }
 
   private async downloadAndExtractRelease(tool: ToolDef, sendOutput: (msg: string) => void): Promise<boolean> {
     try {
       sendOutput(`[+] Fetching latest release info for ${tool.repo}...`);
-      const apiURL = `https://api.github.com/repos/${tool.repo}/releases/latest`;
-      const response = await axios.get(apiURL, {
-        headers: { 'User-Agent': 'SecOps-ReconApp' },
-        timeout: 10000
-      });
+      let version = '';
+      let assetDownloadUrl = '';
+      let assetName = '';
 
-      const version = response.data.tag_name.replace(/^v/, '');
-      const assetName = `${tool.assetPrefix}${version}${tool.assetSuffix}`;
-      const asset = response.data.assets.find((a: { name: string }) => a.name === assetName);
+      try {
+        const apiURL = `https://api.github.com/repos/${tool.repo}/releases/latest`;
+        const response = await axios.get(apiURL, {
+          headers: { 'User-Agent': 'SecOps-ReconApp' },
+          timeout: 10000
+        });
 
-      if (!asset) {
-        throw new Error(`Asset ${assetName} not found in GitHub release.`);
+        version = response.data.tag_name.replace(/^v/, '');
+        const expectedAssetName = `${tool.assetPrefix}${version}${tool.assetSuffix}`;
+
+        // 1. Try exact asset name match
+        let asset = response.data.assets.find((a: { name: string }) => a.name === expectedAssetName);
+
+        // 2. Intelligent fuzzy asset finder for Windows amd64 zip
+        if (!asset) {
+          asset = response.data.assets.find((a: { name: string }) => {
+            const name = a.name.toLowerCase();
+            if (name.endsWith('.sha256') || name.endsWith('.sig') || name.endsWith('.txt') || name.endsWith('.xml') || name.endsWith('.deb') || name.endsWith('.rpm')) return false;
+            if (!name.endsWith('.zip')) return false;
+            if (!name.includes(tool.name.toLowerCase())) return false;
+            if (!name.includes('windows') && !name.includes('win')) return false;
+            if (name.includes('arm64') || name.includes('aarch64')) return false;
+            return name.includes('amd64') || name.includes('x86_64') || name.includes('x64') || name.includes('64-bit') || name.includes('win64');
+          });
+        }
+
+        if (asset) {
+          assetName = asset.name;
+          assetDownloadUrl = asset.browser_download_url;
+        }
+      } catch (apiErr: any) {
+        if (apiErr.response?.status === 403) {
+          sendOutput(`[!] GitHub API rate limit reached (HTTP 403). Falling back to direct HTML tag discovery...`);
+          const headRes = await axios.get(`https://github.com/${tool.repo}/releases/latest`, {
+            maxRedirects: 5,
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+            timeout: 15000
+          });
+          const finalUrl: string = headRes.request?.res?.responseUrl || headRes.config?.url || '';
+          const tagMatch = finalUrl.match(/\/tag\/([^/?#]+)/);
+          if (tagMatch) {
+            const rawTag = tagMatch[1];
+            version = rawTag.replace(/^v/, '');
+            assetName = `${tool.assetPrefix}${version}${tool.assetSuffix}`;
+            assetDownloadUrl = `https://github.com/${tool.repo}/releases/download/${rawTag}/${assetName}`;
+            sendOutput(`[+] Resolved latest version ${version} via HTML redirect.`);
+          } else {
+            throw apiErr;
+          }
+        } else {
+          throw apiErr;
+        }
       }
 
-      const zipPath = path.join(this.binDir, assetName);
-      sendOutput(`[+] Downloading ${assetName} directly to ${this.binDir}...`);
+      if (!assetDownloadUrl) {
+        throw new Error(`Compatible Windows release asset not found for ${tool.name}.`);
+      }
+
+      // Download and extract into an isolated staging directory to protect active binaries
+      const stagingDir = path.join(this.binDir, '.staging', `${tool.name}-${Date.now()}`);
+      fs.mkdirSync(stagingDir, { recursive: true });
+      const zipPath = path.join(stagingDir, assetName);
+      sendOutput(`[+] Downloading ${assetName} to staging directory...`);
 
       const dlRes = await axios({
         method: 'GET',
-        url: asset.browser_download_url,
+        url: assetDownloadUrl,
         responseType: 'stream',
         timeout: 60000,
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' }
       });
 
       const writer = fs.createWriteStream(zipPath);
@@ -299,17 +489,81 @@ export class ToolManager {
         writer.on('error', reject);
       });
 
-      sendOutput(`[+] Extracting ${assetName}...`);
-      await extract(zipPath, { dir: this.binDir });
+      sendOutput(`[+] Extracting archive in staging...`);
+      await extract(zipPath, { dir: stagingDir });
 
-      // Clean zip
-      await fsPromises.unlink(zipPath);
-      sendOutput(`[+] Successfully installed and updated ${tool.displayName} to latest release (${version})!`);
+      // Locate binary inside staging directory
+      const locateExe = (dir: string, depth = 0): string | null => {
+        if (depth > 3) return null;
+        try {
+          const entries = fs.readdirSync(dir, { withFileTypes: true });
+          for (const entry of entries) {
+            const full = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+              const found = locateExe(full, depth + 1);
+              if (found) return found;
+            } else if (entry.isFile() && entry.name.toLowerCase() === tool.exeName.toLowerCase()) {
+              return full;
+            }
+          }
+        } catch {
+          // ignore
+        }
+        return null;
+      };
+
+      const stagedBinary = locateExe(stagingDir);
+      if (!stagedBinary || !fs.existsSync(stagedBinary)) {
+        throw new Error(`Executable ${tool.exeName} was not found inside the downloaded archive.`);
+      }
+
+      // Atomic activation: copy verified binary to production bin directory
+      const finalDest = path.join(this.binDir, tool.exeName);
+      await fsPromises.copyFile(stagedBinary, finalDest);
+
+      // Clean staging
+      try {
+        fs.rmSync(stagingDir, { recursive: true, force: true });
+      } catch {
+        // ignore cleanup error
+      }
+
+      sendOutput(`[+] Successfully activated ${tool.displayName} to latest release (${version})!`);
       return true;
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      sendOutput(`[-] Error during direct download fallback: ${msg}`);
+      sendOutput(`[-] Error during download fallback: ${msg}`);
       return false;
+    }
+  }
+
+  private async ensureBinaryAtRoot(exeName: string): Promise<void> {
+    const rootTarget = path.join(this.binDir, exeName);
+    if (fs.existsSync(rootTarget)) return;
+
+    const findExe = (dir: string, depth = 0): string | null => {
+      if (depth > 2) return null;
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+          const full = path.join(dir, entry.name);
+          if (entry.isDirectory()) {
+            const found = findExe(full, depth + 1);
+            if (found) return found;
+          } else if (entry.isFile() && entry.name.toLowerCase() === exeName.toLowerCase()) {
+            return full;
+          }
+        }
+      } catch {
+        // ignore
+      }
+      return null;
+    };
+
+    const located = findExe(this.binDir);
+    if (located && located !== rootTarget) {
+      await fsPromises.copyFile(located, rootTarget);
+      logger.info(`Relocated ${exeName} from subfolder to ${rootTarget}`);
     }
   }
 
@@ -323,17 +577,22 @@ export class ToolManager {
 
     sendOutput('[*] === STARTING MASTER ENGINE & TOOL SUITE UPDATE ===');
 
-    // 1. Update Nuclei Engine
+    // 1. Update Nuclei Engine & Templates
     await this.updateTool('nuclei', sender);
-
-    // 2. Update Nuclei Templates
     await this.updateTool('nuclei-templates', sender);
 
-    // 3. Update Wapiti
-    await this.updateTool('wapiti', sender);
+    // 2. Update Python tools via pip
+    const pyTools = ['wapiti', 'wafw00f', 'arjun', 'crlfsuite'];
+    for (const tool of pyTools) {
+      await this.updateTool(tool, sender);
+    }
 
-    // 4. Update ProjectDiscovery suite & FFUF
-    const toolsToUpdate = ['subfinder', 'httpx', 'naabu', 'katana', 'dnsx', 'alterx', 'tlsx', 'ffuf'];
+    // 3. Update Git tools
+    await this.updateTool('corsy', sender);
+    await this.updateTool('cmseek', sender);
+
+    // 4. Update ProjectDiscovery suite, FFUF, Dalfox, GAU
+    const toolsToUpdate = ['subfinder', 'httpx', 'naabu', 'katana', 'dnsx', 'alterx', 'tlsx', 'ffuf', 'dalfox', 'gau'];
     for (const tool of toolsToUpdate) {
       await this.updateTool(tool, sender);
     }
@@ -347,7 +606,10 @@ export class ToolManager {
   private runProcess(command: string, args: string[], sendOutput: (msg: string) => void): Promise<boolean> {
     return new Promise((resolve) => {
       try {
-        const proc = spawn(command, args, { shell: true });
+        const isBat = command.toLowerCase().endsWith('.bat') || command.toLowerCase().endsWith('.cmd');
+        const exe = isBat && process.platform === 'win32' ? (process.env.comspec || 'cmd.exe') : command;
+        const finalArgs = isBat && process.platform === 'win32' ? ['/c', command, ...args] : args;
+        const proc = spawn(exe, finalArgs, { shell: false });
 
         proc.stdout?.on('data', (d) => {
           sendOutput(d.toString().trim());

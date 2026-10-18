@@ -1,82 +1,179 @@
 import { ipcMain, shell } from 'electron';
-import { ScannerService } from './services/scanner';
-import { updaterService } from './services/updater';
+import { scannerService } from './services/scanner';
+export { scannerService };
 import { storage } from './services/storage';
 import { settingsStore } from './services/settings';
 import { aiService } from './services/aiService';
 import { dependencyService, DEPENDENCIES } from './services/dependencyManager';
 import { toolManager } from './services/toolManager';
+import { endpointInventory } from './services/endpointInventory';
 
-export const scannerService = new ScannerService();
+export function validateExternalUrl(rawUrl: string): string {
+  if (!rawUrl || typeof rawUrl !== 'string') {
+    throw new Error('URL must be a non-empty string');
+  }
+  const parsed = new URL(rawUrl);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`Invalid protocol '${parsed.protocol}'. Only http: and https: protocols are permitted.`);
+  }
+  return parsed.toString();
+}
 
-// Unified Tool Engine Handlers
-ipcMain.handle('tools:get-health', async () => {
-  return await toolManager.getHealthMatrix();
-});
+export function registerIpcHandlers() {
+  if (!ipcMain || typeof ipcMain.handle !== 'function') return;
 
-ipcMain.handle('tools:update-single', async (event, toolName: string) => {
-  return await toolManager.updateTool(toolName, event.sender);
-});
+  // Unified Tool Engine Handlers
+  ipcMain.handle('tools:get-health', async () => {
+    return await toolManager.getHealthMatrix();
+  });
 
-ipcMain.handle('tools:update-all', async (event) => {
-  return await toolManager.updateAll(event.sender);
-});
+  ipcMain.handle('tools:update-single', async (event, toolName: string) => {
+    return await toolManager.updateTool(toolName, event.sender);
+  });
 
-// Legacy Tools Update
-ipcMain.handle('tools:update', async (event) => {
-  return await toolManager.updateAll(event.sender);
-});
+  ipcMain.handle('tools:update-all', async (event) => {
+    return await toolManager.updateAll(event.sender);
+  });
 
-ipcMain.handle('dependency:check', async () => {
-  return DEPENDENCIES.map(tool => ({
-    name: tool.name,
-    isInstalled: dependencyService.isInstalled(tool.name),
-    requiresManual: !!tool.requiresManual
-  }));
-});
+  // Legacy Tools Update
+  ipcMain.handle('tools:update', async (event) => {
+    return await toolManager.updateAll(event.sender);
+  });
 
-ipcMain.handle('dependency:installAll', async (event) => {
-  await dependencyService.checkAndInstallAll(event.sender);
-  return { success: true };
-});
+  ipcMain.handle('dependency:check', async () => {
+    return DEPENDENCIES.map(tool => ({
+      name: tool.name,
+      isInstalled: dependencyService.isInstalled(tool.name),
+      requiresManual: !!tool.requiresManual
+    }));
+  });
 
-ipcMain.handle('scan:start', async (event, targetUrl, config) => {
-  return await scannerService.startScan(event.sender, targetUrl, config);
-});
+  ipcMain.handle('dependency:installAll', async (event) => {
+    await dependencyService.checkAndInstallAll(event.sender);
+    return { success: true };
+  });
 
-ipcMain.handle('scan:stop', async (event, scanId) => {
-  return await scannerService.stopScan(scanId);
-});
+  ipcMain.handle('scan:start', async (event, targetUrl, config) => {
+    return await scannerService.startScan(event.sender, targetUrl, config);
+  });
 
-// Storage and History
-ipcMain.handle('storage:getHistory', async () => {
-  return storage.getHistory();
-});
+  ipcMain.handle('scan:stop', async (event, scanId) => {
+    return await scannerService.stopScan(scanId);
+  });
 
-ipcMain.handle('storage:getFindingsPaginated', async (event, scanId, options) => {
-  const { dbService } = await import('./services/database');
-  return dbService.getFindingsPaginated(scanId, options);
-});
+  // Storage and History
+  ipcMain.handle('inventory:list', (_event, scanId, options) => endpointInventory.list(scanId,options));
+  ipcMain.handle('inventory:prepare', (_event, reference, tool) => endpointInventory.draft(reference,tool));
+  ipcMain.handle('inventory:runs', (_event, scanId) => endpointInventory.runs(scanId));
+  ipcMain.handle('storage:getHistory', async () => {
+    return storage.getHistory();
+  });
 
-ipcMain.handle('storage:openFolder', async (event, scanId) => {
-  storage.openFolder(scanId);
-});
+  ipcMain.handle('storage:getFindingsPaginated', async (event, scanId, options) => {
+    const { dbService } = await import('./services/database');
+    return dbService.getFindingsPaginated(scanId, options);
+  });
 
-// Settings — persisted to disk
-ipcMain.handle('settings:get', async () => {
-  return settingsStore.get();
-});
+  ipcMain.handle('storage:openFolder', async (event, scanId: string) => {
+    if (!scanId || typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) {
+      throw new Error(`Invalid scanId: path traversal or invalid characters detected`);
+    }
+    storage.openFolder(scanId);
+  });
 
-ipcMain.handle('settings:save', async (event, settings) => {
-  return settingsStore.save(settings);
-});
+  ipcMain.handle('storage:deleteScan', async (event, scanId: string) => {
+    return storage.deleteScan(scanId);
+  });
 
-// AI Service
-ipcMain.handle('ai:analyzeLogs', async (event, logs, prompt) => {
-  return await aiService.analyzeLogs(event.sender, logs, prompt);
-});
+  ipcMain.handle('storage:clearAllScans', async () => {
+    return storage.clearAllScans();
+  });
 
-// Shell
-ipcMain.handle('shell:openExternal', async (event, url) => {
-  await shell.openExternal(url);
-});
+  // Report Exports
+  ipcMain.handle('report:export', async (event, scanId: string, format: 'html' | 'md' | 'json' | 'sarif') => {
+    if (!scanId || typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) {
+      throw new Error(`Invalid scanId`);
+    }
+    const { reportService } = await import('./services/reportService');
+    let filePath: string;
+    if (format === 'html') {
+      filePath = await reportService.generateHtmlReport(scanId);
+    } else if (format === 'md') {
+      filePath = await reportService.generateMarkdownReport(scanId);
+    } else if (format === 'sarif') {
+      filePath = await reportService.exportSarifReport(scanId);
+    } else {
+      filePath = await reportService.exportJsonReport(scanId);
+    }
+    return { success: true, filePath };
+  });
+
+  ipcMain.handle('report:getStats', async (event, scanId: string) => {
+    if (!scanId || typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) {
+      throw new Error(`Invalid scanId`);
+    }
+    const { reportService } = await import('./services/reportService');
+    const data = await reportService.compileReportData(scanId);
+    return {
+      ...data,
+      metrics: reportService.calculateStats(data.findings)
+    };
+  });
+
+  // Settings — masked for renderer safety
+  ipcMain.handle('settings:get', async () => {
+    return settingsStore.getPublic();
+  });
+
+  ipcMain.handle('settings:save', async (event, settings) => {
+    return settingsStore.save(settings);
+  });
+
+  // AI Service
+  ipcMain.handle('ai:analyzeLogs', async (event, logs, prompt) => {
+    return await aiService.analyzeLogs(event.sender, logs, prompt);
+  });
+
+  // System Diagnostics & Operational Logging
+  ipcMain.handle('system:getDiagnostics', async () => {
+    const { logger } = await import('./services/logger');
+    return logger.getDiagnosticsSummary();
+  });
+
+  ipcMain.handle('system:getRecentLogs', async (event, maxLines?: number) => {
+    const { logger } = await import('./services/logger');
+    return logger.getRecentLogs(maxLines || 200);
+  });
+
+  // Database Backup & Retention
+  ipcMain.handle('db:createBackup', async () => {
+    const { BackupManager } = await import('./services/db/backup');
+    const { dbService } = await import('./services/database');
+    const backupManager = new BackupManager();
+    const dbInstance = dbService.getRawDatabase();
+    return await backupManager.createBackup(dbInstance);
+  });
+
+  ipcMain.handle('db:listBackups', async () => {
+    const { BackupManager } = await import('./services/db/backup');
+    const backupManager = new BackupManager();
+    return backupManager.listBackups();
+  });
+
+  ipcMain.handle('db:enforceRetention', async (event, maxDays?: number, maxTotalBytes?: number) => {
+    const { BackupManager } = await import('./services/db/backup');
+    const backupManager = new BackupManager();
+    return backupManager.enforceRetention(maxDays, maxTotalBytes);
+  });
+
+  // Shell — restricted strictly to validated http/https URLs
+  ipcMain.handle('shell:openExternal', async (event, url: string) => {
+    const safeUrl = validateExternalUrl(url);
+    await shell.openExternal(safeUrl);
+  });
+}
+
+// Auto-register when running in main process
+if (ipcMain && typeof ipcMain.handle === 'function') {
+  registerIpcHandlers();
+}

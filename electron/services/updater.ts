@@ -66,7 +66,7 @@ export class UpdaterService {
 
   private runCommand(command: string, args: string[], sendOutput: (msg: string) => void): Promise<void> {
     return new Promise((resolve, reject) => {
-      const proc = spawn(command, args, { shell: true });
+      const proc = spawn(command, args, { shell: false });
 
       proc.stdout.on('data', (data) => {
         sendOutput(data.toString().trim());
