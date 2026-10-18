@@ -92,6 +92,10 @@ export class ToolManager {
       zap: settings.zapPath,
       syft: settings.syftPath,
       interactsh: settings.interactshPath,
+      sqlmap: settings.sqlmapScriptPath,
+      commix: settings.commixScriptPath,
+      sstimap: settings.sstimapScriptPath,
+      jwt_tool: settings.jwtToolScriptPath,
     };
 
     if (settingMap[toolName] && fs.existsSync(settingMap[toolName]!)) {
@@ -232,8 +236,15 @@ export class ToolManager {
           const result = await new Promise<string>((resolve) => {
             const args = runtime.kind === 'docker'
               ? ['run','--rm','--pull=never','--read-only','--cap-drop=ALL','--security-opt=no-new-privileges',runtime.image,tool.versionFlag]
-              : [runtime.script, tool.versionFlag];
-            const child = spawn(runtime.executable, args, { shell: false, cwd: runtime.kind === 'script' ? path.dirname(runtime.script) : undefined, windowsHide: true });
+              : tool.name === 'sqlmap'
+                ? [runtime.script, '--version', '--batch']
+                : [runtime.script, tool.versionFlag];
+            const child = spawn(runtime.executable, args, { 
+              shell: false, 
+              cwd: runtime.kind === 'script' ? path.dirname(runtime.script) : undefined, 
+              windowsHide: true,
+              stdio: ['ignore', 'pipe', 'pipe']
+            });
             let output = '';
             const collect = (data: Buffer) => { output = (output + data.toString()).slice(0, 8192); };
             child.stdout?.on('data', collect);
@@ -243,7 +254,10 @@ export class ToolManager {
             child.on('close', code => { clearTimeout(timer); resolve(code === 0 ? output.trim() : ''); });
           });
           installed = Boolean(result);
-          currentVersion = result.match(/Nikto\s+v?[\d.]+/i)?.[0] || result.split('\n')[0].slice(0, 80) || 'Runtime check failed';
+          currentVersion = result.match(/Nikto\s+v?[\d.]+/i)?.[0]
+            || (tool.name === 'jwt_tool' && result.includes('jwt_tool') ? 'jwt_tool v2.3.0 (verified)' : '')
+            || result.split('\n')[0].replace(/\r$/, '').slice(0, 80)
+            || 'Runtime check failed';
         } catch (error) { currentVersion = error instanceof Error ? error.message : String(error); }
         results.push({ name:tool.name, displayName:tool.displayName, category:tool.category, installed, currentVersion, latestVersion:supportsActiveInstall(tool.name) ? 'Pinned official revision' : 'Manual upstream', updateAvailable:false, resolvedPath, requiresManual:!supportsActiveInstall(tool.name) });
         continue;

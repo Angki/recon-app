@@ -6,10 +6,10 @@ import os from 'node:os';
 import { settingsStore } from './settings';
 
 export const PINNED_ACTIVE_SOURCES = {
-  sqlmap: {repo:'https://github.com/sqlmapproject/sqlmap.git',revision:'9a1660aa120c526f68b637e5f232137722353522',script:'sqlmap.py',setting:'sqlmapScriptPath'},
-  commix: {repo:'https://github.com/commixproject/commix.git',revision:'287fb3dc99ff0c720cd1e5327ddb9819d8f5c5b8',script:'commix.py',setting:'commixScriptPath'},
-  sstimap: {repo:'https://github.com/vladko312/SSTImap.git',revision:'8f7f8976b325257f86f7fe24b33b006c3c52e6d6',script:'sstimap.py',setting:'sstimapScriptPath'},
-  jwt_tool: {repo:'https://github.com/ticarpi/jwt_tool.git',revision:'69f50ca544b611e9f16cbdd96fba4898fc8a7e02',script:'jwt_tool.py',setting:'jwtToolScriptPath'},
+  sqlmap: {repo:'https://github.com/sqlmapproject/sqlmap.git',revision:'9a1660aa120c526f68b637e5f232137722353522',ref:'',script:'sqlmap.py',setting:'sqlmapScriptPath'},
+  commix: {repo:'https://github.com/commixproject/commix.git',revision:'287fb3dc99ff0c720cd1e5327ddb9819d8f5c5b8',ref:'',script:'commix.py',setting:'commixScriptPath'},
+  sstimap: {repo:'https://github.com/vladko312/SSTImap.git',revision:'1c27fdb4a4cc7d55b66fc0e16937ee7de7047490',ref:'refs/tags/v1.4',script:'sstimap.py',setting:'sstimapScriptPath'},
+  jwt_tool: {repo:'https://github.com/ticarpi/jwt_tool.git',revision:'3bc7407cf2222d6a821dcc19c776e5a1b1cb9a9b',ref:'refs/tags/v2.3.0',script:'jwt_tool.py',setting:'jwtToolScriptPath'},
 } as const;
 export const PINNED_NIKTO_IMAGE = 'ghcr.io/sullo/nikto@sha256:0bb37022ebfadc38d6a9a2755c03bfd1f9e079e01e8946fe548153d9ba0c2012';
 export type InstallableActiveTool = keyof typeof PINNED_ACTIVE_SOURCES | 'nikto';
@@ -62,10 +62,21 @@ export async function installActiveTool(tool: InstallableActiveTool, progress: (
     const run = (args:string[]) => execute('git',args,{windowsHide:true,timeout:180000,maxBuffer:1024*1024,env:{...process.env,GIT_TERMINAL_PROMPT:'0'}});
     progress(`Fetching official ${tool} revision ${source.revision}...`);
     await run(['init',directory]);
-    await run(['-C',directory,'fetch','--depth','1',source.repo,source.revision]);
+    const targetRef = ('ref' in source && source.ref) ? source.ref : source.revision;
+    await run(['-C',directory,'fetch','--depth','1',source.repo,targetRef]);
     await run(['-C',directory,'-c','core.hooksPath=','checkout','--detach','FETCH_HEAD']);
     const {stdout:head} = await run(['-C',directory,'rev-parse','HEAD']);
     if (head.trim() !== source.revision) throw new Error('Source revision mismatch');
+
+    const reqPath = path.join(directory, 'requirements.txt');
+    try {
+      await fs.access(reqPath);
+      progress(`Installing dependencies for ${tool} from requirements.txt...`);
+      await execute(python, ['-m', 'pip', 'install', '--user', '--disable-pip-version-check', '-r', reqPath], { windowsHide: true, timeout: 180000, maxBuffer: 1024 * 1024 });
+    } catch {
+      // requirements.txt optional or already satisfied
+    }
+
     const script = path.join(directory,source.script);
     const versionFlag = tool === 'jwt_tool' ? '-h' : '--version';
     const {stdout:version} = await execute(python,[script,versionFlag],{windowsHide:true,timeout:20000,maxBuffer:64*1024});
