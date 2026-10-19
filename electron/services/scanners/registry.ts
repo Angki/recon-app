@@ -167,7 +167,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       ];
     },
     isSuccessExitCode(code: number | null) {
-      return code === 0 || code === 1 || code === 2;
+      return code === 0 || code === 2;
     },
     getEnv(ctx, env) {
       return { ...env, PYTHONIOENCODING: 'utf-8' };
@@ -199,7 +199,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         try {
           const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
           const data = JSON.parse(content);
-          const classifications: Record<string, { desc?: string; sol?: string }> = data.classifications || {};
+          const classifications: Record<string, { desc?: string; sol?: string; wstg?: string[] | string }> = data.classifications || {};
 
           if (data.vulnerabilities) {
             for (const [vulnType, vulns] of Object.entries(data.vulnerabilities)) {
@@ -227,6 +227,13 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
                   resolvedUrl = ctx.targetUrl;
                 }
 
+                const classWstg = classifications[vulnType]?.wstg;
+                const wstgVal = (Array.isArray(v.wstg) && v.wstg.length > 0)
+                  ? v.wstg[0]
+                  : (Array.isArray(classWstg) && classWstg.length > 0)
+                  ? classWstg[0]
+                  : (typeof classWstg === 'string' ? classWstg : undefined);
+
                 findings.push({
                   id: `wapiti-${vulnType.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
                   name: vulnType,
@@ -239,7 +246,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
                   httpRequest: v.http_request || '',
                   curlCommand: v.curl_command || '',
                   parameter: v.parameter || '',
-                  wstg: v.wstg || []
+                  wstg: wstgVal
                 });
               }
             }
@@ -1526,7 +1533,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       return args;
     },
     isSuccessExitCode(code: number | null) {
-      return code === 0 || code === 1 || code === 2;
+      return code === 0 || code === 1;
     },
     getEnv(ctx, env) {
       return {
@@ -1668,7 +1675,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       return args;
     },
     isSuccessExitCode(code) {
-      return code === 0 || code === 1 || code === null || code === 143;
+      return code === 0;
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
@@ -1754,12 +1761,17 @@ export function parseInteractsh(content: string, ctx: Pick<ScannerContext, 'targ
   const findings: Record<string, unknown>[] = [];
 
   for (const line of lines) {
-    let item: Record<string, unknown>;
-    try {
-      item = JSON.parse(line);
-    } catch {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith('{')) {
       // Gracefully ignore non-JSON startup banners or telemetry lines from interactsh-client
       continue;
+    }
+
+    let item: Record<string, unknown>;
+    try {
+      item = JSON.parse(trimmed);
+    } catch (err) {
+      throw new Error(`Malformed Interactsh JSON: ${err instanceof Error ? err.message : String(err)}`);
     }
 
     if (!item || typeof item !== 'object') continue;

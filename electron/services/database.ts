@@ -358,15 +358,15 @@ export class DatabaseService {
   }
 
   getAiAnalyses(scanId: string): Array<Record<string, unknown>> {
-    return this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? ORDER BY createdAt DESC').all(scanId) as Array<Record<string, unknown>>;
+    return this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? ORDER BY createdAt DESC, id DESC').all(scanId) as Array<Record<string, unknown>>;
   }
 
   getLatestAiAnalysis(scanId: string, preset?: string): Record<string, unknown> | null {
     if (preset) {
-      const row = this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? AND preset = ? ORDER BY createdAt DESC LIMIT 1').get(scanId, preset);
+      const row = this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? AND preset = ? ORDER BY createdAt DESC, id DESC LIMIT 1').get(scanId, preset);
       return (row as Record<string, unknown>) || null;
     }
-    const row = this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? ORDER BY createdAt DESC LIMIT 1').get(scanId);
+    const row = this.db.prepare('SELECT * FROM ai_analyses WHERE scanId = ? ORDER BY createdAt DESC, id DESC LIMIT 1').get(scanId);
     return (row as Record<string, unknown>) || null;
   }
 }

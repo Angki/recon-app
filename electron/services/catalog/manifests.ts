@@ -715,7 +715,7 @@ export const TOOL_MANIFESTS: Record<string, ToolManifest> = {
       package: 'schemathesis',
       exeName: 'st.exe'
     },
-    exitCodeSemantics: { successCodes: [0, 1, 2] },
+    exitCodeSemantics: { successCodes: [0, 1] },
     defaultTimeoutMs: 25 * 60 * 1000,
     sourceUrl: 'https://github.com/schemathesis/schemathesis'
   },
@@ -822,7 +822,7 @@ export const TOOL_MANIFESTS: Record<string, ToolManifest> = {
       assetSuffix: '_windows_amd64.zip',
       exeName: 'interactsh-client.exe'
     },
-    exitCodeSemantics: { successCodes: [0, 1] },
+    exitCodeSemantics: { successCodes: [0] },
     defaultTimeoutMs: 60 * 1000,
     sourceUrl: 'https://github.com/projectdiscovery/interactsh'
   }
