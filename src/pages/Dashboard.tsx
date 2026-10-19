@@ -171,8 +171,9 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const [discoveredJwt, setDiscoveredJwt] = useState<string | null>(null);
   const [autoCascadeEnabled, setAutoCascadeEnabled] = useState<boolean>(true);
   const [selectedPreset, setSelectedPreset] = useState<'executive' | 'attack_path' | 'remediation' | 'verification'>('executive');
-  const [activeAiModel, setActiveAiModel] = useState<string>('qwen2.5:7b');
+  const [activeAiModel, setActiveAiModel] = useState<string>('recon-analyst:latest');
   const [activeAiProvider, setActiveAiProvider] = useState<string>('ollama');
+  const [activeAiBaseUrl, setActiveAiBaseUrl] = useState<string>('http://100.119.195.119:11434');
   const [copiedReport, setCopiedReport] = useState<boolean>(false);
   const [copilotMessages, setCopilotMessages] = useState<Array<{ role: 'user' | 'assistant'; content: string }>>([]);
   const [copilotInput, setCopilotInput] = useState<string>('');
@@ -235,6 +236,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       window.api.getSettings().then(s => {
         if (s.aiModel) setActiveAiModel(s.aiModel);
         if (s.aiProvider) setActiveAiProvider(s.aiProvider);
+        if (s.aiBaseUrl) setActiveAiBaseUrl(s.aiBaseUrl);
       });
     }
   }, []);
@@ -1221,6 +1223,9 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                     <Bot className="w-3.5 h-3.5 text-purple-400" />
                     <span>{activeAiModel}</span>
                     <span className="opacity-50">({activeAiProvider.toUpperCase()})</span>
+                    <span className="text-[10px] text-cyan-400 font-mono bg-cyan-950/40 px-1.5 py-0.5 rounded border border-cyan-800/40">
+                      {activeAiBaseUrl.replace(/^https?:\/\//, '')}
+                    </span>
                   </span>
 
                   {aiResponse && (
@@ -1307,7 +1312,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                         {aiResponse.replace('[ERROR]\n', '')}
                       </pre>
                       <div className="pt-2 text-xs text-rose-300/80">
-                        💡 Tip: Open <strong className="text-white">Settings</strong> to verify your Ollama Base URL (default <code className="bg-black/30 px-1 py-0.5 rounded">http://127.0.0.1:11434</code>) and click "Test Connection".
+                        💡 Tip: Buka <strong className="text-white">Settings</strong> untuk memeriksa koneksi endpoint Ollama Anda (konfigurasi aktif: <code className="bg-black/30 px-1 py-0.5 rounded text-cyan-300 font-mono">{activeAiBaseUrl}</code>, model: <code className="bg-black/30 px-1 py-0.5 rounded text-purple-300 font-mono">{activeAiModel}</code>) dan klik &quot;Test Connection&quot;.
                       </div>
                     </div>
                   ) : (

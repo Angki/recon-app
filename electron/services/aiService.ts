@@ -410,7 +410,7 @@ export class AIService {
           messages,
           stream: false
         }),
-        signal: AbortSignal.timeout(90000)
+        signal: AbortSignal.timeout(180_000)
       });
 
       if (!res.ok) {
@@ -607,7 +607,7 @@ export class AIService {
       ? `/no_think\n${advisoryHeader}${prompt}${disclosure}\n\nLogs:\n${truncatedLogs}`
       : `${advisoryHeader}${prompt}${disclosure}\n\nLogs:\n${truncatedLogs}`;
 
-    const OLLAMA_TIMEOUT_MS = 120_000;
+    const OLLAMA_TIMEOUT_MS = 300_000;
 
     const payload = {
       model: model,
@@ -729,18 +729,27 @@ export class AIService {
     if (reader) {
       const decoder = new TextDecoder();
       let genBuffer = '';
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const chunk = decoder.decode(value, { stream: true });
-        genBuffer = processStreamChunks(genBuffer, chunk, (line) => {
-          try {
-            const parsed = JSON.parse(line);
-            if (parsed.response) fullText += parsed.response;
-          } catch {
-            // ignore
-          }
-        });
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value, { stream: true });
+          genBuffer = processStreamChunks(genBuffer, chunk, (line) => {
+            try {
+              const parsed = JSON.parse(line);
+              if (parsed.response) fullText += parsed.response;
+            } catch {
+              // ignore
+            }
+          });
+        }
+      } catch (streamErr: unknown) {
+        const sErr = streamErr as Error;
+        if (fullText.trim().length > 100) {
+          logger.warn(`Ollama stream was cut off early (${sErr.message}), returning partial generated text (${fullText.length} chars)`);
+        } else {
+          throw new Error(`Ollama stream error from ${baseUrl}: ${sErr.message}`, { cause: streamErr });
+        }
       }
       const finalChunk = decoder.decode();
       if (finalChunk) {
