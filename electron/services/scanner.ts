@@ -550,6 +550,7 @@ export class ScannerService {
         setTimeout(() => {
           if (processInstance.exitCode === null && !processInstance.killed) {
             logger.info(`Wapiti report generation confirmed for ${scanId}. Gracefully finalizing process.`);
+            (processInstance as unknown as { _watchdogFinalized?: boolean })._watchdogFinalized = true;
             this.killProcess(processInstance);
           }
         }, 2000);
@@ -659,15 +660,18 @@ export class ScannerService {
       // Attempt to parse findings if they exist
       const parsed = this.parseAndSendFindings(context, adapter);
 
-      const wasCancelled = this.stoppedScans.has(scanId) || processInstance.killed || Boolean((processInstance as unknown as { _wasTerminated?: boolean })._wasTerminated);
+      const isReportGenerated = fs.existsSync(jsonFile) && fs.statSync(jsonFile).size > 0;
+      const userStopped = this.stoppedScans.has(scanId);
+      const wasKilled = processInstance.killed || Boolean((processInstance as unknown as { _wasTerminated?: boolean })._wasTerminated);
+      const isWatchdogOrGracefulKill = Boolean((processInstance as unknown as { _watchdogFinalized?: boolean })._watchdogFinalized) && isReportGenerated && parsed;
+      const wasCancelled = userStopped || (wasKilled && !isWatchdogOrGracefulKill);
       const exitSemantic = toolCatalog.getExitCodeSemantic(scannerName, code);
       const isSuccess = adapter.isSuccessExitCode 
         ? adapter.isSuccessExitCode(code, context) 
         : (exitSemantic === 'clean' || exitSemantic === 'findings_found');
 
-      const isReportGenerated = fs.existsSync(jsonFile) && fs.statSync(jsonFile).size > 0;
       const isExpectedTimeout = timedOut && (scannerName === 'interactsh' || (isReportGenerated && parsed));
-      const finalStatus = (timedOut && !isExpectedTimeout) ? 'FAILED' : wasCancelled ? 'STOPPED' : (isSuccess || isExpectedTimeout) && parsed ? 'COMPLETED' : 'FAILED';
+      const finalStatus = (timedOut && !isExpectedTimeout) ? 'FAILED' : wasCancelled ? 'STOPPED' : (isSuccess || isExpectedTimeout || isWatchdogOrGracefulKill) && parsed ? 'COMPLETED' : 'FAILED';
       await finalize(finalStatus, code);
     });
   });

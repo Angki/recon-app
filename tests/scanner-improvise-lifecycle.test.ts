@@ -235,3 +235,23 @@ test('Lifecycle & Resilience Suite: Database AI Multi-Preset Persistence & Retri
   assert.ok(latest, 'Must return the latest analysis');
   assert.equal(latest.preset, 'verification', 'Latest should be the last inserted preset');
 });
+
+test('Lifecycle & Resilience Suite: PDF Report Generation & Export Integrity', async () => {
+  const { reportService } = await import('../electron/services/reportService');
+  const scanId = `test_pdf_export_${Date.now()}`;
+  dbService.insertScan(scanId, 'https://test-pdf.local', 'COMPLETED', new Date().toISOString(), { tools: ['nuclei', 'zap'] });
+  dbService.insertFinding(scanId, 'zap', {
+    id: 'test-finding-1',
+    name: 'Content Security Policy (CSP) Header Not Set',
+    severity: 'medium',
+    url: 'https://test-pdf.local/',
+    description: 'CSP not set',
+    rawJson: JSON.stringify({ solution: 'Add CSP' })
+  });
+
+  const pdfPath = await reportService.generatePdfReport(scanId);
+  assert.ok(fs.existsSync(pdfPath), 'PDF file must be generated on disk');
+  const stat = fs.statSync(pdfPath);
+  assert.ok(stat.size > 1000, 'PDF file must have valid size');
+});
+

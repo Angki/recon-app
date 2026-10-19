@@ -45,7 +45,7 @@ contextBridge.exposeInMainWorld('api', {
   openReportFolder: (scanId: string) => ipcRenderer.invoke('storage:openFolder', scanId),
   deleteScan: (scanId: string) => ipcRenderer.invoke('storage:deleteScan', scanId),
   clearAllScans: () => ipcRenderer.invoke('storage:clearAllScans'),
-  exportReport: (scanId: string, format: 'html' | 'md' | 'json' | 'sarif') => ipcRenderer.invoke('report:export', scanId, format),
+  exportReport: (scanId: string, format: 'html' | 'md' | 'json' | 'sarif' | 'pdf') => ipcRenderer.invoke('report:export', scanId, format),
   getReportStats: (scanId: string) => ipcRenderer.invoke('report:getStats', scanId),
   
   // Settings

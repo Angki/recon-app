@@ -133,7 +133,7 @@ export function registerIpcHandlers() {
   });
 
   // Report Exports
-  ipcMain.handle('report:export', async (event, scanId: string, format: 'html' | 'md' | 'json' | 'sarif') => {
+  ipcMain.handle('report:export', async (event, scanId: string, format: 'html' | 'md' | 'json' | 'sarif' | 'pdf') => {
     if (!scanId || typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) {
       throw new Error(`Invalid scanId`);
     }
@@ -141,6 +141,8 @@ export function registerIpcHandlers() {
     let filePath: string;
     if (format === 'html') {
       filePath = await reportService.generateHtmlReport(scanId);
+    } else if (format === 'pdf') {
+      filePath = await reportService.generatePdfReport(scanId);
     } else if (format === 'md') {
       filePath = await reportService.generateMarkdownReport(scanId);
     } else if (format === 'sarif') {

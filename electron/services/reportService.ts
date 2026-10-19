@@ -560,6 +560,45 @@ export class ReportService {
     logger.info(`Exported SARIF Report at ${reportPath}`);
     return reportPath;
   }
+
+  async generatePdfReport(scanId: string): Promise<string> {
+    const htmlPath = await this.generateHtmlReport(scanId);
+    const scanDir = path.join(this.reportsDir, scanId);
+    const pdfPath = path.join(scanDir, `Executive_Report_${scanId}.pdf`);
+
+    try {
+      const { chromium } = await import('playwright');
+      let browser;
+      try {
+        browser = await chromium.launch({ channel: 'msedge' });
+      } catch {
+        try {
+          browser = await chromium.launch({ channel: 'chrome' });
+        } catch {
+          browser = await chromium.launch();
+        }
+      }
+
+      try {
+        const page = await browser.newPage();
+        await page.goto(`file://${htmlPath.replace(/\\/g, '/')}`, { waitUntil: 'load' });
+        await page.pdf({
+          path: pdfPath,
+          format: 'A4',
+          printBackground: true,
+          margin: { top: '14mm', bottom: '14mm', left: '14mm', right: '14mm' }
+        });
+      } finally {
+        await browser.close();
+      }
+      logger.info(`Generated PDF Report at ${pdfPath}`);
+      return pdfPath;
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      logger.error(`Failed to generate PDF report for ${scanId}: ${msg}`);
+      throw new Error(`PDF generation failed: ${msg}`);
+    }
+  }
 }
 
 function escapeHtml(str: string): string {

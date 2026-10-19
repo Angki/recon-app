@@ -9,7 +9,7 @@ interface ExportReportModalProps {
 }
 
 export function ExportReportModal({ isOpen, onClose, scanId, targetUrl }: ExportReportModalProps) {
-  const [selectedFormat, setSelectedFormat] = useState<'html' | 'md' | 'json' | 'sarif'>('html');
+  const [selectedFormat, setSelectedFormat] = useState<'html' | 'md' | 'json' | 'sarif' | 'pdf'>('html');
   const [isExporting, setIsExporting] = useState(false);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
 
@@ -65,6 +65,28 @@ export function ExportReportModal({ isOpen, onClose, scanId, targetUrl }: Export
           <p className="text-xs text-[var(--text-secondary)] font-medium">Select Output Deliverable Format:</p>
 
           <div
+            onClick={() => setSelectedFormat('pdf')}
+            className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3.5 ${
+              selectedFormat === 'pdf'
+                ? 'bg-rose-500/10 border-rose-500 shadow-md shadow-rose-500/20'
+                : 'bg-[var(--bg-surface)]/60 border-[var(--border-card)] hover:border-[var(--text-muted)]'
+            }`}
+          >
+            <div className={`p-2 rounded-lg ${selectedFormat === 'pdf' ? 'bg-rose-600 text-white' : 'bg-white/5 text-[var(--text-muted)]'}`}>
+              <FileText className="w-5 h-5" />
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-[var(--text-primary)]">Executive PDF Document (.pdf)</span>
+                {selectedFormat === 'pdf' && <Check className="w-4 h-4 text-rose-400" />}
+              </div>
+              <p className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-relaxed">
+                Direct export to high-resolution A4 vector PDF document ready for stakeholders, executive management, and formal compliance submission.
+              </p>
+            </div>
+          </div>
+
+          <div
             onClick={() => setSelectedFormat('html')}
             className={`p-3.5 rounded-xl border transition-all cursor-pointer flex items-start gap-3.5 ${
               selectedFormat === 'html'
@@ -77,11 +99,11 @@ export function ExportReportModal({ isOpen, onClose, scanId, targetUrl }: Export
             </div>
             <div className="flex-1">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[var(--text-primary)]">Executive HTML & PDF Print</span>
+                <span className="text-xs font-bold text-[var(--text-primary)]">Executive HTML & Print Layout (.html)</span>
                 {selectedFormat === 'html' && <Check className="w-4 h-4 text-[var(--accent-primary)]" />}
               </div>
               <p className="text-[11px] text-[var(--text-muted)] mt-0.5 leading-relaxed">
-                Self-contained modern report with risk score gauge, CVSS distribution, @media print layout, and formatted findings.
+                Self-contained modern interactive web report with risk score gauge, CVSS distribution, @media print layout, and formatted findings.
               </p>
             </div>
           </div>

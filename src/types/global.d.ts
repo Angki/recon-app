@@ -32,7 +32,7 @@ declare global {
       openReportFolder: (scanId: string) => Promise<unknown>;
       deleteScan: (scanId: string) => Promise<boolean>;
       clearAllScans: () => Promise<boolean>;
-      exportReport: (scanId: string, format: 'html' | 'md' | 'json' | 'sarif') => Promise<{ success: boolean; filePath: string }>;
+      exportReport: (scanId: string, format: 'html' | 'md' | 'json' | 'sarif' | 'pdf') => Promise<{ success: boolean; filePath: string }>;
       getReportStats: (scanId: string) => Promise<any>;
       getSettings: () => Promise<any>;
       saveSettings: (settings: any) => Promise<any>;
