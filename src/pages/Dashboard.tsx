@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef } from 'react';
+import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   RefreshCw, X, ShieldAlert, Loader2, Sparkles, Terminal, 
@@ -171,6 +171,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const [discoveredJwt, setDiscoveredJwt] = useState<string | null>(null);
   const [autoCascadeEnabled, setAutoCascadeEnabled] = useState<boolean>(true);
   const [selectedPreset, setSelectedPreset] = useState<'executive' | 'attack_path' | 'remediation' | 'verification'>('executive');
+  const [savedAnalyses, setSavedAnalyses] = useState<Record<string, { analysisText: string; model?: string; createdAt?: string }>>({});
   const [activeAiModel, setActiveAiModel] = useState<string>('recon-analyst:latest');
   const [activeAiProvider, setActiveAiProvider] = useState<string>('ollama');
   const [activeAiBaseUrl, setActiveAiBaseUrl] = useState<string>('http://100.119.195.119:11434');
@@ -179,6 +180,29 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const [copilotInput, setCopilotInput] = useState<string>('');
   const [isCopilotThinking, setIsCopilotThinking] = useState<boolean>(false);
   const [showCopilotDrawer, setShowCopilotDrawer] = useState<boolean>(true);
+
+  const reloadSavedAnalyses = useCallback(async (targetScanId: string) => {
+    if (!targetScanId || !window.api) return {};
+    try {
+      const records = await window.api.getAiAnalyses(targetScanId);
+      if (Array.isArray(records)) {
+        const mapped: Record<string, { analysisText: string; model?: string; createdAt?: string }> = {};
+        for (const item of records) {
+          const preset = String(item.preset || 'executive');
+          if (!mapped[preset] && typeof item.analysisText === 'string') {
+            mapped[preset] = {
+              analysisText: item.analysisText,
+              model: item.model ? String(item.model) : undefined,
+              createdAt: item.createdAt ? String(item.createdAt) : undefined
+            };
+          }
+        }
+        setSavedAnalyses(mapped);
+        return mapped;
+      }
+    } catch { /* ignore */ }
+    return {};
+  }, []);
 
   const [depFilter, setDepFilter] = useState<'all' | 'missing' | 'installed'>('all');
   const [depSearch, setDepSearch] = useState<string>('');
@@ -399,13 +423,17 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         setAllFindings(res.findings);
       }
     }).catch(() => {});
-    if (window.api.getLatestAiAnalysis) {
-      window.api.getLatestAiAnalysis(scanId).then((analysis) => {
-        if (analysis && typeof analysis.analysisText === 'string') {
-          useLogStore.getState().setAiResponse(analysis.analysisText);
-        }
-      }).catch(() => {});
-    }
+    reloadSavedAnalyses(scanId).then((mapped) => {
+      if (mapped[selectedPreset]?.analysisText && !useLogStore.getState().aiResponse) {
+        useLogStore.getState().setAiResponse(mapped[selectedPreset].analysisText);
+      } else if (!useLogStore.getState().aiResponse) {
+        window.api.getLatestAiAnalysis(scanId).then((analysis) => {
+          if (analysis && typeof analysis.analysisText === 'string') {
+            useLogStore.getState().setAiResponse(analysis.analysisText);
+          }
+        }).catch(() => {});
+      }
+    }).catch(() => {});
     // A short-lived tool may finish before the scan-id-dependent IPC listeners mount.
     window.api.getHistory().then((history: Array<Record<string, unknown>>) => {
       if (useScanStore.getState().scanId !== scanId) return;
@@ -422,7 +450,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       });
       if (terminal.includes(String(scan.status)) && !['STOPPED','STOPPING'].includes(useScanStore.getState().status)) useScanStore.getState().setStatus(String(scan.status));
     }).catch(() => {});
-  }, [scanId, setAllFindings]);
+  }, [scanId, setAllFindings, reloadSavedAnalyses, selectedPreset]);
 
   // Updater listeners
   useEffect(() => {
@@ -711,6 +739,15 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     setTimeout(() => setCopiedReport(false), 2000);
   };
 
+  const handleSelectPreset = (preset: 'executive' | 'attack_path' | 'remediation' | 'verification') => {
+    setSelectedPreset(preset);
+    if (savedAnalyses[preset]?.analysisText) {
+      setAiResponse(savedAnalyses[preset].analysisText);
+    } else {
+      setAiResponse('');
+    }
+  };
+
   const handleAnalyzeAI = async (presetOverride?: 'executive' | 'attack_path' | 'remediation' | 'verification') => {
     const preset = presetOverride || selectedPreset;
     if (presetOverride) setSelectedPreset(presetOverride);
@@ -724,6 +761,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       if (window.api?.analyzeScan && scanId) {
         const response = await window.api.analyzeScan(scanId, preset);
         setAiResponse(response);
+        await reloadSavedAnalyses(scanId);
       } else {
         const logs = useLogStore.getState().rawLogs;
         const prompt = `You are a Principal Cyber Security Analyst. Analyze these scan logs for ${targetUrl}. Summarize the vulnerabilities, prioritize top critical risks, and suggest concrete remediation steps.`;
@@ -1229,23 +1267,36 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                   </span>
 
                   {aiResponse && (
-                    <button
-                      type="button"
-                      onClick={handleCopyAiReport}
-                      className="px-3 py-1.5 rounded-xl bg-[var(--bg-app)] hover:bg-[var(--accent-primary)]/10 text-[var(--text-primary)] border border-[var(--border-card)] hover:border-[var(--accent-primary)] text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
-                    >
-                      {copiedReport ? (
-                        <>
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          <span className="text-emerald-400">Copied!</span>
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                          <span>Copy Report</span>
-                        </>
-                      )}
-                    </button>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleAnalyzeAI(selectedPreset)}
+                        disabled={isAnalyzing}
+                        className="px-3 py-1.5 rounded-xl bg-[var(--bg-app)] hover:bg-purple-500/10 text-[var(--text-primary)] border border-[var(--border-card)] hover:border-purple-500/50 text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+                        title="Generate ulang analisa untuk preset ini"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 text-purple-400 ${isAnalyzing ? 'animate-spin' : ''}`} />
+                        <span>Regenerate</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleCopyAiReport}
+                        className="px-3 py-1.5 rounded-xl bg-[var(--bg-app)] hover:bg-[var(--accent-primary)]/10 text-[var(--text-primary)] border border-[var(--border-card)] hover:border-[var(--accent-primary)] text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm"
+                      >
+                        {copiedReport ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            <span className="text-emerald-400">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                            <span>Copy Report</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1260,11 +1311,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                 ].map(p => {
                   const Icon = p.icon;
                   const isSelected = selectedPreset === p.id;
+                  const hasSaved = Boolean(savedAnalyses[p.id]?.analysisText);
                   return (
                     <button
                       key={p.id}
                       type="button"
-                      onClick={() => handleAnalyzeAI(p.id)}
+                      onClick={() => handleSelectPreset(p.id)}
                       disabled={isAnalyzing}
                       className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer disabled:opacity-50 relative overflow-hidden group ${
                         isSelected
@@ -1272,13 +1324,20 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                           : 'bg-[var(--bg-surface)] hover:bg-[var(--bg-app)] border-[var(--border-card)] hover:border-[var(--border-glow)]'
                       }`}
                     >
-                      <div className="flex items-center gap-2.5 mb-1.5">
-                        <div className={`p-1.5 rounded-lg ${isSelected ? 'bg-purple-500/30 text-purple-300' : 'bg-white/5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`}>
-                          <Icon className="w-4 h-4" />
+                      <div className="flex items-center justify-between mb-1.5">
+                        <div className="flex items-center gap-2">
+                          <div className={`p-1.5 rounded-lg ${isSelected ? 'bg-purple-500/30 text-purple-300' : 'bg-white/5 text-[var(--text-muted)] group-hover:text-[var(--text-primary)]'}`}>
+                            <Icon className="w-4 h-4" />
+                          </div>
+                          <span className={`text-xs font-bold ${isSelected ? 'text-purple-300' : 'text-[var(--text-primary)]'}`}>
+                            {p.name}
+                          </span>
                         </div>
-                        <span className={`text-xs font-bold ${isSelected ? 'text-purple-300' : 'text-[var(--text-primary)]'}`}>
-                          {p.name}
-                        </span>
+                        {hasSaved && (
+                          <span className="text-[9px] font-mono font-semibold uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                            Saved
+                          </span>
+                        )}
                       </div>
                       <p className="text-[11px] text-[var(--text-muted)] leading-tight">
                         {p.desc}
@@ -1324,15 +1383,21 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                   <Sparkles className="w-10 h-10 text-purple-400 mx-auto opacity-50" />
                   <p className="text-sm font-bold text-[var(--text-primary)]">Ready for Security Intelligence Analysis</p>
                   <p className="text-xs text-[var(--text-muted)] max-w-lg mx-auto">
-                    Click any preset above (<strong className="text-purple-400">Executive Summary</strong>, <strong className="text-purple-400">Attack Paths</strong>, <strong className="text-purple-400">Remediation</strong>, or <strong className="text-purple-400">Verification</strong>) to synthesize scan findings into deep advisory intelligence.
+                    Synthesize scan findings into deep advisory intelligence for{' '}
+                    <strong className="text-purple-400">
+                      {selectedPreset === 'executive' ? 'Executive Summary' : selectedPreset === 'attack_path' ? 'Attack Paths' : selectedPreset === 'remediation' ? 'Remediation Playbook' : 'Manual Verification'}
+                    </strong>.
                   </p>
                   <button
                     type="button"
-                    onClick={() => handleAnalyzeAI('executive')}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer"
+                    onClick={() => handleAnalyzeAI(selectedPreset)}
+                    disabled={isAnalyzing}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs shadow-md shadow-purple-900/30 transition-all cursor-pointer disabled:opacity-50"
                   >
-                    <Shield className="w-4 h-4" />
-                    <span>Generate Executive Risk Summary</span>
+                    <Sparkles className="w-4 h-4" />
+                    <span>
+                      Generate {selectedPreset === 'executive' ? 'Executive Summary' : selectedPreset === 'attack_path' ? 'Attack Paths' : selectedPreset === 'remediation' ? 'Remediation Playbook' : 'Manual Verification'}
+                    </span>
                   </button>
                 </div>
               )}

@@ -544,6 +544,16 @@ export class ScannerService {
       if (stats && adapter.processStdout) {
         adapter.processStdout(context, msg, stats);
       }
+
+      // Proactive Wapiti completion watchdog: Wapiti generates report and sometimes hangs indefinitely on Windows sockets
+      if (scannerName === 'wapiti' && msg.includes('A report has been generated in the file')) {
+        setTimeout(() => {
+          if (processInstance.exitCode === null && !processInstance.killed) {
+            logger.info(`Wapiti report generation confirmed for ${scanId}. Gracefully finalizing process.`);
+            this.killProcess(processInstance);
+          }
+        }, 2000);
+      }
     });
 
     processInstance.stderr?.on('data', (data) => {
@@ -564,8 +574,13 @@ export class ScannerService {
     const timeoutTimer = setTimeout(() => {
       if (processInstance.exitCode === null && !processInstance.killed) {
         timedOut = true;
-        logger.warn(`Scanner ${scannerName} for ${scanId} exceeded timeout (${timeoutMs}ms). Terminating process.`);
-        safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stderr', message: `\n[SYSTEM TIMEOUT] Scanner ${scannerName} exceeded timeout limit and was terminated.` });
+        if (scannerName === 'interactsh') {
+          logger.info(`Interactsh capture window elapsed (${timeoutMs}ms). Finalizing collected interactions.`);
+          safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stdout', message: `\n[SYSTEM] Interactsh interaction capture window (${Math.round(timeoutMs/1000)}s) completed. Parsing collected interactions.` });
+        } else {
+          logger.warn(`Scanner ${scannerName} for ${scanId} exceeded timeout (${timeoutMs}ms). Terminating process.`);
+          safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stderr', message: `\n[SYSTEM TIMEOUT] Scanner ${scannerName} exceeded timeout limit and was terminated.` });
+        }
         this.killProcess(processInstance);
       }
     }, timeoutMs);
@@ -649,7 +664,10 @@ export class ScannerService {
       const isSuccess = adapter.isSuccessExitCode 
         ? adapter.isSuccessExitCode(code, context) 
         : (exitSemantic === 'clean' || exitSemantic === 'findings_found');
-      const finalStatus = timedOut ? 'FAILED' : wasCancelled ? 'STOPPED' : isSuccess && parsed ? 'COMPLETED' : 'FAILED';
+
+      const isReportGenerated = fs.existsSync(jsonFile) && fs.statSync(jsonFile).size > 0;
+      const isExpectedTimeout = timedOut && (scannerName === 'interactsh' || (isReportGenerated && parsed));
+      const finalStatus = (timedOut && !isExpectedTimeout) ? 'FAILED' : wasCancelled ? 'STOPPED' : (isSuccess || isExpectedTimeout) && parsed ? 'COMPLETED' : 'FAILED';
       await finalize(finalStatus, code);
     });
   });

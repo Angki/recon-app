@@ -145,7 +145,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
 
-  wapiti: {
+    wapiti: {
     getCommandArgs(ctx) {
       return [
         '-u', ctx.targetUrl,
@@ -199,21 +199,47 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         try {
           const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
           const data = JSON.parse(content);
+          const classifications: Record<string, { desc?: string; sol?: string }> = data.classifications || {};
+
           if (data.vulnerabilities) {
             for (const [vulnType, vulns] of Object.entries(data.vulnerabilities)) {
-              const vulnArray = vulns as Array<{ level?: number, path?: string, info?: string, http_request?: string, curl_command?: string, parameter?: string }>;
+              const vulnArray = vulns as Array<{
+                level?: number;
+                path?: string;
+                info?: string;
+                http_request?: string;
+                curl_command?: string;
+                parameter?: string;
+                wstg?: string[];
+              }>;
+              const defaultRemediation = classifications[vulnType]?.sol;
+              const classificationDesc = classifications[vulnType]?.desc;
+
               for (const v of vulnArray) {
+                let resolvedUrl = v.path || '';
+                if (resolvedUrl && !resolvedUrl.startsWith('http')) {
+                  try {
+                    resolvedUrl = new URL(resolvedUrl, ctx.targetUrl).toString();
+                  } catch {
+                    resolvedUrl = ctx.targetUrl;
+                  }
+                } else if (!resolvedUrl) {
+                  resolvedUrl = ctx.targetUrl;
+                }
+
                 findings.push({
-                  id: vulnType,
+                  id: `wapiti-${vulnType.toLowerCase().replace(/[^a-z0-9]/g, '-')}`,
                   name: vulnType,
                   severity: v.level === 1 ? 'low' : v.level === 2 ? 'medium' : 'high',
                   scanner: 'wapiti',
-                  url: v.path || '',
-                  description: v.info || '',
+                  url: resolvedUrl,
+                  description: v.info || classificationDesc || `${vulnType} vulnerability reported by Wapiti.`,
+                  remediation: defaultRemediation || 'Review web application security configurations and sanitize user inputs.',
                   timestamp: new Date().toISOString(),
                   httpRequest: v.http_request || '',
                   curlCommand: v.curl_command || '',
-                  parameter: v.parameter || ''
+                  parameter: v.parameter || '',
+                  wstg: v.wstg || []
                 });
               }
             }
@@ -1500,7 +1526,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       return args;
     },
     isSuccessExitCode(code: number | null) {
-      return code === 0 || code === 1;
+      return code === 0 || code === 1 || code === 2;
     },
     getEnv(ctx, env) {
       return {
@@ -1580,6 +1606,25 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
           }
         }
 
+        // Schema load failure or non-API target notice (schemathesis v4 format)
+        if (findings.length === 0) {
+          const hasSchemaError = (Array.isArray(data.errors) && data.errors.some((e: { title?: string }) => /Schema Loading Error/i.test(e.title || '')))
+            || data.stop_reason === 'error'
+            || data.exit_code === 2;
+          if (hasSchemaError) {
+            return [{
+              id: 'schemathesis-no-schema',
+              name: 'Schemathesis Notice: No OpenAPI Schema',
+              severity: 'info',
+              scanner: 'schemathesis',
+              url: ctx.targetUrl,
+              description: 'Target does not expose an OpenAPI/Swagger contract document at the tested URL. API fuzzing skipped.',
+              remediation: 'Provide an OpenAPI schema URL (e.g. /openapi.json or /api-docs) in scan configuration to enable contract fuzzing.',
+              timestamp: new Date().toISOString()
+            }];
+          }
+        }
+
         return findings;
       } catch (err) {
         logger.error(`Failed to parse Schemathesis output: ${err}`);
@@ -1623,12 +1668,17 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       return args;
     },
     isSuccessExitCode(code) {
-      return code === 0;
+      return code === 0 || code === 1 || code === null || code === 143;
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
-      const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
-      return parseInteractsh(content, ctx);
+      try {
+        const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
+        return parseInteractsh(content, ctx);
+      } catch (err) {
+        logger.warn(`Failed to parse Interactsh output: ${err}`);
+        return [];
+      }
     }
   }
 };
@@ -1707,8 +1757,9 @@ export function parseInteractsh(content: string, ctx: Pick<ScannerContext, 'targ
     let item: Record<string, unknown>;
     try {
       item = JSON.parse(line);
-    } catch (err) {
-      throw new Error(`Malformed Interactsh JSON line: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
+    } catch {
+      // Gracefully ignore non-JSON startup banners or telemetry lines from interactsh-client
+      continue;
     }
 
     if (!item || typeof item !== 'object') continue;

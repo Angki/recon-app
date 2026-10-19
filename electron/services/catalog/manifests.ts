@@ -623,7 +623,7 @@ export const TOOL_MANIFESTS: Record<string, ToolManifest> = {
       package: 'sslyze',
       exeName: 'sslyze.exe'
     },
-    exitCodeSemantics: { successCodes: [0] },
+    exitCodeSemantics: { successCodes: [0, 1, 2] },
     defaultTimeoutMs: 10 * 60 * 1000,
     sourceUrl: 'https://github.com/nabla-c0d3/sslyze'
   },
@@ -715,7 +715,7 @@ export const TOOL_MANIFESTS: Record<string, ToolManifest> = {
       package: 'schemathesis',
       exeName: 'st.exe'
     },
-    exitCodeSemantics: { successCodes: [0, 1] },
+    exitCodeSemantics: { successCodes: [0, 1, 2] },
     defaultTimeoutMs: 25 * 60 * 1000,
     sourceUrl: 'https://github.com/schemathesis/schemathesis'
   },
@@ -822,8 +822,8 @@ export const TOOL_MANIFESTS: Record<string, ToolManifest> = {
       assetSuffix: '_windows_amd64.zip',
       exeName: 'interactsh-client.exe'
     },
-    exitCodeSemantics: { successCodes: [0] },
-    defaultTimeoutMs: 15 * 60 * 1000,
+    exitCodeSemantics: { successCodes: [0, 1] },
+    defaultTimeoutMs: 60 * 1000,
     sourceUrl: 'https://github.com/projectdiscovery/interactsh'
   }
 };
