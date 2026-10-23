@@ -19,10 +19,11 @@ test('v5 migrates an existing database without deleting findings; reapplying is 
   db.exec('CREATE TABLE schema_migrations(version INTEGER PRIMARY KEY,name TEXT,appliedAt TEXT)');
   for (const migration of MIGRATIONS.filter(m=>m.version<5)) db.prepare('INSERT INTO schema_migrations VALUES(?,?,?)').run(migration.version,migration.name,'before-upgrade');
   db.exec("INSERT INTO scans VALUES('old','http://localhost','COMPLETED','today',NULL,'{}'); INSERT INTO findings(scanId,scanner,name) VALUES('old','sqlmap','preserved');");
-  assert.equal(MigrationManager.runMigrations(db).appliedCount,1);
+  assert.equal(MigrationManager.runMigrations(db).appliedCount,MIGRATIONS.filter(m=>m.version>=5).length);
   assert.equal((db.prepare('SELECT COUNT(*) AS n FROM findings').get() as {n:number}).n,1);
   assert.equal(MigrationManager.runMigrations(db).appliedCount,0);
   assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name='endpoints'").get());
+  assert.ok(db.prepare("SELECT name FROM sqlite_master WHERE name='scan_status'").get());
   db.close();
 });
 test('discovery adapters extract full URL lists, methods and Arjun hidden parameters', () => {
@@ -100,11 +101,12 @@ test('fake-process workflow persists discovery -> selected test -> linked retest
   const events:Record<string,unknown>[]=[];
   const sender={isDestroyed:()=>false,send:(channel:string,data:Record<string,unknown>)=>{if(channel==='scan:status')events.push(data);}} as unknown as Electron.WebContents;
   const run=async(config:Record<string,unknown>,expected='COMPLETED')=>{
+    const engine=(config.tools as string[])[0];
     const result=await service.startScan(sender,target,config);
     assert.equal(result.success,true,result.error);
     const end=Date.now()+10000;
-    while(!events.some(e=>e.scanId===result.scanId && e.status===expected) && Date.now()<end) await new Promise(r=>setTimeout(r,25));
-    assert.ok(events.some(e=>e.scanId===result.scanId && e.status===expected),`Missing ${expected} for ${result.scanId}`);
+    while(!events.some(e=>e.scanId===result.scanId && e.scanner===engine && e.status===expected) && Date.now()<end) await new Promise(r=>setTimeout(r,25));
+    assert.ok(events.some(e=>e.scanId===result.scanId && e.scanner===engine && e.status===expected),`Missing ${expected} for ${result.scanId}`);
     assert.equal(dbService.getScanById(result.scanId!)?.status,expected);
     return result.scanId!;
   };

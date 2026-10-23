@@ -30,6 +30,24 @@ export interface BaselineComparisonResult {
   };
 }
 
+export interface EngineCoverageRecord {
+  status: string;
+  reason?: string;
+}
+
+/** Normalizes a scan target so only genuinely equivalent targets are compared. */
+export function normalizeScanTarget(raw: unknown): string {
+  const value = String(raw || '').trim();
+  if (!value) return '';
+  try {
+    const url = new URL(value);
+    const path = url.pathname.replace(/\/+$/, '') || '/';
+    return `${url.protocol}//${url.host.toLowerCase()}${path}`;
+  } catch {
+    return value.toLowerCase().replace(/\/+$/, '');
+  }
+}
+
 export class BaselineComparator {
   static compare(currentScanId: string, baselineScanId: string, db: Database.Database): BaselineComparisonResult {
     // 1. Fetch scan metadata to check terminal status and engine coverage
@@ -39,20 +57,44 @@ export class BaselineComparator {
     if (!currentScan) throw new Error(`Current scan ${currentScanId} not found`);
     if (!baselineScan) throw new Error(`Baseline scan ${baselineScanId} not found`);
 
+    const currentTarget = normalizeScanTarget(currentScan.target);
+    const baselineTarget = normalizeScanTarget(baselineScan.target);
+    if (!currentTarget || currentTarget !== baselineTarget) {
+      throw new Error(
+        `Baseline comparison requires the same target. Current scan targets '${String(currentScan.target || 'unknown')}' ` +
+        `but baseline targets '${String(baselineScan.target || 'unknown')}'.`
+      );
+    }
+
     const currentStatus = String(currentScan.status || 'UNKNOWN').toUpperCase();
     const baselineStatus = String(baselineScan.status || 'UNKNOWN').toUpperCase();
 
-    // Safety rule: Failed or interrupted scans cannot assert findings were resolved
-    const currentIsPartialOrFailed = ['FAILED', 'INTERRUPTED', 'STOPPED', 'CANCELLED'].includes(currentStatus);
-    const canDetermineResolved = !currentIsPartialOrFailed && baselineStatus === 'COMPLETED';
+    // Safety rule: only fully completed scans on both sides can assert resolution.
+    const completeScans = currentStatus === 'COMPLETED' && baselineStatus === 'COMPLETED';
+    const canDetermineResolved = completeScans;
+
+    const engineCoverage = new Map<string, EngineCoverageRecord>();
+    const coverageRows = db.prepare('SELECT scanner, status, reason FROM scan_status WHERE scanId = ?').all(currentScanId) as {
+      scanner: string;
+      status: string;
+      reason?: string;
+    }[];
+    for (const row of coverageRows) {
+      engineCoverage.set(String(row.scanner).toLowerCase(), {
+        status: String(row.status || '').toUpperCase(),
+        reason: row.reason
+      });
+    }
 
     // Extract executed tools from current scan config
-    let evaluatedScanners: Set<string> | null = null;
+    const evaluatedScanners = new Set<string>(engineCoverage.keys());
     if (currentScan.config) {
       try {
         const conf = typeof currentScan.config === 'string' ? JSON.parse(currentScan.config) : currentScan.config;
-        if (conf && Array.isArray(conf.tools) && conf.tools.length > 0) {
-          evaluatedScanners = new Set(conf.tools.map((t: string) => String(t).toLowerCase()));
+        if (conf && Array.isArray(conf.tools)) {
+          for (const tool of conf.tools) {
+            if (typeof tool === 'string') evaluatedScanners.add(tool.toLowerCase());
+          }
         }
       } catch {
         // Fallback if config parsing fails
@@ -134,29 +176,34 @@ export class BaselineComparator {
         continue;
       }
 
-      // Check whether the scanner that produced this finding was executed and completed in current scan
+      // A finding can only be considered resolved when the engine that produced it
+      // was explicitly enabled and reached COMPLETED coverage in the current scan.
       const baseScanner = (base.scanner || '').toLowerCase();
-      if (evaluatedScanners !== null) {
-        const scannerEvaluated = evaluatedScanners.has(baseScanner);
-        const scannerStatus = String(currentScan[`${baseScanner}Status`] || '').toUpperCase();
-        const scannerFailed = scannerStatus === 'FAILED' || scannerStatus === 'STOPPED';
-
-        if (!scannerEvaluated || scannerFailed) {
-          notReassessedFindings.push(base);
-          continue;
-        }
+      const coverage = engineCoverage.get(baseScanner);
+      const scannerStatus = coverage?.status || 'NOT_RUN';
+      if (!evaluatedScanners.has(baseScanner) || scannerStatus !== 'COMPLETED') {
+        notReassessedFindings.push(base);
+        continue;
       }
 
       resolvedFindings.push(base);
+    }
+
+    let resolutionCaveat: string | undefined;
+    if (!canDetermineResolved) {
+      resolutionCaveat =
+        `Current scan status is '${currentStatus}' and baseline status is '${baselineStatus}'. ` +
+        'Missing findings are categorized as not reassessed to prevent false assurance.';
+    } else if (notReassessedFindings.length > 0) {
+      resolutionCaveat =
+        'Some baseline findings were not reassessed because their engine was skipped, degraded, failed, or not run in the current scan.';
     }
 
     return {
       currentScanId,
       baselineScanId,
       canDetermineResolved,
-      resolutionCaveat: canDetermineResolved
-        ? undefined
-        : `Current scan status is '${currentStatus}'. Missing findings are categorized as not reassessed to prevent false assurance.`,
+      resolutionCaveat,
       newFindings,
       persistentFindings,
       resolvedFindings,

@@ -353,7 +353,8 @@ export const activeAdapters: Record<string, IScannerAdapter> = {
   nikto: {
     getCommandArgs(ctx) {
       const config = plan(ctx);
-      return ['-h',new URL(ctx.targetUrl).origin,'-Format','json','-output',ctx.jsonFile,'-Pause',String(config.delaySeconds),'-timeout','15','-maxtime',`${config.timeoutMinutes * 60}s`,'-nointeractive','-nocheck','-Tuning','123b'];
+      const authArgs = Object.entries(ctx.authHeaders || {}).flatMap(([name, value]) => ['-H', `${name}: ${value}`]);
+      return ['-h',new URL(ctx.targetUrl).origin,'-Format','json','-output',ctx.jsonFile,'-Pause',String(config.delaySeconds),'-timeout','15','-maxtime',`${config.timeoutMinutes * 60}s`,'-nointeractive','-nocheck','-Tuning','123b', ...authArgs];
     },
     getProcessOptions: processOptions,
     parseFindings(ctx) {

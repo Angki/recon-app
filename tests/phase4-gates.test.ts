@@ -16,6 +16,9 @@ test('Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance', async (t) =
     new Date(Date.now() - 60000).toISOString(),
     { tools: ['nuclei', 'wapiti', 'zap'] }
   );
+  for (const engine of ['nuclei', 'wapiti', 'zap', 'sslyze']) {
+    dbService.updateScannerStatus(testScanId, engine, 'COMPLETED', { resultCount: 1 });
+  }
 
   // Insert mock findings across all severities
   const mockFindings = [
@@ -49,13 +52,14 @@ test('Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance', async (t) =
       severity: 'low',
       scanner: 'sslyze',
       url: 'https://example-test.local',
-      description: 'CBC cipher suite enabled'
+      description: 'CBC cipher suite enabled',
+      evidence: { type: 'tls-handshake', protocol: 'TLSv1.0', cipher: 'TLS_RSA_WITH_AES_128_CBC_SHA' }
     },
     {
-      id: 'tech-detect',
+      id: 'server-fingerprint',
       name: 'Web Server Fingerprinted',
       severity: 'info',
-      scanner: 'httpx',
+      scanner: 'nuclei',
       url: 'https://example-test.local',
       description: 'nginx/1.24.0 detected'
     }
@@ -77,36 +81,40 @@ test('Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance', async (t) =
     assert.equal(sarif.version, '2.1.0', 'SARIF version must be 2.1.0');
     assert.equal(sarif.$schema.includes('sarif-schema-2.1.0.json'), true, 'Schema must reference 2.1.0 schema');
     assert.equal(Array.isArray(sarif.runs), true);
-    assert.equal(sarif.runs.length, 1);
+    assert.equal(sarif.runs.length, 4, 'One SARIF run per reporting engine');
 
-    const run = sarif.runs[0];
-    assert.equal(run.tool.driver.name, 'SecOps Recon App');
-    assert.equal(run.tool.driver.version, '2.0.0');
-    assert.equal(run.invocations[0].executionSuccessful, true);
+    const runFor = (engine: string) =>
+      sarif.runs.find((r: any) => r.tool.driver.name === `SecOps Recon - ${engine}`);
+    for (const engine of ['nuclei', 'wapiti', 'zap', 'sslyze']) {
+      const run = runFor(engine);
+      assert.ok(run, `Missing SARIF run for ${engine}`);
+      assert.equal(run.tool.driver.version, '2.0.0');
+      assert.equal(run.invocations[0].executionSuccessful, true);
+      assert.equal(run.invocations[0].properties.status, 'COMPLETED');
+    }
 
-    // Verify rules
-    assert.equal(run.tool.driver.rules.length >= 5, true, 'Each unique finding type must have a rule');
-    
-    // Verify results count and severity mapping
-    assert.equal(run.results.length, 5);
+    const allResults = sarif.runs.flatMap((r: any) => r.results);
+    const totalRules = sarif.runs.reduce((sum: number, r: any) => sum + r.tool.driver.rules.length, 0);
+    assert.equal(totalRules >= 5, true, 'Each unique finding type must have a rule');
+    assert.equal(allResults.length, 5);
 
-    const critResult = run.results.find((r: any) => r.ruleId === 'cve-2026-9999');
+    const critResult = allResults.find((r: any) => r.ruleId === 'cve-2026-9999');
     assert.ok(critResult);
     assert.equal(critResult.level, 'error', 'Critical severity must map to SARIF level error');
 
-    const highResult = run.results.find((r: any) => r.ruleId === 'sqli-01');
+    const highResult = allResults.find((r: any) => r.ruleId === 'sqli-01');
     assert.ok(highResult);
     assert.equal(highResult.level, 'error', 'High severity must map to SARIF level error');
 
-    const medResult = run.results.find((r: any) => r.ruleId === 'xss-stored');
+    const medResult = allResults.find((r: any) => r.ruleId === 'xss-stored');
     assert.ok(medResult);
     assert.equal(medResult.level, 'warning', 'Medium severity must map to SARIF level warning');
 
-    const lowResult = run.results.find((r: any) => r.ruleId === 'tls-weak');
+    const lowResult = allResults.find((r: any) => r.ruleId === 'tls-weak');
     assert.ok(lowResult);
     assert.equal(lowResult.level, 'warning', 'Low severity must map to SARIF level warning');
 
-    const infoResult = run.results.find((r: any) => r.ruleId === 'tech-detect');
+    const infoResult = allResults.find((r: any) => r.ruleId === 'server-fingerprint');
     assert.ok(infoResult);
     assert.equal(infoResult.level, 'note', 'Info severity must map to SARIF level note');
 
@@ -123,6 +131,9 @@ test('Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance', async (t) =
     assert.equal(html.includes('page-break-inside: avoid'), true, 'Finding cards must avoid page break splitting');
     assert.equal(html.includes('Scoring Notice'), true, 'HTML report must explain the internal Risk Score heuristic');
     assert.equal(html.includes('distinct from official CVSS, EPSS'), true, 'Must not claim weighted count is CVSS');
+    assert.equal(html.includes('Engine Coverage Matrix'), true, 'HTML must expose per-engine coverage and reasons');
+    assert.equal(html.includes('Coverage Posture'), true, 'HTML must summarize degraded/skipped coverage');
+    assert.equal(html.includes('HTTP Evidence'), true, 'HTML must render stored finding evidence');
 
     fs.unlinkSync(htmlPath);
   });
@@ -133,6 +144,8 @@ test('Gate Phase 4: SARIF 2.1.0 Spec Compliance & Report Assurance', async (t) =
 
     const md = fs.readFileSync(mdPath, 'utf8');
     assert.equal(md.includes('Risk Score is an internal operational index'), true);
+    assert.equal(md.includes('## Engine Coverage Matrix'), true);
+    assert.equal(md.toLowerCase().includes('**evidence:**'), true);
 
     const json = JSON.parse(fs.readFileSync(jsonPath, 'utf8'));
     assert.ok(json.scoringNotice);

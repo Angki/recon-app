@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo, useRef, useCallback } from 'react';
+import { Suspense, lazy, useEffect, useLayoutEffect, useState, useMemo, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   RefreshCw, X, ShieldAlert, Loader2, Sparkles, Terminal, 
@@ -6,7 +6,6 @@ import {
   ChevronDown, ChevronUp, Send, Bot, Copy, Check, MessageSquare,
   Shield, Workflow, FileText, Download, Search, Wrench, ExternalLink
 } from 'lucide-react';
-import TerminalPane from '../components/TerminalPane';
 import ErrorBoundary from '../components/ErrorBoundary';
 import VulnerabilityTable from '../components/VulnerabilityTable';
 import ScannerControls from '../components/ScannerControls';
@@ -14,12 +13,64 @@ import ToolSelection from '../components/ToolSelection';
 import ActiveTestingPanel, { type ActivePlan } from '../components/ActiveTestingPanel';
 import FindingsSummary from '../components/FindingsSummary';
 import { ExportReportModal } from '../components/ExportReportModal';
+import { Modal } from '../components/ui/Modal';
 import type { Vulnerability } from '../types/vulnerability';
 import { useScanStore, allTools, initialScannerStatus } from '../stores/useScanStore';
+import { toast } from '../stores/useToastStore';
 import type { ScannerType, ScannerStatus } from '../stores/useScanStore';
 import { useConfigStore } from '../stores/useConfigStore';
 import { useLogStore } from '../stores/useLogStore';
 import type { EndpointRecord } from '../types/workflow';
+
+const TerminalPane = lazy(() => import('../components/TerminalPane'));
+
+const ENGINE_TERMINAL_STATUSES = ['COMPLETED', 'DEGRADED', 'PARTIAL', 'SKIPPED', 'FAILED', 'STOPPED'];
+
+/** Restore persisted per-engine outcomes (including built-in posture) into the live store. */
+function applyPersistedEngineStatuses(scan: Record<string, unknown>) {
+  const engineStatuses = scan.engineStatuses;
+  const store = useScanStore.getState();
+  store.setScannerStatus(previous => {
+    const next = { ...previous };
+    for (const tool of allTools) {
+      const saved = scan[`${tool}Status`];
+      if (typeof saved === 'string' && ENGINE_TERMINAL_STATUSES.includes(saved) && next[tool as ScannerType] !== 'STOPPED') {
+        next[tool as ScannerType] = saved as ScannerStatus;
+      }
+    }
+    if (engineStatuses && typeof engineStatuses === 'object') {
+      for (const [engine, detail] of Object.entries(engineStatuses as Record<string, unknown>)) {
+        if (!detail || typeof detail !== 'object') continue;
+        const saved = (detail as { status?: unknown }).status;
+        if (typeof saved === 'string' && ENGINE_TERMINAL_STATUSES.includes(saved)) {
+          next[engine as ScannerType] = saved as ScannerStatus;
+        }
+      }
+    }
+    return next;
+  });
+  if (engineStatuses && typeof engineStatuses === 'object') {
+    for (const [engine, detail] of Object.entries(engineStatuses as Record<string, unknown>)) {
+      if (detail && typeof detail === 'object') {
+        const reason = (detail as { reason?: unknown }).reason;
+        if (typeof reason === 'string' && reason) store.setScannerReason(engine, reason);
+      }
+    }
+  }
+}
+
+function ConsolePaneFallback() {
+  return (
+    <div
+      className="absolute inset-0 flex items-center justify-center bg-[var(--bg-card)] text-[var(--text-muted)]"
+      role="status"
+      aria-live="polite"
+    >
+      <Loader2 className="w-5 h-5 animate-spin" aria-hidden="true" />
+      <span className="ml-2 text-xs font-mono">Memuat console engine...</span>
+    </div>
+  );
+}
 
 const FormattedMarkdown = ({ content }: { content: string }) => {
   const parts = content.split(/(```[\s\S]*?```)/g);
@@ -134,10 +185,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     targetUrl, setTargetUrl,
     scanId, setScanId,
     activeTab, setActiveTab,
+    workspaceTab, setWorkspaceTab,
     isWordpressScan, setIsWordpressScan,
     selectedTools, setSelectedTools,
     status, setStatus,
     scannerStatus, setScannerStatus,
+    scannerReasons,
     allFindings, setAllFindings,
     nucleiFindings, setNucleiFindings,
     wapitiVulns, setWapitiVulns,
@@ -284,9 +337,20 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const [severityFilter, setSeverityFilter] = useState<string>('all');
   const [scanStartTime, setScanStartTime] = useState<number | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState<number>(0);
-  const [mainTab, setMainTab] = useState<'config' | 'live' | 'findings' | 'ai'>(() => {
-    return status === 'RUNNING' ? 'live' : allFindings.length > 0 ? 'findings' : 'config';
-  });
+  const didInitWorkspace = useRef(false);
+  const mainTab = workspaceTab;
+  const setMainTab = setWorkspaceTab;
+
+  useLayoutEffect(() => {
+    if (didInitWorkspace.current) return;
+    didInitWorkspace.current = true;
+    if (workspaceTab !== 'config') return;
+    if (status === 'RUNNING') {
+      setWorkspaceTab('live');
+    } else if (allFindings.length > 0) {
+      setWorkspaceTab('findings');
+    }
+  }, [allFindings.length, setWorkspaceTab, status, workspaceTab]);
 
   const allToolsArray = allTools;
   const tabs = [
@@ -295,7 +359,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     'httpx', 'katana', 'dnsx', 'alterx', 'naabu', 'tlsx',
     'dalfox', 'wafw00f', 'whatweb', 'arjun', 'corsy', 'cmseek', 'gau', 'crlfsuite', 
     'nmap', 'zap', 'ffuf', 'gitleaks', 'semgrep', 'trivy', 'syft', 'sslyze', 'schemathesis',
-    'appscan', 'netsparker', 'acunetix'
+    'appscan', 'netsparker', 'acunetix', 'posture'
   ];
 
   // Tool categories for console filtering
@@ -372,29 +436,36 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   useEffect(() => {
     if (!scanId || !window.api) return;
 
-    const handleStatus = (_event: unknown, data: { scanId: string; scanner: string; status: string }) => {
-      if (data.scanId !== scanId) return;
+    const handleStatus = (_event: unknown, data: { scanId: string; scanner: string; status: string; reason?: string }) => {
+      if (data.scanId !== scanId && data.scanId !== useScanStore.getState().scanId) return;
       const scanner = data.scanner as ScannerType;
+      if (data.reason) useScanStore.getState().setScannerReason(data.scanner, data.reason);
 
       useScanStore.getState().setScannerStatus(prev => {
-        const next = { ...prev, [scanner]: data.status };
+        const next = { ...prev, [scanner]: data.status as ScannerStatus };
         // Aggregate pdiscovery status
         const pdTools = ['subfinder', 'httpx', 'alterx', 'dnsx', 'naabu', 'tlsx', 'katana'];
         if (pdTools.includes(scanner)) {
           const pdStatuses = pdTools.map(t => next[t as ScannerType] || 'IDLE');
           if (pdStatuses.some(s => s === 'FAILED')) next.pdiscovery = 'FAILED';
-          else if (pdStatuses.some(s => s === 'RUNNING')) next.pdiscovery = 'RUNNING';
-          else if (pdStatuses.every(s => ['COMPLETED', 'IDLE', 'STOPPED'].includes(s))) next.pdiscovery = 'COMPLETED';
+          else if (pdStatuses.some(s => s === 'RUNNING' || s === 'QUEUED')) next.pdiscovery = 'RUNNING';
+          else if (pdStatuses.every(s => ['COMPLETED', 'IDLE'].includes(s))) next.pdiscovery = 'COMPLETED';
+          else if (pdStatuses.every(s => ['COMPLETED', 'IDLE', 'STOPPED', 'SKIPPED', 'DEGRADED', 'PARTIAL'].includes(s))) next.pdiscovery = 'PARTIAL';
         }
         
-        // Check if all requested tools are done
-        const terminal = ['COMPLETED', 'FAILED', 'STOPPED', 'IDLE'];
-        const allDone = Object.values(next).every(s => terminal.includes(s as string));
-        const anyFailed = Object.values(next).some(s => s === 'FAILED');
+        // Check if all requested tools are done. Posture is supplemental and must
+        // not override the aggregate state derived from explicitly selected engines.
+        const terminal = ['COMPLETED', 'DEGRADED', 'PARTIAL', 'SKIPPED', 'FAILED', 'STOPPED', 'IDLE'];
+        const trackedStatuses = Object.entries(next)
+          .filter(([engine]) => engine !== 'posture')
+          .map(([, engineStatus]) => engineStatus as string);
+        const allDone = trackedStatuses.every(s => terminal.includes(s));
+        const anyFailed = trackedStatuses.some(s => s === 'FAILED');
+        const anyPartial = trackedStatuses.some(s => ['DEGRADED', 'PARTIAL', 'SKIPPED'].includes(s));
 
         const currentStatus = useScanStore.getState().status;
         if (allDone && !['IDLE', 'STOPPING', 'STOPPED'].includes(currentStatus)) {
-          useScanStore.getState().setStatus(anyFailed ? 'FAILED' : 'COMPLETED');
+          useScanStore.getState().setStatus(anyFailed ? 'FAILED' : anyPartial ? 'PARTIAL' : 'COMPLETED');
         }
 
         return next;
@@ -439,15 +510,8 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       if (useScanStore.getState().scanId !== scanId) return;
       const scan = history.find(item => item.scanId === scanId);
       if (!scan) return;
-      const terminal = ['COMPLETED', 'FAILED', 'STOPPED'];
-      useScanStore.getState().setScannerStatus(previous => {
-        const next = {...previous};
-        for (const tool of allTools) {
-          const saved = scan[`${tool}Status`];
-          if (typeof saved === 'string' && terminal.includes(saved) && next[tool as ScannerType] !== 'STOPPED') next[tool as ScannerType] = saved as ScannerStatus;
-        }
-        return next;
-      });
+      applyPersistedEngineStatuses(scan);
+      const terminal = [...ENGINE_TERMINAL_STATUSES, 'CANCELLED'];
       if (terminal.includes(String(scan.status)) && !['STOPPED','STOPPING'].includes(useScanStore.getState().status)) useScanStore.getState().setStatus(String(scan.status));
     }).catch(() => {});
   }, [scanId, setAllFindings, reloadSavedAnalyses, selectedPreset]);
@@ -536,7 +600,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     }
 
     if (!validateUrl(finalUrl)) {
-      alert('Please enter a valid URL');
+      toast.error('Please enter a valid URL.');
       return;
     }
 
@@ -555,7 +619,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     }
 
     if (toolsToRun.length === 0) {
-      alert('No compatible scanner selected for web target. Please select web assessment tools (e.g. Nuclei, Wapiti, ZAP).');
+      toast.error('No compatible scanner selected for web target. Please select web assessment tools (e.g. Nuclei, Wapiti, ZAP).');
       return;
     }
 
@@ -564,7 +628,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     try {
       parsedUrl = new URL(finalUrl);
     } catch {
-      alert('Please enter a valid URL');
+      toast.error('Please enter a valid URL.');
       return;
     }
     const targetOrigin = parsedUrl.origin;
@@ -580,15 +644,29 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     const hasDiscoveryTools = toolsToRun.some(t => discoveryTools.includes(t));
 
     if (selectedParamTools.length > 0 && effectiveParameters.length === 0 && !hasDiscoveryTools && !autoCascadeEnabled) {
-      alert(
-        `Target URL does not contain any query parameters (e.g. ?id=1). The selected parameter validation engine(s) (${selectedParamTools.join(', ')}) require a target URL with query parameters.\n\nPlease add query parameters to your target URL or uncheck these tools.`
+      toast.warning(
+        `Target URL does not contain any query parameters (e.g. ?id=1). The selected parameter validation engine(s) (${selectedParamTools.join(', ')}) require a target URL with query parameters.\n\nPlease add query parameters to your target URL or uncheck these tools.`,
+        'Parameter engines need a query string',
       );
       return;
     }
 
+    const rawScope = activePlan.scopeOrigin.trim();
+    let validatedScopeOrigin = targetOrigin;
+    if (rawScope) {
+      try {
+        const parsedScope = new URL(rawScope);
+        if (parsedScope.origin === targetOrigin) {
+          validatedScopeOrigin = targetOrigin;
+        }
+      } catch {
+        validatedScopeOrigin = targetOrigin;
+      }
+    }
+
     const effectiveActivePlan: ActivePlan = {
       ...activePlan,
-      scopeOrigin: activePlan.scopeOrigin.trim() || targetOrigin,
+      scopeOrigin: validatedScopeOrigin,
       parameters: effectiveParameters,
     };
 
@@ -632,16 +710,25 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         ...(testingDraft ? {workflow:testingDraft.workflow} : {}),
       });
       if (res.success) {
-        setScanId(res.scanId || null);
+        const activeId = res.scanId || null;
+        setScanId(activeId);
         setStatus('RUNNING');
+        if (activeId) {
+          window.api.getHistory().then((history: Array<Record<string, unknown>>) => {
+            if (useScanStore.getState().scanId !== activeId) return;
+            const scan = history.find(item => item.scanId === activeId);
+            if (!scan) return;
+            applyPersistedEngineStatuses(scan);
+          }).catch(() => {});
+        }
       } else {
-        alert('Failed to start scan: ' + res.error);
+        toast.error(res.error ? `Failed to start scan: ${res.error}` : 'Failed to start scan.');
         setStatus('FAILED');
         setScannerStatus(initialScannerStatus);
       }
     } catch (e: unknown) {
       const errorMessage = e instanceof Error ? e.message : String(e);
-      alert('Error: ' + errorMessage);
+      toast.error(`Scan could not be started: ${errorMessage}`, 'Scan start failed');
       setStatus('FAILED');
     }
   };
@@ -678,8 +765,8 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
     const getPhaseState = (toolList: string[]) => {
       const activeInPhase = toolList.filter(t => selectedTools.includes(t));
       if (activeInPhase.length === 0) return 'DISABLED';
-      if (activeInPhase.some(t => scannerStatus[t as ScannerType] === 'RUNNING')) return 'RUNNING';
-      if (activeInPhase.every(t => ['COMPLETED', 'STOPPED', 'FAILED'].includes(scannerStatus[t as ScannerType]))) return 'COMPLETED';
+      if (activeInPhase.some(t => ['RUNNING', 'QUEUED'].includes(scannerStatus[t as ScannerType]))) return 'RUNNING';
+      if (activeInPhase.every(t => ['COMPLETED', 'DEGRADED', 'PARTIAL', 'SKIPPED', 'STOPPED', 'FAILED'].includes(scannerStatus[t as ScannerType]))) return 'COMPLETED';
       return 'PENDING';
     };
 
@@ -724,12 +811,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   const handleCopyLogsForAI = () => {
     const logs = useLogStore.getState().rawLogs;
     if (!logs) {
-      alert('No logs available yet.');
+      toast.info('No logs available yet. Start a scan to capture terminal output.');
       return;
     }
     const contextText = `# SecOps Recon Scan Logs\n\nTarget: ${targetUrl}\nStatus: ${status}\n\n## Terminal Output\n\`\`\`\n${logs}\n\`\`\`\n`;
     navigator.clipboard.writeText(contextText);
-    alert('Full scan logs copied! You can now paste this to your AI agent.');
+    toast.success('Full scan logs copied. You can paste them into your AI agent.');
   };
 
   const handleCopyAiReport = () => {
@@ -826,7 +913,9 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
   // Determine consoles to show in the switcher bar
   const consoleTools = tabs.filter(t => t !== 'findings' && t !== 'ai').filter(tool => {
     if (consoleFilter === 'selected') {
-      return selectedTools.includes(tool) || scannerStatus[tool as ScannerType] === 'RUNNING';
+      return selectedTools.includes(tool)
+        || scannerStatus[tool as ScannerType] === 'RUNNING'
+        || (tool === 'posture' && scannerStatus.posture !== 'IDLE');
     }
     if (consoleFilter === 'dast') return toolCategories.dast.includes(tool);
     if (consoleFilter === 'recon') return toolCategories.recon.includes(tool);
@@ -863,8 +952,13 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       {/* Primary Cyber Command Workspace Tabs */}
       <div className="theme-card relative z-0 p-1.5 px-3 rounded-xl flex flex-col md:flex-row md:items-center justify-between gap-2 shadow-sm border border-[var(--border-card)] shrink-0">
         {/* Left: Phased Workspace Tabs */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap" role="tablist" aria-label="Assessment workspace">
           <button
+            type="button"
+            role="tab"
+            id="dashboard-tab-config"
+            aria-selected={mainTab === 'config'}
+            aria-controls="workspace-panel"
             onClick={() => setMainTab('config')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
               mainTab === 'config'
@@ -880,6 +974,11 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
           </button>
 
           <button
+            type="button"
+            role="tab"
+            id="dashboard-tab-live"
+            aria-selected={mainTab === 'live'}
+            aria-controls="workspace-panel"
             onClick={() => {
               setMainTab('live');
               if (['findings', 'ai'].includes(activeTab)) {
@@ -903,6 +1002,11 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
           </button>
 
           <button
+            type="button"
+            role="tab"
+            id="dashboard-tab-findings"
+            aria-selected={mainTab === 'findings'}
+            aria-controls="workspace-panel"
             onClick={() => {
               setMainTab('findings');
               setActiveTab('findings');
@@ -923,6 +1027,11 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
           </button>
 
           <button
+            type="button"
+            role="tab"
+            id="dashboard-tab-ai"
+            aria-selected={mainTab === 'ai'}
+            aria-controls="workspace-panel"
             onClick={() => {
               setMainTab('ai');
               setActiveTab('ai');
@@ -1008,7 +1117,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
       {/* Main Workspace View Container */}
       {mainTab === 'config' ? (
-        <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 scrollbar-thin">
+        <div
+          className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1 scrollbar-thin"
+          role="tabpanel"
+          id="workspace-panel"
+          aria-labelledby={`dashboard-tab-${mainTab}`}
+        >
           {testingDraft && (
             <div className="theme-card rounded-xl p-3 text-sm shrink-0 border border-[var(--border-card)]">
               <strong>{testingDraft.workflow.kind === 'retest' ? 'Linked retest' : 'Selected endpoint test'}</strong> · Source: {testingDraft.workflow.sourceScanId}
@@ -1092,7 +1206,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
           />
         </div>
       ) : mainTab === 'live' ? (
-        <div className="flex-1 flex flex-col min-h-0 space-y-2">
+        <div
+          className="flex-1 flex flex-col min-h-0 space-y-2"
+          role="tabpanel"
+          id="workspace-panel"
+          aria-labelledby={`dashboard-tab-${mainTab}`}
+        >
           {/* Cyber Operations Telemetry HUD */}
           {dashboardView?.showTelemetry && (
             <div className="theme-card relative z-0 p-2 px-3.5 rounded-xl border border-[var(--border-card)] shadow-sm shrink-0 flex flex-col md:flex-row md:items-center justify-between gap-2.5">
@@ -1175,18 +1294,26 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
           )}
 
           {/* Sub-bar: Active Engine Console Tabs */}
-          <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin px-0.5 shrink-0">
+          <div className="flex items-center gap-1 overflow-x-auto pb-1 scrollbar-thin px-0.5 shrink-0" role="tablist" aria-label="Active engine consoles">
             {consoleTools.map(tab => {
               const isActive = activeTab === tab;
               const scannerStat = scannerStatus[tab as ScannerType];
               const isRunning = scannerStat === 'RUNNING';
               const isFailed = scannerStat === 'FAILED';
               const isCompleted = scannerStat === 'COMPLETED';
+              const isPartial = scannerStat === 'DEGRADED' || scannerStat === 'PARTIAL';
+              const isSkipped = scannerStat === 'SKIPPED';
 
               return (
                 <button
                   key={tab}
+                  type="button"
+                  role="tab"
+                  id={`console-tab-${tab}`}
+                  aria-selected={isActive}
+                  aria-controls="engine-console-panel"
                   onClick={() => setActiveTab(tab as ScannerType)}
+                  title={scannerReasons[tab] || `${tab} engine console`}
                   className={`px-2.5 py-1 rounded-lg font-mono text-[11px] uppercase tracking-wider font-semibold transition-all flex items-center gap-1.5 border whitespace-nowrap cursor-pointer ${
                     isActive
                       ? 'bg-[var(--accent-primary)]/20 text-[var(--accent-primary)] border-[var(--border-glow)] shadow-sm'
@@ -1200,8 +1327,10 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                     </span>
                   )}
                   {isCompleted && <CheckCircle2 className="w-3 h-3 text-emerald-400" />}
+                  {isPartial && <AlertCircle className="w-3 h-3 text-amber-400" />}
                   {isFailed && <AlertCircle className="w-3 h-3 text-rose-400" />}
-                  {!isRunning && !isCompleted && !isFailed && <Terminal className="w-3 h-3 opacity-50" />}
+                  {isSkipped && <Terminal className="w-3 h-3 text-slate-400" />}
+                  {!isRunning && !isCompleted && !isFailed && !isPartial && !isSkipped && <Terminal className="w-3 h-3 opacity-50" />}
                   <span>{tab}</span>
                 </button>
               );
@@ -1209,22 +1338,34 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
           </div>
 
           {/* Expansive Full-Height Terminal Pane */}
-          <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner">
+          <div
+            className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner"
+            role="tabpanel"
+            id="engine-console-panel"
+            aria-labelledby={`console-tab-${activeTab}`}
+          >
             <ErrorBoundary key={activeTab} fallbackTitle={`${activeTab.toUpperCase()} Console Interrupted`}>
-              <TerminalPane
-                key={activeTab}
-                title={`${activeTab.toUpperCase()} Live Console`}
-                scanner={activeTab as ScannerType}
-                scanId={scanId}
-                status={scannerStatus[activeTab as ScannerType]}
-                isVisible={true}
-              />
+              <Suspense fallback={<ConsolePaneFallback />}>
+                <TerminalPane
+                  key={activeTab}
+                  title={`${activeTab.toUpperCase()} Live Console`}
+                  scanner={activeTab as ScannerType}
+                  scanId={scanId}
+                  status={scannerStatus[activeTab as ScannerType]}
+                  isVisible={true}
+                />
+              </Suspense>
             </ErrorBoundary>
           </div>
         </div>
       ) : mainTab === 'findings' ? (
         /* Findings Workspace View */
-        <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner">
+        <div
+          className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner"
+          role="tabpanel"
+          id="workspace-panel"
+          aria-labelledby={`dashboard-tab-${mainTab}`}
+        >
           <div className="h-full w-full">
             <VulnerabilityTable 
               scanId={scanId} 
@@ -1237,7 +1378,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         </div>
       ) : (
         /* AI Security Analyst View */
-        <div className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner">
+        <div
+          className="flex-1 min-h-0 relative rounded-2xl overflow-hidden border border-[var(--border-card)] bg-[var(--bg-card)] shadow-inner"
+          role="tabpanel"
+          id="workspace-panel"
+          aria-labelledby={`dashboard-tab-${mainTab}`}
+        >
           <div className="h-full w-full p-6 overflow-y-auto space-y-6">
             <div className="max-w-5xl mx-auto space-y-6">
               {/* Hub Header */}
@@ -1551,10 +1697,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
         scanStatus={status}
         selectedTools={selectedTools}
         scannerStatus={scannerStatus}
+        scannerReasons={scannerReasons}
         activeSeverityFilter={severityFilter}
         compact={dashboardView?.mode === 'focus' || !dashboardView?.showSummaryCards}
         onFilterSeverity={(sev) => {
           setSeverityFilter(sev);
+          setWorkspaceTab('findings');
           setActiveTab('findings');
         }}
       />
@@ -1568,54 +1716,70 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
       />
 
       {/* Update Tools Modal */}
-      {showUpdateModal && (
-        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 z-50">
-          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-card)] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]">
-            <div className="p-4 border-b border-[var(--border-card)] flex items-center justify-between bg-[var(--bg-surface)]">
-              <h2 className="text-sm font-bold text-[var(--text-primary)] flex items-center space-x-2">
-                <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} />
+      <Modal
+        isOpen={showUpdateModal}
+        onClose={() => setShowUpdateModal(false)}
+        labelledBy="update-pipeline-title"
+        panelClassName="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-card)] shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[80vh]"
+      >
+            <div className="p-4 border-b border-[var(--border-card)] flex items-center justify-between bg-[var(--bg-surface)] shrink-0">
+              <h2 id="update-pipeline-title" className="text-sm font-bold text-[var(--text-primary)] flex items-center space-x-2">
+                <RefreshCw className={`w-4 h-4 ${isUpdating ? 'animate-spin text-[var(--accent-primary)]' : 'text-[var(--text-muted)]'}`} aria-hidden="true" />
                 <span>Security Tools Update Pipeline</span>
               </h2>
               <button
+                type="button"
                 onClick={() => setShowUpdateModal(false)}
                 className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1 rounded-lg hover:bg-[var(--bg-card)]"
+                aria-label="Close update pipeline dialog"
               >
-                <X className="w-4 h-4" />
+                <X className="w-4 h-4" aria-hidden="true" />
               </button>
             </div>
 
-            <div className="p-4 bg-[var(--bg-surface)]/80 flex-1 overflow-y-auto font-mono text-xs space-y-1 scrollbar-thin">
+            <div
+              className="p-4 bg-[var(--bg-surface)]/80 flex-1 overflow-y-auto font-mono text-xs space-y-1 scrollbar-thin"
+              role="log"
+              aria-live="polite"
+              aria-label="Security tools update output"
+            >
               {updateLogs.length === 0 && <div className="text-[var(--text-muted)]">Initializing update orchestration...</div>}
               {updateLogs.map((log, idx) => (
                <div key={idx} className="text-[var(--text-secondary)] break-words leading-relaxed">{log}</div>
               ))}
             </div>
 
-            <div className="p-4 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex justify-end">
+            <div className="p-4 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex justify-end shrink-0">
               <button
+                type="button"
                 onClick={() => setShowUpdateModal(false)}
                 className="px-5 py-2 bg-[var(--bg-card)] hover:bg-[var(--border-card)] text-[var(--text-primary)] border border-[var(--border-card)] text-xs font-semibold rounded-xl transition-all shadow-sm"
               >
                 {isUpdating ? 'Background Task' : 'Close'}
               </button>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
 
       {/* Dependency Tools Modal - Streamlined High-Density View */}
-      {showDependencyModal && (
-        <div className="fixed inset-0 bg-black/75 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
-          <div className="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-card)] shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]">
+      <Modal
+        isOpen={showDependencyModal}
+        onClose={() => {
+          if (!isInstallingDependencies) setShowDependencyModal(false);
+        }}
+        labelledBy="dependency-modal-title"
+        describedBy="dependency-modal-description"
+        closeOnBackdrop={!isInstallingDependencies}
+        panelClassName="bg-[var(--bg-card)] rounded-2xl border border-[var(--border-card)] shadow-2xl w-full max-w-3xl overflow-hidden flex flex-col max-h-[85vh]"
+      >
             {/* Modal Header */}
-            <div className="px-5 py-3.5 border-b border-[var(--border-card)] flex items-center justify-between bg-[var(--bg-surface)]">
+            <div className="px-5 py-3.5 border-b border-[var(--border-card)] flex items-center justify-between bg-[var(--bg-surface)] shrink-0">
               <div className="flex items-center space-x-2.5">
                 <div className={`p-1.5 rounded-lg border ${depStats.missingAuto > 0 ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-400'}`}>
-                  <ShieldAlert className="w-4 h-4" />
+                  <ShieldAlert className="w-4 h-4" aria-hidden="true" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <h2 className="text-sm font-bold text-[var(--text-primary)]">Security Engine Dependencies</h2>
+                    <h2 id="dependency-modal-title" className="text-sm font-bold text-[var(--text-primary)]">Security Engine Dependencies</h2>
                     <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-semibold border ${
                       depStats.missingAuto === 0 && depStats.missing === 0
                         ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
@@ -1626,7 +1790,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                       {depStats.installed}/{depStats.total} Ready ({depStats.percent}%)
                     </span>
                   </div>
-                  <p className="text-[11px] text-[var(--text-muted)]">
+                  <p id="dependency-modal-description" className="text-[11px] text-[var(--text-muted)]">
                     Audit kesiapan tool scanner keamanan & auto-installer engine
                   </p>
                 </div>
@@ -1634,21 +1798,25 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
               {!isInstallingDependencies && (
                 <button
+                  type="button"
                   onClick={() => setShowDependencyModal(false)}
                   className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors p-1.5 rounded-lg hover:bg-[var(--bg-card)] border border-transparent hover:border-[var(--border-card)]"
                   title="Tutup dialog"
+                  aria-label="Close dependency dialog"
                 >
-                  <X className="w-4 h-4" />
+                  <X className="w-4 h-4" aria-hidden="true" />
                 </button>
               )}
             </div>
 
             {/* Progress Bar & Filter Toolbar */}
-            <div className="px-5 py-2.5 bg-[var(--bg-surface)]/60 border-b border-[var(--border-card)]/60 flex flex-wrap items-center justify-between gap-2.5">
+            <div className="px-5 py-2.5 bg-[var(--bg-surface)]/60 border-b border-[var(--border-card)]/60 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
               {/* Filter Tabs */}
               <div className="flex items-center gap-1 bg-[var(--bg-card)] p-1 rounded-xl border border-[var(--border-card)]/80 text-xs">
                 <button
+                  type="button"
                   onClick={() => setDepFilter('all')}
+                  aria-pressed={depFilter === 'all'}
                   className={`px-2.5 py-1 rounded-lg font-medium transition-all text-xs flex items-center gap-1.5 ${
                     depFilter === 'all'
                       ? 'bg-[var(--accent-primary)] text-white shadow-xs font-semibold'
@@ -1659,7 +1827,9 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                   <span className="text-[10px] font-mono opacity-80">({depStats.total})</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setDepFilter('missing')}
+                  aria-pressed={depFilter === 'missing'}
                   className={`px-2.5 py-1 rounded-lg font-medium transition-all text-xs flex items-center gap-1.5 ${
                     depFilter === 'missing'
                       ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
@@ -1672,7 +1842,9 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                   </span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setDepFilter('installed')}
+                  aria-pressed={depFilter === 'installed'}
                   className={`px-2.5 py-1 rounded-lg font-medium transition-all text-xs flex items-center gap-1.5 ${
                     depFilter === 'installed'
                       ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold'
@@ -1692,14 +1864,17 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                   value={depSearch}
                   onChange={(e) => setDepSearch(e.target.value)}
                   placeholder="Cari engine..."
+                  aria-label="Search security engines"
                   className="w-full bg-[var(--bg-card)] border border-[var(--border-card)] rounded-xl pl-8 pr-7 py-1 text-xs text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-hidden focus:border-[var(--accent-primary)] transition-colors"
                 />
                 {depSearch && (
                   <button
+                    type="button"
                     onClick={() => setDepSearch('')}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)] text-xs"
+                    aria-label="Clear engine search"
                   >
-                    <X className="w-3 h-3" />
+                    <X className="w-3 h-3" aria-hidden="true" />
                   </button>
                 )}
               </div>
@@ -1765,7 +1940,12 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
               {/* Streaming Logs Box (Compact Cyber Terminal) */}
               {dependencyLogs.length > 0 && (
-                <div className="mt-3 p-3 bg-black/60 rounded-xl border border-[var(--border-card)] font-mono text-[11px] text-[var(--text-muted)] space-y-1 max-h-36 overflow-y-auto">
+                <div
+                  className="mt-3 p-3 bg-black/60 rounded-xl border border-[var(--border-card)] font-mono text-[11px] text-[var(--text-muted)] space-y-1 max-h-36 overflow-y-auto"
+                  role="log"
+                  aria-live="polite"
+                  aria-label="Dependency installer output"
+                >
                   <div className="text-[10px] uppercase font-bold tracking-wider text-amber-400/90 pb-1 border-b border-white/10 flex items-center justify-between">
                     <span>Installer Execution Logs</span>
                     {isInstallingDependencies && <span className="animate-pulse text-amber-400">● Streaming...</span>}
@@ -1779,17 +1959,18 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
             </div>
 
             {/* Modal Footer */}
-            <div className="p-3.5 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex items-center justify-between gap-3">
+            <div className="p-3.5 border-t border-[var(--border-card)] bg-[var(--bg-surface)] flex items-center justify-between gap-3 shrink-0">
               <div>
                 {onOpenToolsHub ? (
                   <button
+                    type="button"
                     onClick={() => {
                       setShowDependencyModal(false);
                       onOpenToolsHub();
                     }}
                     className="inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent-primary)] hover:underline transition-colors"
                   >
-                    <ExternalLink className="w-3.5 h-3.5" />
+                    <ExternalLink className="w-3.5 h-3.5" aria-hidden="true" />
                     <span>Buka Tools Hub Lengkap</span>
                   </button>
                 ) : (
@@ -1801,6 +1982,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
 
               <div className="flex items-center gap-2.5">
                 <button
+                  type="button"
                   onClick={() => setShowDependencyModal(false)}
                   disabled={isInstallingDependencies}
                   className="px-4 py-1.5 bg-[var(--bg-card)] hover:bg-[var(--border-card)] text-[var(--text-secondary)] text-xs font-semibold rounded-xl border border-[var(--border-card)] transition-all disabled:opacity-50"
@@ -1808,18 +1990,19 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                   {isInstallingDependencies ? 'Jalankan di Background' : 'Tutup'}
                 </button>
                 <button
+                  type="button"
                   onClick={handleInstallDependencies}
                   disabled={isInstallingDependencies || depStats.missingAuto === 0}
                   className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-bold rounded-xl transition-all shadow-md shadow-emerald-900/30 flex items-center space-x-2"
                 >
                   {isInstallingDependencies ? (
                     <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" aria-hidden="true" />
                       <span>Menginstall Engine...</span>
                     </>
                   ) : (
                     <>
-                      <Download className="w-3.5 h-3.5" />
+                      <Download className="w-3.5 h-3.5" aria-hidden="true" />
                       <span>
                         {depStats.missingAuto > 0
                           ? `Install ${depStats.missingAuto} Engine Otomatis`
@@ -1830,9 +2013,7 @@ export default function Dashboard({ onOpenToolsHub }: { onOpenToolsHub?: () => v
                 </button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+      </Modal>
     </div>
   );
 }

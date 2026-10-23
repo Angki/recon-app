@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { History as HistoryIcon, Search, FolderOpen, ShieldCheck, Play, Download, Trash2, AlertTriangle } from 'lucide-react';
+import { History as HistoryIcon, Search, FolderOpen, ShieldCheck, Play, Download, Trash2, AlertTriangle, GitCompare } from 'lucide-react';
 import { format } from 'date-fns';
 import { useScanStore } from '../stores/useScanStore';
 import { ExportReportModal } from '../components/ExportReportModal';
+import { BaselineCompareModal } from '../components/BaselineCompareModal';
+import { normalizeScanTarget } from '../utils/scanTarget';
 
 type HistoryScan = {
   scanId: string;
@@ -17,6 +19,7 @@ export default function HistoryPage() {
   const [history, setHistory] = useState<HistoryScan[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [exportModalScan, setExportModalScan] = useState<HistoryScan | null>(null);
+  const [compareScan, setCompareScan] = useState<HistoryScan | null>(null);
   const [showConfirmClearAll, setShowConfirmClearAll] = useState(false);
   const [confirmDeleteScan, setConfirmDeleteScan] = useState<HistoryScan | null>(null);
   const navigate = useNavigate();
@@ -164,6 +167,16 @@ export default function HistoryPage() {
                     <td className="px-6 py-3.5 text-right">
                       <div className="inline-flex items-center gap-1.5 justify-end">
                         <button
+                          onClick={() => setCompareScan(scan)}
+                          disabled={!history.some((candidate) => candidate.scanId !== scan.scanId && candidate.status === 'COMPLETED' && normalizeScanTarget(candidate.target) === normalizeScanTarget(scan.target))}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-sky-300 hover:bg-sky-500/10 border border-sky-500/30 rounded-lg transition-all cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                          title="Compare this scan against a completed scan of the same target"
+                        >
+                          <GitCompare className="w-3 h-3" />
+                          <span>Diff</span>
+                        </button>
+
+                        <button
                           onClick={() => handleReScan(scan.target)}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/10 border border-emerald-500/30 rounded-lg transition-all cursor-pointer"
                           title="Re-scan this target on Dashboard"
@@ -215,6 +228,17 @@ export default function HistoryPage() {
           onClose={() => setExportModalScan(null)}
           scanId={exportModalScan.scanId}
           targetUrl={exportModalScan.target}
+        />
+      )}
+
+      {/* Baseline Differential Modal */}
+      {compareScan && (
+        <BaselineCompareModal
+          key={compareScan.scanId}
+          isOpen
+          currentScan={compareScan}
+          scans={history}
+          onClose={() => setCompareScan(null)}
         />
       )}
 

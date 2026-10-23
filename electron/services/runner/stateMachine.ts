@@ -53,13 +53,9 @@ export class ScanStateMachine {
   }
 
   /**
-   * Compute aggregate scan state from individual tool states.
-   * If any tool is running or validating, aggregate is RUNNING.
-   * If scan was STOPPED or CANCELLED, aggregate remains STOPPED/CANCELLED.
-   * If all tools finished:
-   *   - all succeeded => COMPLETED
-   *   - some succeeded, some failed => PARTIAL
-   *   - all failed => FAILED
+   * Compute aggregate scan state from individual engine states.
+   * Engine-level DEGRADED/PARTIAL/SKIPPED are terminal but mean coverage was reduced,
+   * so the aggregate becomes PARTIAL rather than a misleading COMPLETED.
    */
   static computeAggregateState(
     currentScanState: ScanState,
@@ -74,22 +70,31 @@ export class ScanStateMachine {
       return 'FAILED';
     }
 
+    const terminalEngineStates = new Set(['COMPLETED', 'DEGRADED', 'PARTIAL', 'SKIPPED', 'FAILED', 'STOPPED', 'CANCELLED', 'INTERRUPTED']);
     let allTerminal = true;
-    let anySuccess = false;
+    let anyCompleted = false;
+    let anyRanPartially = false;
     let anyFailed = false;
     let anyStopped = false;
+    let anySkipped = false;
     let allSkipped = true;
 
     for (const tool of tools) {
-      const state = (toolStates[tool] || 'RUNNING') as ScanState;
-      if (!this.isTerminal(state)) {
+      const state = String(toolStates[tool] || 'RUNNING').toUpperCase();
+      if (!terminalEngineStates.has(state)) {
         allTerminal = false;
       }
       if (state !== 'SKIPPED') {
         allSkipped = false;
       }
+      if (state === 'SKIPPED') {
+        anySkipped = true;
+      }
       if (state === 'COMPLETED') {
-        anySuccess = true;
+        anyCompleted = true;
+      }
+      if (state === 'DEGRADED' || state === 'PARTIAL') {
+        anyRanPartially = true;
       }
       if (state === 'FAILED') {
         anyFailed = true;
@@ -107,17 +112,24 @@ export class ScanStateMachine {
       return 'SKIPPED';
     }
 
-    if (anyStopped && !anySuccess) {
+    if (anyCompleted && !anyRanPartially && !anyFailed && !anyStopped && !anySkipped) {
+      return 'COMPLETED';
+    }
+
+    if (!anyCompleted && anyStopped && !anyFailed && !anyRanPartially) {
       return 'CANCELLED';
     }
 
-    if (anySuccess && (anyFailed || anyStopped)) {
-      return 'PARTIAL';
-    }
-    if (anyFailed && !anySuccess) {
+    if (!anyCompleted && !anyRanPartially && anyFailed) {
       return 'FAILED';
     }
-    return 'COMPLETED';
+
+    if (!anyCompleted && !anyRanPartially && !anyFailed && !anyStopped) {
+      // Only malformed/non-terminal states remain; conservatively treat as failure.
+      return 'FAILED';
+    }
+
+    return 'PARTIAL';
   }
 
   /**

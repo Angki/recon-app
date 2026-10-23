@@ -15,8 +15,8 @@ contextBridge.exposeInMainWorld('api', {
     ipcRenderer.on('scan:output', handler);
     return () => { ipcRenderer.removeListener('scan:output', handler); };
   },
-  onScanStatus: (callback: (event: unknown, data: { scanId: string, status: string, scanner: string }) => void) => {
-    const handler = (_event: IpcRendererEvent, data: { scanId: string, status: string, scanner: string }) => callback(null, data);
+  onScanStatus: (callback: (event: unknown, data: { scanId: string, status: string, scanner: string, reason?: string, code?: number | null, resultCount?: number }) => void) => {
+    const handler = (_event: IpcRendererEvent, data: { scanId: string, status: string, scanner: string, reason?: string, code?: number | null, resultCount?: number }) => callback(null, data);
     ipcRenderer.on('scan:status', handler);
     return () => { ipcRenderer.removeListener('scan:status', handler); };
   },
@@ -42,6 +42,9 @@ contextBridge.exposeInMainWorld('api', {
   getWorkflowRuns: (scanId: string) => ipcRenderer.invoke('inventory:runs',scanId),
   getHistory: () => ipcRenderer.invoke('storage:getHistory'),
   getFindingsPaginated: (scanId: string, options: Record<string, unknown>) => ipcRenderer.invoke('storage:getFindingsPaginated', scanId, options),
+  setTriageDecision: (input: import('../src/types/triage').TriageInput) => ipcRenderer.invoke('triage:set', input),
+  getTriageDecisions: (scanId?: string) => ipcRenderer.invoke('triage:list', scanId),
+  compareBaseline: (currentScanId: string, baselineScanId: string) => ipcRenderer.invoke('baseline:compare', currentScanId, baselineScanId),
   openReportFolder: (scanId: string) => ipcRenderer.invoke('storage:openFolder', scanId),
   deleteScan: (scanId: string) => ipcRenderer.invoke('storage:deleteScan', scanId),
   clearAllScans: () => ipcRenderer.invoke('storage:clearAllScans'),

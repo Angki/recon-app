@@ -83,6 +83,7 @@ test('Gate Phase 3: Baseline Comparison Engine & Resolution Safety', async (t) =
 
   // Setup Scan A (baseline)
   db.prepare("INSERT INTO scans (scanId, target, status, startTime) VALUES ('scan-baseline', 'https://example.com', 'COMPLETED', '2026-10-15T00:00:00Z')").run();
+  db.prepare("INSERT INTO scan_status (scanId, scanner, status, updatedAt) VALUES ('scan-baseline', 'nuclei', 'COMPLETED', '2026-10-15T00:00:00Z')").run();
   const fpPersist = computeFindingFingerprint({ scanner: 'nuclei', type: 'cve-persist', url: 'https://example.com/a' });
   const fpFixed = computeFindingFingerprint({ scanner: 'nuclei', type: 'cve-fixed', url: 'https://example.com/b' });
 
@@ -91,6 +92,7 @@ test('Gate Phase 3: Baseline Comparison Engine & Resolution Safety', async (t) =
 
   // Setup Scan B (completed follow-up)
   db.prepare("INSERT INTO scans (scanId, target, status, startTime) VALUES ('scan-followup', 'https://example.com', 'COMPLETED', '2026-10-15T01:00:00Z')").run();
+  db.prepare("INSERT INTO scan_status (scanId, scanner, status, updatedAt) VALUES ('scan-followup', 'nuclei', 'COMPLETED', '2026-10-15T01:00:00Z')").run();
   const fpNew = computeFindingFingerprint({ scanner: 'nuclei', type: 'cve-new', url: 'https://example.com/c' });
 
   db.prepare("INSERT INTO findings (scanId, scanner, type, name, severity, url, fingerprint) VALUES ('scan-followup', 'nuclei', 'cve-persist', 'Persist Flaw', 'high', 'https://example.com/a', ?)").run(fpPersist);

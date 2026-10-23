@@ -117,6 +117,44 @@ export function registerIpcHandlers() {
     return dbService.getFindingsPaginated(scanId, options);
   });
 
+  // Findings triage & baseline differential
+  ipcMain.handle('triage:set', async (_event, input: { fingerprint?: unknown; status?: unknown; reason?: unknown; actor?: unknown; expiresAt?: unknown }) => {
+    const allowedStatuses = ['open', 'false_positive', 'accepted_risk', 'fixed'];
+    const fingerprint = typeof input?.fingerprint === 'string' ? input.fingerprint.trim() : '';
+    if (!/^[a-f0-9]{64}$/i.test(fingerprint)) throw new Error('Invalid finding fingerprint');
+    const status = typeof input?.status === 'string' ? input.status : '';
+    if (!allowedStatuses.includes(status)) throw new Error(`Invalid triage status: ${status}`);
+
+    const reason = typeof input?.reason === 'string' ? input.reason.trim().slice(0, 1000) : undefined;
+    const actor = typeof input?.actor === 'string' ? input.actor.trim().slice(0, 120) : undefined;
+    let expiresAt: string | undefined;
+    if (input?.expiresAt) {
+      if (typeof input.expiresAt !== 'string' || Number.isNaN(new Date(input.expiresAt).getTime())) {
+        throw new Error('Invalid triage expiry timestamp');
+      }
+      expiresAt = new Date(input.expiresAt).toISOString();
+    }
+
+    const { dbService } = await import('./services/database');
+    dbService.setTriageDecision(fingerprint, status, reason, actor, expiresAt);
+    return dbService.getTriageDecisions(fingerprint)[0];
+  });
+
+  ipcMain.handle('triage:list', async (_event, scanId?: string) => {
+    const { dbService } = await import('./services/database');
+    if (scanId === undefined || scanId === null) return dbService.getTriageDecisions();
+    if (typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) throw new Error('Invalid scanId');
+    return dbService.getTriageDecisionsForScan(scanId);
+  });
+
+  ipcMain.handle('baseline:compare', async (_event, currentScanId: string, baselineScanId: string) => {
+    const isScanId = (value: unknown): value is string => typeof value === 'string' && /^[a-zA-Z0-9_-]+$/.test(value);
+    if (!isScanId(currentScanId) || !isScanId(baselineScanId)) throw new Error('Invalid scanId');
+    if (currentScanId === baselineScanId) throw new Error('Baseline scan must differ from the current scan');
+    const { dbService } = await import('./services/database');
+    return dbService.compareWithBaseline(currentScanId, baselineScanId);
+  });
+
   ipcMain.handle('storage:openFolder', async (event, scanId: string) => {
     if (!scanId || typeof scanId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(scanId)) {
       throw new Error(`Invalid scanId: path traversal or invalid characters detected`);

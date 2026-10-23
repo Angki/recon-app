@@ -6,6 +6,12 @@ import { XMLParser } from 'fast-xml-parser';
 import { logger } from '../logger';
 import { activeAdapters } from './activeValidation';
 import { storage } from '../storage';
+import { resolveWordlist } from '../wordlists';
+
+function authHeaderArgs(ctx: ScannerContext): string[] {
+  const headers = ctx.authHeaders || {};
+  return Object.entries(headers).flatMap(([name, value]) => ['-H', `${name}: ${value}`]);
+}
 
 export const ScannerAdapters: Record<string, IScannerAdapter> = {
   ...activeAdapters,
@@ -29,6 +35,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if ('nucleiTemplatesPath' in ctx.settings && ctx.settings.nucleiTemplatesPath) {
         args.push('-t', String(ctx.settings.nucleiTemplatesPath));
       }
+      args.push(...authHeaderArgs(ctx));
       return args;
     },
     processStdout(ctx, msg, stats) {
@@ -163,11 +170,16 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         '--no-bugreport',
         '--max-attack-time', '180',
         '--timeout', '8',
-        '--max-scan-time', '300'
+        '--max-scan-time', '300',
+        ...authHeaderArgs(ctx)
       ];
     },
-    isSuccessExitCode(code: number | null) {
-      return code === 0 || code === 2;
+    isSuccessExitCode(code: number | null, ctx?: ScannerContext) {
+      if (code === 0 || code === 2) return true;
+      if (code === 1 && ctx) {
+        return fs.existsSync(ctx.jsonFile) && fs.statSync(ctx.jsonFile).size > 0;
+      }
+      return false;
     },
     getEnv(ctx, env) {
       return { ...env, PYTHONIOENCODING: 'utf-8' };
@@ -414,7 +426,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   httpx: {
-    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-title', '-tech-detect', '-status-code', '-silent', '-json', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-title', '-tech-detect', '-status-code', '-silent', '-json', '-o', ctx.jsonFile, ...authHeaderArgs(ctx)]; },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
@@ -433,6 +445,23 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
             description: `Status: ${data['status_code'] || 'Unknown'}\nTech: ${tech}\nWeb Server: ${data.webserver || 'Unknown'}`,
             timestamp: data.timestamp || new Date().toISOString(),
           });
+
+          const isCloudflareChallenge = (
+            (typeof data.title === 'string' && /just a moment/i.test(data.title)) ||
+            (data['status_code'] === 403 && (tech.toLowerCase().includes('cloudflare') || String(data.webserver).toLowerCase().includes('cloudflare')))
+          );
+          if (isCloudflareChallenge) {
+            findings.push({
+              id: 'cloudflare-waf-challenge',
+              name: 'Cloudflare WAF Challenge Interstitial Detected',
+              severity: 'medium',
+              scanner: 'httpx',
+              url: data.url || data.host || ctx.targetUrl,
+              description: 'Target is actively presenting a Cloudflare Managed Challenge ("Just a moment..."). Automated web crawlers and fuzzers (Katana, FFUF, Dalfox) receive HTTP 403 Forbidden without interactive browser JavaScript execution or valid session cookies.',
+              remediation: 'Supply an Authenticated Scan Profile with valid session cookies (e.g. cf_clearance) or configure Cloudflare WAF IP Access Rules / Custom Skip Rules for the scanner source IP.',
+              timestamp: data.timestamp || new Date().toISOString(),
+            });
+          }
         } catch { /* ignore */ }
       }
       return findings;
@@ -725,7 +754,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   katana: {
-    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-silent', '-j', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-silent', '-j', '-o', ctx.jsonFile, ...authHeaderArgs(ctx)]; },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
@@ -750,9 +779,11 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
   },
   ffuf: {
     getCommandArgs(ctx) {
-      const wordlist = ctx.settings.wordlistPath ? path.resolve(process.cwd(), ctx.settings.wordlistPath as string) : 'C:\\wordlists\\common.txt';
-      // If wordlist doesn't exist, we should ideally handle it, but for simplicity we assume it's checked earlier or returns error.
-      return ['-u', `${ctx.targetUrl}/FUZZ`, '-w', wordlist, '-v', '-o', ctx.jsonFile, '-of', 'json'];
+      const wordlist = resolveWordlist(ctx.settings.wordlistPath as string | undefined);
+      if (!wordlist) {
+        throw new Error('FFUF wordlist is unavailable. Configure "wordlistPath" in Settings to an existing file.');
+      }
+      return ['-u', `${ctx.targetUrl}/FUZZ`, '-w', wordlist, '-v', '-o', ctx.jsonFile, '-of', 'json', ...authHeaderArgs(ctx)];
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
@@ -809,14 +840,20 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       return ['/a', '/url', ctx.targetUrl, '/r', ctx.xmlFile, '/silent'];
     },
     getProcessOptions(ctx, opts) {
-      const script = `Start-Process -Wait -NoNewWindow -FilePath '${ctx.bin}' -ArgumentList ${opts.args.map(a => `'${a.replace(/'/g, "''")}'`).join(', ')}`;
+      const executable = String(ctx.bin).replace(/'/g, "''");
+      const script = `$p = Start-Process -Wait -PassThru -NoNewWindow -FilePath '${executable}' -ArgumentList ${opts.args.map(a => `'${a.replace(/'/g, "''")}'`).join(', ')}; exit $p.ExitCode`;
       const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
       const spawnArgs = ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedScript];
       return { executable: 'powershell.exe', args: spawnArgs, useShell: opts.useShell, cwd: opts.cwd };
     },
     parseFindings(ctx) {
-      if (!ctx.xmlFile || !fs.existsSync(ctx.xmlFile)) return [];
+      if (!ctx.xmlFile || !fs.existsSync(ctx.xmlFile)) {
+        throw new Error('Netsparker artifact missing: the XML report was not generated, so the scan result is inconclusive.');
+      }
       const content = fs.readFileSync(ctx.xmlFile, 'utf-8');
+      if (!content.trim()) {
+        throw new Error('Netsparker artifact is empty: the scan result is inconclusive.');
+      }
       const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_' });
       const data = parser.parse(content);
       const findings: Record<string, unknown>[] = [];
@@ -860,24 +897,42 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       return e;
     },
     parseFindings(ctx) {
-      if (!fs.existsSync(ctx.jsonFile)) return [];
+      if (!fs.existsSync(ctx.jsonFile)) {
+        throw new Error('Acunetix artifact missing: the vulnerability JSON was not generated, so the scan result is inconclusive.');
+      }
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
-      const vulns = JSON.parse(content);
+      let vulns: unknown;
+      try {
+        vulns = JSON.parse(content);
+      } catch (err) {
+        throw new Error(
+          `Acunetix artifact is malformed: ${err instanceof Error ? err.message : String(err)}`,
+          { cause: err }
+        );
+      }
+      if (vulns && !Array.isArray(vulns) && typeof vulns === 'object' && (vulns as Record<string, unknown>).__recon_error) {
+        const marker = vulns as Record<string, unknown>;
+        throw new Error(`Acunetix scan is inconclusive (${String(marker.code || 'UNKNOWN')}): ${String(marker.message || 'no verifiable result')}`);
+      }
+      if (!Array.isArray(vulns)) {
+        throw new Error('Acunetix artifact is not a vulnerability array; refusing to report a clean result.');
+      }
       const findings: Record<string, unknown>[] = [];
       for (const vuln of vulns) {
-        if (!vuln) continue;
+        if (!vuln || typeof vuln !== 'object') continue;
+        const item = vuln as Record<string, unknown>;
         let severity = 'info';
-        if (vuln.severity === 3) severity = 'high';
-        else if (vuln.severity === 2) severity = 'medium';
-        else if (vuln.severity === 1) severity = 'low';
+        if (item.severity === 3) severity = 'high';
+        else if (item.severity === 2) severity = 'medium';
+        else if (item.severity === 1) severity = 'low';
 
         findings.push({
-          id: vuln.vt_id || vuln.vuln_id || 'acunetix-finding',
-          name: vuln.vt_name || 'Acunetix Finding',
+          id: item.vt_id || item.vuln_id || 'acunetix-finding',
+          name: item.vt_name || 'Acunetix Finding',
           severity: severity,
           scanner: 'acunetix',
-          url: vuln.affects_url || vuln.affects_detail || '',
-          description: vuln.tags ? vuln.tags.join(', ') : '',
+          url: item.affects_url || item.affects_detail || '',
+          description: Array.isArray(item.tags) ? item.tags.join(', ') : '',
           timestamp: new Date().toISOString(),
         });
       }
@@ -897,10 +952,11 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       } catch {
         // Fallback to url ctx.targetUrl
       }
-      return [...targetArgs, '--format', 'json', '-o', ctx.jsonFile, '--no-color', '--timeout', '8', '-w', '5', '--skip-mining-dict'];
+      return [...targetArgs, '--format', 'json', '-o', ctx.jsonFile, '--no-color', '--timeout', '8', '-w', '5', '--skip-mining-dict', '--ignore-return', '302,403,404', ...authHeaderArgs(ctx)];
     },
     isSuccessExitCode(code: number | null) {
-      return code === 0 || code === 1 || code === 2;
+      // Dalfox: 0 = completed clean, 1 = findings found, 2 = CLI/usage error.
+      return code === 0 || code === 1;
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
@@ -1046,6 +1102,8 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (activeVal?.delaySeconds) {
         args.push('-d', String(activeVal.delaySeconds));
       }
+      const auth = Object.entries(ctx.authHeaders || {})[0];
+      if (auth) args.push('--headers', `${auth[0]}: ${auth[1]}`);
       return args;
     },
     isSuccessExitCode(code: number | null) {
@@ -1381,6 +1439,30 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       }
       return ['scan', '--config', 'auto', '--json', '--output', ctx.jsonFile, '--disable-version-check', ctx.targetUrl];
     },
+    getProcessOptions(ctx, opts) {
+      const isDocker = opts.executable === 'docker' || path.basename(opts.executable).toLowerCase().replace(/\.exe$/, '') === 'docker';
+      if (isDocker) {
+        const outBase = path.basename(ctx.jsonFile);
+        const resolvedSrc = path.resolve(ctx.targetUrl);
+        return {
+          executable: opts.executable,
+          args: [
+            'run', '--rm',
+            '-v', `${resolvedSrc}:/src`,
+            '-v', `${ctx.outDir}:/out`,
+            'semgrep/semgrep',
+            'semgrep', 'scan',
+            '--config', 'auto',
+            '--json',
+            '--output', `/out/${outBase}`,
+            '/src'
+          ],
+          useShell: false,
+          cwd: opts.cwd
+        };
+      }
+      return opts;
+    },
     isSuccessExitCode(code: number | null) {
       return code === 0 || code === 1 || code === 2;
     },
@@ -1532,8 +1614,13 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       }
       return args;
     },
-    isSuccessExitCode(code: number | null) {
-      return code === 0 || code === 1;
+    isSuccessExitCode(code: number | null, ctx?: ScannerContext) {
+      if (code === 0 || code === 1) return true;
+      if (code === 2 && ctx) {
+        if (fs.existsSync(ctx.jsonFile) && fs.statSync(ctx.jsonFile).size > 0) return true;
+        if (fs.existsSync(ctx.outputFile) && /Schema Loading Error|Failed to load specification/i.test(fs.readFileSync(ctx.outputFile, 'utf-8'))) return true;
+      }
+      return false;
     },
     getEnv(ctx, env) {
       return {
@@ -1674,7 +1761,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       }
       return args;
     },
-    isSuccessExitCode(code) {
+    isSuccessExitCode(code: number | null) {
       return code === 0;
     },
     parseFindings(ctx) {
@@ -1771,7 +1858,7 @@ export function parseInteractsh(content: string, ctx: Pick<ScannerContext, 'targ
     try {
       item = JSON.parse(trimmed);
     } catch (err) {
-      throw new Error(`Malformed Interactsh JSON: ${err instanceof Error ? err.message : String(err)}`);
+      throw new Error(`Malformed Interactsh JSON: ${err instanceof Error ? err.message : String(err)}`, { cause: err });
     }
 
     if (!item || typeof item !== 'object') continue;
@@ -1831,8 +1918,16 @@ function _genericJsonLinesParser(ctx: ScannerContext) {
   return findings;
 }
 
+export const hasAdapter = (scannerName: string): boolean => {
+  if (typeof scannerName !== 'string' || !scannerName) return false;
+  if (!Object.prototype.hasOwnProperty.call(ScannerAdapters, scannerName)) return false;
+  const adapter = ScannerAdapters[scannerName];
+  return Boolean(adapter) && typeof adapter.getCommandArgs === 'function';
+};
+
 export const getAdapter = (scannerName: string): IScannerAdapter => {
-  return ScannerAdapters[scannerName] || {
-    getCommandArgs: (ctx) => [ctx.targetUrl],
-  };
+  if (!hasAdapter(scannerName)) {
+    throw new Error(`No scanner adapter registered for '${scannerName}'. Refusing to launch an unverified command.`);
+  }
+  return ScannerAdapters[scannerName];
 };

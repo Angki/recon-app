@@ -185,6 +185,22 @@ export class EndpointInventory {
     }
   }
 
+  findDiscoveredOpenApiSchema(scanId: string): string | null {
+    try {
+      const db = dbService.getRawDatabase();
+      const rows = db.prepare('SELECT url FROM endpoints WHERE scanId = ? AND inScope = 1 LIMIT 200').all(scanId) as { url: string }[];
+      const schemaRegex = /\/(swagger|openapi|api-docs)(\.json|\.yaml|\.yml)?$/i;
+      for (const r of rows) {
+        if (schemaRegex.test(r.url) || /\.(json|yaml|yml)$/i.test(r.url)) {
+          return r.url;
+        }
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  }
+
   private decode(row: Record<string, unknown>): EndpointRecord {
     return {...row, parameters:JSON.parse(String(row.parameters)), sources:JSON.parse(String(row.sources)), inScope:Boolean(row.inScope)} as unknown as EndpointRecord;
   }

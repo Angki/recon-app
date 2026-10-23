@@ -150,14 +150,26 @@ export class StorageService {
   }
 
   /** Update the status in the persisted metadata file and SQLite.
-   *  If `scanner` is provided, sets e.g. nucleiStatus / wapitiStatus.
+   *  If `scanner` is provided, sets e.g. nucleiStatus / wapitiStatus plus the
+   *  outcome details (reason, exit code, artifact, result count, duration).
    *  Always re-evaluates the overall `status` field without overwriting terminal STOPPED state. */
-  async updateStatus(scanId: string, scanner: string | null, status: string) {
+  async updateStatus(
+    scanId: string,
+    scanner: string | null,
+    status: string,
+    details: {
+      reason?: string;
+      exitCode?: number | null;
+      artifactPath?: string;
+      resultCount?: number;
+      durationMs?: number;
+    } = {}
+  ) {
     // 1. Update SQLite
     if (scanner) {
-      dbService.updateScannerStatus(scanId, scanner, status);
+      dbService.updateScannerStatus(scanId, scanner, status, details);
     } else {
-      dbService.updateScanStatus(scanId, status, status === 'STOPPED' || status === 'COMPLETED' || status === 'FAILED' ? new Date().toISOString() : undefined);
+      dbService.updateScanStatus(scanId, status, ScanStateMachine.isTerminal(status as ScanState) ? new Date().toISOString() : undefined);
     }
     
     // Update overall status in SQLite
@@ -188,6 +200,14 @@ export class StorageService {
 
         if (scanner) {
           meta[`${scanner}Status`] = status;
+          meta.engineStatuses = {
+            ...(meta.engineStatuses && typeof meta.engineStatuses === 'object' ? meta.engineStatuses : {}),
+            [scanner]: {
+              status,
+              ...details,
+              updatedAt: new Date().toISOString()
+            }
+          };
         } else {
           meta.status = status;
           if (ScanStateMachine.isTerminal(status as ScanState)) {

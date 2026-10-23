@@ -142,6 +142,33 @@ export const MIGRATIONS: Migration[] = [
       );
       CREATE INDEX IF NOT EXISTS idx_endpoints_scan ON endpoints(scanId, id);`);
     }
+  },
+  {
+    version: 6,
+    name: '006_engine_outcomes_and_evidence',
+    up: db => {
+      const addColumn = (table: string, column: string, definition: string) => {
+        const columns = db.pragma(`table_info(${table})`) as { name: string }[];
+        if (!columns.some(col => col.name === column)) {
+          db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition};`);
+        }
+      };
+
+      addColumn('scan_status', 'reason', 'TEXT');
+      addColumn('scan_status', 'exitCode', 'INTEGER');
+      addColumn('scan_status', 'artifactPath', 'TEXT');
+      addColumn('scan_status', 'resultCount', 'INTEGER');
+      addColumn('scan_status', 'durationMs', 'INTEGER');
+      addColumn('scan_status', 'updatedAt', 'TEXT');
+
+      addColumn('findings', 'canonicalKey', 'TEXT');
+      addColumn('findings', 'evidenceJson', 'TEXT');
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_findings_canonical ON findings(scanId, canonicalKey);
+        CREATE INDEX IF NOT EXISTS idx_scan_status_scan ON scan_status(scanId);
+      `);
+    }
   }
 ];
 

@@ -16,6 +16,8 @@ export interface ScannerContext {
   xmlFile: string;
   sender: Electron.WebContents;
   settings: AppSettings | Record<string, unknown>;
+  /** Resolved auth headers from the selected auth profile (never raw secrets from config). */
+  authHeaders?: Record<string, string>;
 }
 
 export interface IScannerAdapter {

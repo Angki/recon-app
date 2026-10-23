@@ -1,5 +1,5 @@
-import { useMemo } from 'react';
-import { Globe2, Activity, ShieldCheck, AlertTriangle, ShieldAlert, Shield } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Globe2, Activity, ShieldCheck, AlertTriangle, ShieldAlert, Shield, ChevronDown, ChevronUp } from 'lucide-react';
 import type { Vulnerability } from '../types/vulnerability';
 
 interface FindingsSummaryProps {
@@ -10,9 +10,32 @@ interface FindingsSummaryProps {
   scanStatus?: string;
   selectedTools?: string[];
   scannerStatus?: Record<string, string>;
+  scannerReasons?: Record<string, string>;
   activeSeverityFilter?: string;
   onFilterSeverity?: (sev: string) => void;
   compact?: boolean;
+}
+
+type CoverageBucket = 'covered' | 'partial' | 'skipped' | 'failed' | 'stopped' | 'running' | 'notRun';
+
+const COVERAGE_META: Record<CoverageBucket, { label: string; badge: string }> = {
+  covered: { label: 'Covered', badge: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300' },
+  partial: { label: 'Partial', badge: 'border-amber-500/30 bg-amber-500/10 text-amber-300' },
+  skipped: { label: 'Skipped', badge: 'border-slate-500/30 bg-slate-500/10 text-slate-300' },
+  failed: { label: 'Failed', badge: 'border-rose-500/30 bg-rose-500/10 text-rose-300' },
+  stopped: { label: 'Stopped', badge: 'border-slate-500/30 bg-slate-500/10 text-slate-400' },
+  running: { label: 'Running', badge: 'border-blue-500/30 bg-blue-500/10 text-blue-300' },
+  notRun: { label: 'Not Run', badge: 'border-zinc-500/30 bg-zinc-500/10 text-zinc-400' },
+};
+
+function coverageBucket(status: string): CoverageBucket {
+  if (status === 'COMPLETED') return 'covered';
+  if (status === 'DEGRADED' || status === 'PARTIAL') return 'partial';
+  if (status === 'SKIPPED') return 'skipped';
+  if (status === 'FAILED') return 'failed';
+  if (status === 'STOPPED' || status === 'CANCELLED') return 'stopped';
+  if (status === 'RUNNING' || status === 'QUEUED') return 'running';
+  return 'notRun';
 }
 
 export default function FindingsSummary({
@@ -23,10 +46,12 @@ export default function FindingsSummary({
   scanStatus = 'IDLE',
   selectedTools = [],
   scannerStatus = {},
+  scannerReasons = {},
   activeSeverityFilter = 'all',
   onFilterSeverity,
   compact = false
 }: FindingsSummaryProps) {
+  const [coverageOpen, setCoverageOpen] = useState(false);
   // Aggregate severities across ALL scanner findings when available, falling back to nuclei
   const counts = useMemo(() => {
     if (allFindings.length > 0) {
@@ -48,21 +73,44 @@ export default function FindingsSummary({
     ? allFindings.length
     : counts.critical + counts.high + counts.medium + counts.low + counts.info + wapitiVulns;
 
+  // Engine coverage matrix: posture always runs, so include it even though it is not user-selectable.
+  const coverage = useMemo(() => {
+    const engines = Array.from(new Set(['posture', ...selectedTools]));
+    const rows = engines.map(engine => {
+      const status = (scannerStatus[engine] || 'IDLE').toUpperCase();
+      return {
+        engine,
+        status,
+        reason: scannerReasons[engine],
+        bucket: coverageBucket(status),
+      };
+    });
+    const tally: Record<CoverageBucket, number> = {
+      covered: 0, partial: 0, skipped: 0, failed: 0, stopped: 0, running: 0, notRun: 0
+    };
+    for (const row of rows) tally[row.bucket]++;
+    return { rows, tally };
+  }, [selectedTools, scannerStatus, scannerReasons]);
+
+  const incompleteCoverage = coverage.rows.filter(row => row.bucket !== 'covered');
+
   // Calculate Weighted Risk Score & Assessment Contract
   const securityPosture = useMemo(() => {
     const normStatus = (scanStatus || '').toUpperCase();
     const tools = selectedTools || [];
-    const toolsRequested = tools.length;
-    let toolsCompleted = 0;
-    let toolsFailed = 0;
+    let toolsIncomplete = 0;
 
     for (const t of tools) {
       const s = (scannerStatus[t] || '').toUpperCase();
-      if (s === 'COMPLETED') toolsCompleted++;
-      else if (s === 'FAILED' || s === 'STOPPED' || s === 'CANCELLED') toolsFailed++;
+      if (s !== 'COMPLETED') toolsIncomplete++;
     }
 
-    const isPartialCoverage = toolsFailed > 0 || (toolsCompleted < toolsRequested && normStatus !== 'COMPLETED');
+    const postureStatus = scannerStatus.posture !== undefined ? (scannerStatus.posture || '').toUpperCase() : null;
+    const postureIncomplete = postureStatus !== null && postureStatus !== 'COMPLETED';
+
+    const isPartialCoverage = toolsIncomplete > 0 || postureIncomplete || normStatus === 'PARTIAL';
+
+    const toolsRequested = tools.length;
 
     if (totalFindings === 0) {
       if (toolsRequested === 0 || normStatus === 'IDLE') {
@@ -109,6 +157,10 @@ export default function FindingsSummary({
     { id: 'info', label: 'Info', count: counts.info, dot: 'bg-blue-400 shadow-[0_0_8px_rgba(59,130,246,0.6)]', text: 'text-blue-400', border: 'border-blue-500/30' },
   ];
 
+  const coverageTitle = coverage.rows
+    .map(row => `${row.engine}: ${row.status}${row.reason ? ` — ${row.reason}` : ''}`)
+    .join('\n');
+
   if (compact) {
     return (
       <div className="theme-card rounded-xl p-1 px-3 flex flex-wrap items-center justify-between gap-2 shadow-sm border border-[var(--border-card)] shrink-0 text-xs">
@@ -117,6 +169,17 @@ export default function FindingsSummary({
             <span className={`font-bold ${securityPosture.color}`}>{securityPosture.grade}</span>
             <span className="text-[var(--text-muted)]">({totalFindings} Findings)</span>
           </div>
+          <span
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[10px] font-mono ${
+              incompleteCoverage.length === 0
+                ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+            }`}
+            title={coverageTitle}
+          >
+            <span className="uppercase tracking-wider text-[var(--text-muted)]">Coverage</span>
+            <span className="font-bold tabular-nums">{coverage.tally.covered}/{coverage.rows.length}</span>
+          </span>
         </div>
 
         <div className="flex items-center gap-1 overflow-x-auto scrollbar-none">
@@ -149,7 +212,8 @@ export default function FindingsSummary({
   }
 
   return (
-    <div className="theme-card rounded-xl p-2.5 px-4 flex flex-wrap items-center justify-between gap-3 shadow-lg border border-[var(--border-card)] shrink-0">
+    <div className="shrink-0 space-y-1.5">
+      <div className="theme-card rounded-xl p-2.5 px-4 flex flex-wrap items-center justify-between gap-3 shadow-lg border border-[var(--border-card)]">
       {/* Left: Total Overview & Posture Grade */}
       <div className="flex items-center gap-3">
         <div className="p-1.5 rounded-lg bg-[var(--accent-primary)]/10 text-[var(--accent-primary)] border border-[var(--border-glow)]">
@@ -201,8 +265,25 @@ export default function FindingsSummary({
         })}
       </div>
 
-      {/* Right: DAST Coverage */}
+      {/* Right: Coverage Matrix & DAST */}
       <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={() => setCoverageOpen(open => !open)}
+          aria-expanded={coverageOpen}
+          title={coverageTitle}
+          className={`flex items-center gap-2 px-2.5 py-1 rounded-lg border transition-all cursor-pointer ${
+            incompleteCoverage.length === 0
+              ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+              : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+          }`}
+        >
+          <ShieldCheck className="w-3.5 h-3.5" />
+          <span className="text-[10px] font-mono uppercase text-[var(--text-muted)]">Coverage:</span>
+          <span className="text-xs font-mono font-bold tabular-nums">{coverage.tally.covered}/{coverage.rows.length}</span>
+          {coverageOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+        </button>
+
         <div className="flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-card)]">
           <Globe2 className="w-3.5 h-3.5 text-cyan-400" />
           <span className="text-[10px] font-mono text-[var(--text-muted)] uppercase">DAST:</span>
@@ -210,6 +291,36 @@ export default function FindingsSummary({
           <span className="text-[10px] font-mono text-[var(--text-muted)] tabular-nums">({wapitiPages} crawled)</span>
         </div>
       </div>
+      </div>
+
+      {coverageOpen && (
+        <div className="theme-card rounded-xl border border-[var(--border-card)] p-2.5 shadow-lg">
+          <div className="flex flex-wrap items-center gap-1.5">
+            {coverage.rows.map(row => {
+              const meta = COVERAGE_META[row.bucket];
+              return (
+                <span
+                  key={row.engine}
+                  title={row.reason || row.status}
+                  className={`inline-flex items-center gap-1 rounded-lg border px-2 py-0.5 font-mono text-[10px] ${meta.badge}`}
+                >
+                  <span className="font-semibold">{row.engine}</span>
+                  <span className="opacity-80">{meta.label}</span>
+                </span>
+              );
+            })}
+          </div>
+          {incompleteCoverage.some(row => row.reason) && (
+            <ul className="mt-2 space-y-0.5">
+              {incompleteCoverage.filter(row => row.reason).map(row => (
+                <li key={row.engine} className="text-[10px] font-mono text-[var(--text-muted)]">
+                  <span className="font-semibold text-[var(--text-secondary)]">{row.engine}:</span> {row.reason}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   );
 }

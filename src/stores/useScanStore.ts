@@ -8,9 +8,14 @@ export type ScannerType =
   | 'nuclei' | 'wapiti' | 'subfinder' | 'httpx' | 'nmap' | 'zap' | 'katana' | 'ffuf' 
   | 'alterx' | 'dnsx' | 'naabu' | 'tlsx' | 'appscan' | 'netsparker' | 'acunetix' 
   | 'pdiscovery' | 'wpscan' | 'dalfox' | 'wafw00f' | 'whatweb' | 'arjun' | 'corsy' 
-  | 'cmseek' | 'gau' | 'crlfsuite' | 'gitleaks' | 'semgrep' | 'trivy' | 'syft' | 'sslyze' | 'schemathesis';
-export type ScannerStatus = 'IDLE' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'STOPPED' | 'QUEUED';
+  | 'cmseek' | 'gau' | 'crlfsuite' | 'gitleaks' | 'semgrep' | 'trivy' | 'syft' | 'sslyze' | 'schemathesis'
+  | 'posture';
+export type ScannerStatus =
+  | 'IDLE' | 'RUNNING' | 'QUEUED'
+  | 'COMPLETED' | 'DEGRADED' | 'PARTIAL'
+  | 'SKIPPED' | 'FAILED' | 'STOPPED';
 export type ExecutionMode = 'pipeline' | 'concurrent';
+export type WorkspaceTab = 'config' | 'live' | 'findings' | 'ai';
 
 interface FindingsCount {
   info: number;
@@ -49,11 +54,13 @@ interface ScanState {
   targetUrl: string;
   scanId: string | null;
   activeTab: ScannerType | 'findings' | 'ai';
+  workspaceTab: WorkspaceTab;
   isWordpressScan: boolean;
   selectedTools: string[];
   status: string;
   executionMode: ExecutionMode;
   scannerStatus: Record<ScannerType, ScannerStatus>;
+  scannerReasons: Record<string, string>;
   allFindings: Vulnerability[];
   nucleiFindings: FindingsCount;
   wapitiVulns: number;
@@ -64,11 +71,13 @@ interface ScanState {
   setTargetUrl: (url: string) => void;
   setScanId: (id: string | null) => void;
   setActiveTab: (tab: ScannerType | 'findings' | 'ai') => void;
+  setWorkspaceTab: (tab: WorkspaceTab) => void;
   setIsWordpressScan: (isWp: boolean) => void;
   setSelectedTools: (tools: string[] | ((prev: string[]) => string[])) => void;
   setStatus: (status: string) => void;
   setExecutionMode: (mode: ExecutionMode) => void;
   setScannerStatus: (status: Record<ScannerType, ScannerStatus> | ((prev: Record<ScannerType, ScannerStatus>) => Record<ScannerType, ScannerStatus>)) => void;
+  setScannerReason: (scanner: string, reason: string | undefined) => void;
   setAllFindings: (findings: Vulnerability[] | ((prev: Vulnerability[]) => Vulnerability[])) => void;
   setNucleiFindings: (count: FindingsCount) => void;
   setWapitiVulns: (count: number) => void;
@@ -115,6 +124,7 @@ export const initialScannerStatus: Record<ScannerType, ScannerStatus> = {
   syft: 'IDLE',
   sslyze: 'IDLE',
   schemathesis: 'IDLE',
+  posture: 'IDLE',
 };
 
 export const useScanStore = create<ScanState>()(
@@ -125,11 +135,13 @@ export const useScanStore = create<ScanState>()(
       targetUrl: '',
       scanId: null,
       activeTab: 'nuclei',
+      workspaceTab: 'config',
       isWordpressScan: false,
       selectedTools: defaultSelectedTools,
       status: 'IDLE',
       executionMode: 'pipeline',
       scannerStatus: initialScannerStatus,
+      scannerReasons: {},
       allFindings: [],
       nucleiFindings: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
       wapitiVulns: 0,
@@ -139,6 +151,7 @@ export const useScanStore = create<ScanState>()(
       setTargetUrl: (url) => set({ targetUrl: url }),
       setScanId: (id) => set({ scanId: id }),
       setActiveTab: (tab) => set({ activeTab: tab }),
+      setWorkspaceTab: (tab) => set({ workspaceTab: tab }),
       setIsWordpressScan: (isWp) => set({ isWordpressScan: isWp }),
       setSelectedTools: (updater) => set((state) => ({
         selectedTools: typeof updater === 'function' ? updater(state.selectedTools) : updater
@@ -148,6 +161,12 @@ export const useScanStore = create<ScanState>()(
       setScannerStatus: (updater) => set((state) => ({
         scannerStatus: typeof updater === 'function' ? updater(state.scannerStatus) : updater
       })),
+      setScannerReason: (scanner, reason) => set((state) => {
+        const next = { ...state.scannerReasons };
+        if (reason) next[scanner] = reason;
+        else delete next[scanner];
+        return { scannerReasons: next };
+      }),
       setAllFindings: (updater) => set((state) => ({
         allFindings: typeof updater === 'function' ? updater(state.allFindings) : updater
       })),
@@ -166,6 +185,7 @@ export const useScanStore = create<ScanState>()(
           scanId: null,
           status: 'IDLE',
           scannerStatus: initialScannerStatus,
+          scannerReasons: {},
           allFindings: [],
           nucleiFindings: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
           wapitiVulns: 0,
@@ -183,6 +203,7 @@ export const useScanStore = create<ScanState>()(
         status: state.status,
         executionMode: state.executionMode,
         scannerStatus: state.scannerStatus,
+        scannerReasons: state.scannerReasons,
         allFindings: state.allFindings,
         nucleiFindings: state.nucleiFindings,
         wapitiVulns: state.wapitiVulns,

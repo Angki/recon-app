@@ -211,7 +211,7 @@ export class AIService {
     }
   }
 
-  getStructuredFindingsContext(scanId: string, fallbackTarget?: string): StructuredAiContext {
+  getStructuredFindingsContext(scanId: string, fallbackTarget?: string, maxFindings: number = 50): StructuredAiContext {
     const scan = dbService.getScanById(scanId);
     const target = scan?.target || fallbackTarget || 'Unknown Target';
     const findings = dbService.getFindings(scanId);
@@ -246,8 +246,8 @@ export class AIService {
         return wb - wa;
       });
 
-      const topFindings = sortedFindings.slice(0, 50);
-      omissionCount = Math.max(0, sortedFindings.length - 50);
+      const topFindings = sortedFindings.slice(0, maxFindings);
+      omissionCount = Math.max(0, sortedFindings.length - maxFindings);
 
       for (const f of topFindings) {
         const fId = String(f.id || 'N/A');
@@ -258,7 +258,7 @@ export class AIService {
         const name = f.name || f.type || 'Unknown';
         const scanner = f.scanner || 'unknown';
         const url = f.url || '';
-        const desc = f.description || '';
+        const desc = String(f.description || '');
         context += `### [${sev}] ${name} (Scanner: ${scanner})\n`;
         context += `- **Finding ID**: \`${fId}\`\n`;
         if (f.fingerprint) context += `- **Evidence ID**: \`${f.fingerprint}\`\n`;
@@ -363,7 +363,7 @@ export class AIService {
       }
     }
 
-    const structured = this.getStructuredFindingsContext(scanId);
+    const structured = this.getStructuredFindingsContext(scanId, undefined, 20);
     const systemPrompt = `You are Recon App Security Copilot, an elite defensive cybersecurity advisor.\n${AI_SYSTEM_GUARDRAILS}\n\nBase all answers strictly on the following scan context and technical facts:\n\n${structured.context}`;
 
     const safeMessage = redactAiInput(message);
@@ -393,13 +393,18 @@ export class AIService {
     const model = configuredModel || 'qwen2.5:7b';
     baseUrl = baseUrl.replace('http://localhost', 'http://127.0.0.1');
 
+    // Keep only last 6 turns of conversation to prevent prompt bloat and timeouts
+    const boundedHistory = history.slice(-6);
+
     const messages = [
       { role: 'system', content: systemPrompt },
-      ...history.map(h => ({ role: h.role, content: h.content })),
+      ...boundedHistory.map(h => ({ role: h.role, content: h.content })),
       { role: 'user', content: message }
     ];
 
     sender?.send?.('ai:progress', `Copilot querying local model (${model})...`);
+
+    const OLLAMA_CHAT_TIMEOUT_MS = 300_000;
 
     try {
       const res = await fetch(`${baseUrl}/api/chat`, {
@@ -408,9 +413,13 @@ export class AIService {
         body: JSON.stringify({
           model,
           messages,
-          stream: false
+          stream: false,
+          options: {
+            num_ctx: 4096,
+            temperature: 0.3
+          }
         }),
-        signal: AbortSignal.timeout(180_000)
+        signal: AbortSignal.timeout(OLLAMA_CHAT_TIMEOUT_MS)
       });
 
       if (!res.ok) {
@@ -423,6 +432,9 @@ export class AIService {
       return content || data.message?.content || 'No response generated.';
     } catch (err: unknown) {
       const error = err as Error;
+      if (error.name === 'TimeoutError' || error.message?.includes('aborted due to timeout')) {
+        return `⚠️ Local AI model (${model}) timed out after ${OLLAMA_CHAT_TIMEOUT_MS / 1000}s while generating response.\n\nTips to resolve:\n- Try asking narrower, more specific questions about individual findings.\n- Consider selecting a faster or smaller model (e.g. \`qwen2.5:3b\` or \`llama3.2:3b\`) in Settings.\n- Ensure Ollama has adequate GPU/CPU compute resources available.`;
+      }
       throw new Error(`Copilot chat failed: ${error.message || 'Unknown error'}`, { cause: err });
     }
   }

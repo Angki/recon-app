@@ -5,7 +5,7 @@ import { settingsStore } from './settings';
 import { toolManager } from './toolManager';
 import { dbService } from './database';
 import path from 'path';
-import { getAdapter } from './scanners/registry';
+import { getAdapter, hasAdapter } from './scanners/registry';
 import type { ScannerContext, IScannerAdapter } from './scanners/types';
 import fs from 'fs';
 import { toolCatalog } from './catalog';
@@ -17,6 +17,10 @@ import { authService } from './workspace/authService';
 import { ProvenanceTracker, type InputProvenance } from './workspace/provenance';
 import { processLock } from './platform/processLock';
 import { containerLifecycle } from './platform/containerLifecycle';
+import { dockerService } from './platform/dockerService';
+import { evaluateEngineOutcome } from './scanners/outcome';
+import { runHttpPosture } from './scanners/httpPosture';
+import { correlateServiceAdvisories } from './correlation/advisories';
 
 /** Safely send IPC to renderer — no-op if the window was already closed */
 function safeSend(sender: Electron.WebContents, channel: string, data: unknown) {
@@ -24,6 +28,22 @@ function safeSend(sender: Electron.WebContents, channel: string, data: unknown) 
     sender.send(channel, data);
   }
 }
+
+/** Build per-request headers from the validated auth profile. Never logs the secret. */
+function authHeadersFromConfig(config?: Record<string, unknown>): Record<string, string> {
+  const raw = config?.resolvedAuthHeader;
+  if (typeof raw !== 'string') return {};
+  const header = raw.trim();
+  if (!header) return {};
+  const separator = header.indexOf(':');
+  if (separator > 0 && /^[A-Za-z0-9-]+$/.test(header.slice(0, separator).trim())) {
+    return { [header.slice(0, separator).trim()]: header.slice(separator + 1).trim() };
+  }
+  return { Authorization: header };
+}
+
+/** Engines whose output can fingerprint products for advisory correlation. */
+const ADVISORY_SOURCE_SCANNERS = new Set(['nmap', 'whatweb', 'httpx', 'tlsx', 'cmseek', 'wpscan', 'nikto', 'nuclei']);
 
 class IpcBatcher {
   private buffer: Map<string, string> = new Map();
@@ -185,6 +205,14 @@ export class ScannerService {
       }
       if (requestedTools.some(t => typeof t !== 'string' || !toolCatalog.get(t))) throw new Error('Unknown scanner requested.');
 
+      const toolsWithoutAdapter = requestedTools.filter(t => !hasAdapter(t));
+      if (toolsWithoutAdapter.length > 0) {
+        return {
+          success: false,
+          error: `No scanner adapter registered for: ${toolsWithoutAdapter.join(', ')}. Refusing to start an unverified scan.`
+        };
+      }
+
       // Typed target union & tool capability validation
       const resolvedTarget = resolveTarget(targetUrl);
       const targetValidation = validateToolsForTarget(resolvedTarget, requestedTools);
@@ -313,6 +341,44 @@ export class ScannerService {
         config: { ...config, tools: toolsToRun },
       });
 
+      // Docker Auto-Start Orchestration:
+      // If any requested tool runs in Docker, verify Docker daemon readiness or auto-start Docker Desktop
+      const dockerTools = toolsToRun.filter((t: string) => {
+        if (t === 'wpscan') return true;
+        if (t === 'nikto' && settings.niktoRuntime === 'docker') return true;
+        const bin = toolBinaries[t];
+        return bin === 'docker' || (typeof bin === 'string' && path.basename(bin).toLowerCase().replace(/\.exe$/, '') === 'docker');
+      });
+
+      if (dockerTools.length > 0) {
+        const isRunning = await dockerService.isDockerRunning();
+        if (!isRunning) {
+          const autoStartRes = await dockerService.ensureDockerReady((msg) => {
+            safeSend(sender, 'scan:output', { scanId, scanner: 'system', type: 'stdout', message: `[SYSTEM] ${msg}\n` });
+          }, 45000);
+
+          if (!autoStartRes.ready) {
+            processLock.releaseLocks(scanId);
+            const errMsg = `Docker is required for [${dockerTools.join(', ')}] but Docker Desktop could not be started: ${autoStartRes.error}`;
+            await storage.saveMetadata(scanId, {
+              scanId,
+              target: targetUrl,
+              domain,
+              startTime: new Date().toISOString(),
+              endTime: new Date().toISOString(),
+              status: 'FAILED',
+              error: errMsg,
+              config: { ...config, tools: toolsToRun },
+            });
+            dbService.updateScanStatus(scanId, 'FAILED', new Date().toISOString());
+            return {
+              success: false,
+              error: errMsg
+            };
+          }
+        }
+      }
+
       this.activeScans.set(scanId, {});
       this.scanStats.set(scanId, {
         nuclei: { info: 0, low: 0, medium: 0, high: 0, critical: 0 },
@@ -329,6 +395,10 @@ export class ScannerService {
         : toolsToRun;
 
       this.scanRemainingTools.set(scanId, new Set(orderedTools));
+
+      // Built-in posture checks run independently of external CLIs, so every scan
+      // has baseline header/cookie coverage even when DAST engines are unavailable.
+      void this.runPostureEngine(sender, scanId, targetUrl, authHeadersFromConfig(config));
 
       // Start requested tools
       if (executionMode === 'concurrent') {
@@ -354,6 +424,80 @@ export class ScannerService {
       const errorMessage = error instanceof Error ? error.message : String(error);
       logger.error('Failed to start scan', errorMessage);
       return { success: false, error: errorMessage };
+    }
+  }
+
+  private async markEngineSkipped(
+    sender: Electron.WebContents,
+    scanId: string,
+    scannerName: string,
+    reason: string
+  ) {
+    await storage.updateStatus(scanId, scannerName, 'SKIPPED', { reason });
+    safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'SKIPPED', reason });
+    const remaining = this.scanRemainingTools.get(scanId);
+    if (remaining) remaining.delete(scannerName);
+    this.cleanupScanSession(scanId);
+  }
+
+  /** Release scan-level resources once every requested engine reached a terminal state. */
+  private cleanupScanSession(scanId: string, exceptProc?: ChildProcess, force = false) {
+    const remaining = this.scanRemainingTools.get(scanId);
+    if (!force && remaining && remaining.size > 0) return;
+    if (!force) {
+      const scanSession = this.activeScans.get(scanId);
+      if (scanSession) {
+        for (const proc of Object.values(scanSession)) {
+          if (proc === exceptProc) continue;
+          if (proc.exitCode === null && !proc.killed) return;
+        }
+      }
+    }
+    processLock.releaseLocks(scanId);
+    void containerLifecycle.cleanupContainers(scanId);
+    const interval = this.statEmitIntervals.get(scanId);
+    if (interval) { clearInterval(interval); this.statEmitIntervals.delete(scanId); }
+    this.activeScans.delete(scanId);
+    this.scanRemainingTools.delete(scanId);
+    this.scanStats.delete(scanId);
+    setTimeout(() => this.stoppedScans.delete(scanId), 10000);
+  }
+
+  private async runPostureEngine(
+    sender: Electron.WebContents,
+    scanId: string,
+    targetUrl: string,
+    authHeaders: Record<string, string>
+  ) {
+    safeSend(sender, 'scan:status', { scanId, scanner: 'posture', status: 'RUNNING' });
+    await storage.updateStatus(scanId, 'posture', 'RUNNING');
+    safeSend(sender, 'scan:output', {
+      scanId,
+      scanner: 'posture',
+      type: 'stdout',
+      message: '[POSTURE] Running built-in HTTP header, cookie, and form checks...\n'
+    });
+
+    const startedAt = Date.now();
+    const result = await runHttpPosture(scanId, targetUrl, authHeaders);
+    const durationMs = Date.now() - startedAt;
+    const details = { reason: result.reason, resultCount: result.resultCount, durationMs };
+    await storage.updateStatus(scanId, 'posture', result.status, details);
+    safeSend(sender, 'scan:status', { scanId, scanner: 'posture', status: result.status, reason: result.reason });
+    safeSend(sender, 'scan:output', {
+      scanId,
+      scanner: 'posture',
+      type: result.status === 'FAILED' ? 'stderr' : 'stdout',
+      message: `[POSTURE] ${result.reason}\n`
+    });
+
+    const CHUNK_SIZE = 50;
+    for (let i = 0; i < result.findings.length; i += CHUNK_SIZE) {
+      safeSend(sender, 'scan:findings', {
+        scanId,
+        scanner: 'posture',
+        findings: result.findings.slice(i, i + CHUNK_SIZE)
+      });
     }
   }
 
@@ -403,27 +547,69 @@ export class ScannerService {
                 message: `[${scannerName.toUpperCase()} AUTO-CHAIN] ℹ️ No GET query parameters were discovered during crawl. Active testing safely skipped for ${scannerName}.\n`
               });
               void (async () => {
-                await storage.updateStatus(scanId, scannerName, 'COMPLETED');
-                safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'COMPLETED', code: 0 });
-                const remaining = this.scanRemainingTools.get(scanId);
-                if (remaining) remaining.delete(scannerName);
+                await this.markEngineSkipped(sender, scanId, scannerName, 'No GET query parameters were discovered during crawling; active testing was not applicable.');
                 resolve();
               })();
               return;
             }
           }
         } else if (scannerName === 'jwt_tool') {
-          if (!config?.token) {
-            const token = endpointInventory.findDiscoveredJwtToken(scanId);
-            if (token) {
-              effectiveConfig = { ...config, token };
-              safeSend(sender, 'scan:output', {
-                scanId,
-                scanner: 'jwt_tool',
-                type: 'stdout',
-                message: `[JWT_TOOL AUTO-CHAIN] 🔑 Discovered JWT token automatically assigned: ${token.slice(0, 20)}...\n`
-              });
+          let token = (config?.token as string | undefined);
+          if (!token) {
+            token = endpointInventory.findDiscoveredJwtToken(scanId) || undefined;
+            if (!token && typeof config?.resolvedAuthHeader === 'string') {
+              const match = config.resolvedAuthHeader.match(/Bearer\s+([A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)/i);
+              if (match) token = match[1];
             }
+          }
+          if (token) {
+            effectiveConfig = { ...config, token };
+            safeSend(sender, 'scan:output', {
+              scanId,
+              scanner: 'jwt_tool',
+              type: 'stdout',
+              message: `[JWT_TOOL AUTO-CHAIN] 🔑 Discovered JWT token automatically assigned: ${token.slice(0, 20)}...\n`
+            });
+          } else {
+            safeSend(sender, 'scan:output', {
+              scanId,
+              scanner: 'jwt_tool',
+              type: 'stdout',
+              message: `[JWT_TOOL AUTO-CHAIN] ℹ️ No JWT token was supplied or discovered in session traffic. Testing safely skipped for jwt_tool.\n`
+            });
+            void (async () => {
+              await this.markEngineSkipped(sender, scanId, 'jwt_tool', 'No JWT token was supplied or discovered in session traffic; JWT testing was not applicable.');
+              resolve();
+            })();
+            return;
+          }
+        }
+      }
+
+      if (scannerName === 'schemathesis') {
+        const autoCascade = config?.autoCascade ?? true;
+        if (!config?.schemathesisSchema && autoCascade) {
+          const discoveredSchema = endpointInventory.findDiscoveredOpenApiSchema(scanId);
+          if (discoveredSchema) {
+            effectiveConfig = { ...config, schemathesisSchema: discoveredSchema };
+            safeSend(sender, 'scan:output', {
+              scanId,
+              scanner: 'schemathesis',
+              type: 'stdout',
+              message: `[SCHEMATHESIS AUTO-CHAIN] 📜 Discovered OpenAPI/Swagger schema: ${discoveredSchema}\n`
+            });
+          } else if (!/\/(api|swagger|openapi|v[1-9])(\/|$)/i.test(targetUrl) && !/\.(json|yaml|yml)$/i.test(targetUrl)) {
+            safeSend(sender, 'scan:output', {
+              scanId,
+              scanner: 'schemathesis',
+              type: 'stdout',
+              message: `[SCHEMATHESIS AUTO-CHAIN] ℹ️ Target is not an API specification endpoint and no OpenAPI/Swagger schema was discovered. Fuzzing safely skipped for schemathesis.\n`
+            });
+            void (async () => {
+              await this.markEngineSkipped(sender, scanId, 'schemathesis', 'Target is not an API specification endpoint and no OpenAPI/Swagger schema was discovered; schema fuzzing was not applicable.');
+              resolve();
+            })();
+            return;
           }
         }
       }
@@ -433,23 +619,28 @@ export class ScannerService {
       const jsonFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.json`);
       const xmlFile = path.join(outDir, `${scannerName}_${domain}_${timestamp}.xml`);
 
-      const adapter = getAdapter(scannerName);
       const context: ScannerContext = {
         scanId, targetUrl: effectiveTargetUrl, domain, scannerName, bin, outDir, config: effectiveConfig,
         timestamp, outputFile, jsonFile, xmlFile, sender,
-        settings: settingsStore.get()
+        settings: settingsStore.get(),
+        authHeaders: authHeadersFromConfig(effectiveConfig)
       };
 
+    const startedAt = Date.now();
+
+    let adapter: IScannerAdapter;
     let processInstance: ChildProcess;
     let executable = bin;
     let spawnArgs: string[];
     try {
+    adapter = getAdapter(scannerName);
     const args = adapter.getCommandArgs(context);
     
     let env: NodeJS.ProcessEnv = { 
       ...process.env,
       PYTHONUNBUFFERED: '1',
-      PYTHONIOENCODING: 'utf-8'
+      PYTHONIOENCODING: 'utf-8',
+      PYTHONUTF8: '1'
     };
     if (adapter.getEnv) {
       env = adapter.getEnv(context, env);
@@ -492,18 +683,18 @@ export class ScannerService {
         type: 'stderr', 
         message: `[SYSTEM ERROR] Failed to spawn process: ${error.message}\nPlease check permissions or if your antivirus is blocking ${executable}.` 
       });
-      storage.updateStatus(scanId, scannerName, 'FAILED');
-      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: 'FAILED' });
+      storage.updateStatus(scanId, scannerName, 'FAILED', {
+        reason: `Failed to spawn process: ${error.message}`
+      });
+      safeSend(sender, 'scan:status', {
+        scanId,
+        scanner: scannerName,
+        status: 'FAILED',
+        reason: `Failed to spawn process: ${error.message}`
+      });
       const remaining = this.scanRemainingTools.get(scanId);
       if (remaining) remaining.delete(scannerName);
-      if (!remaining?.size) {
-        const interval = this.statEmitIntervals.get(scanId);
-        if (interval) clearInterval(interval);
-        this.statEmitIntervals.delete(scanId);
-        this.activeScans.delete(scanId);
-        this.scanRemainingTools.delete(scanId);
-        this.scanStats.delete(scanId);
-      }
+      this.cleanupScanSession(scanId);
       resolve();
       return;
     }
@@ -520,7 +711,8 @@ export class ScannerService {
     const scanSession = this.activeScans.get(scanId);
     if (scanSession) scanSession[scannerName] = processInstance;
 
-    const startMsg = `[SYSTEM] Engine initialized: ${path.basename(executable)} ${spawnArgs.join(' ')}\n`;
+    const renderedCommand = LoggerService.redactSensitive(`${path.basename(executable)} ${spawnArgs.join(' ')}`);
+    const startMsg = `[SYSTEM] Engine initialized: ${renderedCommand}\n`;
     safeSend(sender, 'scan:output', { scanId, scanner: scannerName, type: 'stdout', message: startMsg });
     try { fs.appendFileSync(outputFile, startMsg); } catch { /* ignore */ }
 
@@ -587,39 +779,36 @@ export class ScannerService {
     }, timeoutMs);
     processInstance.once('close', () => clearTimeout(timeoutTimer));
 
-    const finalize = async (finalStatus: string, code?: number | null) => {
+    const finalize = async (
+      finalStatus: string,
+      code?: number | null,
+      details: { reason?: string; exitCode?: number | null; artifactPath?: string; resultCount?: number; durationMs?: number } = {}
+    ) => {
       if (finalized) return;
       finalized = true;
 
       // Await persistence before emitting success/completion event
-      await storage.updateStatus(scanId, scannerName, finalStatus);
-      safeSend(sender, 'scan:status', { scanId, scanner: scannerName, status: finalStatus, code });
+      await storage.updateStatus(scanId, scannerName, finalStatus, { ...details, exitCode: details.exitCode ?? code });
+      safeSend(sender, 'scan:status', {
+        scanId,
+        scanner: scannerName,
+        status: finalStatus,
+        code,
+        reason: details.reason,
+        resultCount: details.resultCount
+      });
+      if (details.reason) {
+        safeSend(sender, 'scan:output', {
+          scanId,
+          scanner: scannerName,
+          type: finalStatus === 'FAILED' ? 'stderr' : 'stdout',
+          message: `[SYSTEM] Engine outcome: ${finalStatus} — ${details.reason}\n`
+        });
+      }
 
       const remaining = this.scanRemainingTools.get(scanId);
       if (remaining) remaining.delete(scannerName);
-
-      const scanSession = this.activeScans.get(scanId);
-      let anyProcRunning = false;
-      if (scanSession) {
-        for (const proc of Object.values(scanSession)) {
-          if (proc === processInstance) continue;
-          if (proc.exitCode === null && !proc.killed) {
-            anyProcRunning = true; break;
-          }
-        }
-      }
-      const allDone = ((!remaining || remaining.size === 0) && !anyProcRunning) || this.stoppedScans.has(scanId);
-
-      if (allDone) {
-        processLock.releaseLocks(scanId);
-        void containerLifecycle.cleanupContainers(scanId);
-        const interval = this.statEmitIntervals.get(scanId);
-        if (interval) { clearInterval(interval); this.statEmitIntervals.delete(scanId); }
-        this.activeScans.delete(scanId);
-        this.scanRemainingTools.delete(scanId);
-        this.scanStats.delete(scanId);
-        setTimeout(() => this.stoppedScans.delete(scanId), 10000);
-      }
+      this.cleanupScanSession(scanId, processInstance, this.stoppedScans.has(scanId));
       resolve();
     };
 
@@ -634,7 +823,7 @@ export class ScannerService {
     processInstance.on('close', async (code) => {
       logger.info(`${scannerName} process for ${scanId} closed with code ${code}`);
       
-      const fileToRead = ['alterx', 'nmap', 'sqlmap'].includes(scannerName) ? outputFile : 
+      const fileToRead = ['alterx', 'nmap', 'sqlmap', 'commix', 'sstimap', 'jwt_tool', 'nikto'].includes(scannerName) ? outputFile :
                          ['appscan', 'netsparker'].includes(scannerName) ? xmlFile : jsonFile;
       if (fs.existsSync(fileToRead)) {
         try {
@@ -660,19 +849,28 @@ export class ScannerService {
       // Attempt to parse findings if they exist
       const parsed = this.parseAndSendFindings(context, adapter);
 
-      const isReportGenerated = fs.existsSync(jsonFile) && fs.statSync(jsonFile).size > 0;
-      const userStopped = this.stoppedScans.has(scanId);
-      const wasKilled = processInstance.killed || Boolean((processInstance as unknown as { _wasTerminated?: boolean })._wasTerminated);
-      const isWatchdogOrGracefulKill = Boolean((processInstance as unknown as { _watchdogFinalized?: boolean })._watchdogFinalized) && isReportGenerated && parsed;
-      const wasCancelled = userStopped || (wasKilled && !isWatchdogOrGracefulKill);
       const exitSemantic = toolCatalog.getExitCodeSemantic(scannerName, code);
-      const isSuccess = adapter.isSuccessExitCode 
-        ? adapter.isSuccessExitCode(code, context) 
+      const isSuccess = adapter.isSuccessExitCode
+        ? adapter.isSuccessExitCode(code, context)
         : (exitSemantic === 'clean' || exitSemantic === 'findings_found');
-
-      const isExpectedTimeout = timedOut && (scannerName === 'interactsh' || (isReportGenerated && parsed));
-      const finalStatus = (timedOut && !isExpectedTimeout) ? 'FAILED' : wasCancelled ? 'STOPPED' : (isSuccess || isExpectedTimeout || isWatchdogOrGracefulKill) && parsed ? 'COMPLETED' : 'FAILED';
-      await finalize(finalStatus, code);
+      const outcome = evaluateEngineOutcome({
+        context,
+        exitCode: code,
+        isSuccessExit: isSuccess,
+        parseOk: parsed.ok,
+        resultCount: parsed.count,
+        timedOut,
+        userStopped: this.stoppedScans.has(scanId),
+        watchdogFinalized: Boolean((processInstance as unknown as { _watchdogFinalized?: boolean })._watchdogFinalized),
+        durationMs: Date.now() - startedAt
+      });
+      await finalize(outcome.status, code, {
+        reason: outcome.reason,
+        exitCode: outcome.exitCode,
+        artifactPath: outcome.artifactPath,
+        resultCount: outcome.resultCount,
+        durationMs: outcome.durationMs
+      });
     });
   });
 }
@@ -683,7 +881,7 @@ export class ScannerService {
     const remaining = this.scanRemainingTools.get(scanId);
     if (remaining) {
       for (const tool of remaining) {
-        storage.updateStatus(scanId, tool, 'STOPPED');
+        storage.updateStatus(scanId, tool, 'STOPPED', { reason: 'Scan stopped by the operator before this engine ran.' });
       }
       this.scanRemainingTools.delete(scanId);
     }
@@ -704,7 +902,14 @@ export class ScannerService {
     return { success: false, error: 'Scan not found' };
   }
 
-  private parseAndSendFindings(context: ScannerContext, adapter: IScannerAdapter) {
+  private parseAndSendFindings(context: ScannerContext, adapter: IScannerAdapter): {
+    ok: boolean;
+    count: number;
+    inserted: Record<string, unknown>[];
+    observations: number;
+    duplicates: number;
+  } {
+    const empty = { ok: true, count: 0, inserted: [], observations: 0, duplicates: 0 };
     if (adapter.parseFindings) {
       try {
         if (DISCOVERY_TOOLS.includes(context.scannerName)) {
@@ -724,9 +929,13 @@ export class ScannerService {
             type: 'stdout',
             message: `[INVENTORY] ${count} endpoint observations imported (${parameterized.length} with query parameters). Open Endpoint Inventory to review and test.\n`
           });
-          return true;
+          return { ok: true, count, inserted: [], observations: count, duplicates: 0 };
         }
-        const findings = adapter.parseFindings(context);
+
+        let findings = adapter.parseFindings(context);
+        if (ADVISORY_SOURCE_SCANNERS.has(context.scannerName)) {
+          findings = correlateServiceAdvisories(findings, context.scannerName);
+        }
         if (findings && findings.length > 0) {
           const workflowObj = context.config?.workflow as { endpointId?: number } | undefined;
           const reqDefObj = context.config?.requestDefinition as { method?: string } | undefined;
@@ -742,30 +951,46 @@ export class ScannerService {
             timestamp: new Date().toISOString()
           };
           const findingsWithProv = findings.map(f =>
-            ProvenanceTracker.attachFindingProvenance(f as Record<string, unknown>, provenance)
+            ProvenanceTracker.attachFindingProvenance(f, provenance)
           );
+          let stored: { insertedFindings: Record<string, unknown>[]; observationCount: number; duplicateCount: number };
           try {
-            dbService.insertFindings(context.scanId, context.scannerName, findingsWithProv);
-          } catch(e) {
+            stored = dbService.insertFindings(context.scanId, context.scannerName, findingsWithProv);
+          } catch (e) {
             logger.error(`Error inserting findings to DB for ${context.scannerName}`, e);
-            return false;
+            return { ...empty, ok: false, count: findings.length };
           }
-          
+
           // Chunk IPC sends to prevent renderer UI freezing
           const CHUNK_SIZE = 50;
-          for (let i = 0; i < findings.length; i += CHUNK_SIZE) {
-            const chunk = findings.slice(i, i + CHUNK_SIZE);
+          for (let i = 0; i < stored.insertedFindings.length; i += CHUNK_SIZE) {
+            const chunk = stored.insertedFindings.slice(i, i + CHUNK_SIZE);
             safeSend(context.sender, 'scan:findings', { scanId: context.scanId, scanner: context.scannerName, findings: chunk });
           }
+          if (stored.duplicateCount > 0 || stored.observationCount > 0) {
+            safeSend(context.sender, 'scan:output', {
+              scanId: context.scanId,
+              scanner: context.scannerName,
+              type: 'stdout',
+              message: `[DEDUPE] ${stored.insertedFindings.length} finding(s) stored, ${stored.duplicateCount} cross-engine duplicate(s) merged, ${stored.observationCount} observation(s) recorded.\n`
+            });
+          }
+          return {
+            ok: true,
+            count: findings.length,
+            inserted: stored.insertedFindings,
+            observations: stored.observationCount,
+            duplicates: stored.duplicateCount
+          };
         }
       } catch (e: unknown) {
         const errMsg = e instanceof Error ? e.message : String(e);
         logger.error(`Error parsing findings for ${context.scannerName}: ${errMsg}`, e);
         safeSend(context.sender, 'scan:output', { scanId: context.scanId, scanner: context.scannerName, type: 'stderr', message: `[RESULT ERROR] ${errMsg}\n` });
-        return false;
+        return { ...empty, ok: false };
       }
     }
-    return true;
+    return empty;
   }
 
   /** Check if any scan session is currently executing child processes */

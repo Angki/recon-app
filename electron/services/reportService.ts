@@ -14,6 +14,15 @@ export type AssessmentStatus =
   | 'IN_PROGRESS'
   | 'NOT_ASSESSED';
 
+export interface EngineReportStatus {
+  status: string;
+  reason?: string;
+  exitCode?: number | null;
+  artifactPath?: string;
+  resultCount?: number;
+  durationMs?: number;
+}
+
 export interface AssessmentMetrics {
   critical: number;
   high: number;
@@ -29,6 +38,8 @@ export interface AssessmentMetrics {
   coverageStatus: 'FULL' | 'PARTIAL' | 'NONE';
   toolsRequested: number;
   toolsCompleted: number;
+  toolsPartial: number;
+  toolsSkipped: number;
   toolsFailed: number;
   coverageLimitation: string;
 }
@@ -42,6 +53,7 @@ export interface ReportData {
   endTime?: string;
   toolsUsed: string[];
   toolStatuses?: Record<string, string>;
+  engineStatuses?: Record<string, EngineReportStatus>;
   findings: Array<{
     id?: string;
     scanner: string;
@@ -49,6 +61,9 @@ export interface ReportData {
     severity: string;
     url?: string;
     description?: string;
+    evidence?: unknown;
+    httpRequest?: string;
+    httpResponse?: string;
     rawJson?: Record<string, unknown>;
   }>;
   aiAnalysis?: string;
@@ -83,10 +98,19 @@ export class ReportService {
     }
 
     const scanRecord = scan as Record<string, unknown>;
-    const toolsUsed: string[] = (scan.config as { tools?: string[] })?.tools || [];
+    const configuredTools: string[] = (scan.config as { tools?: string[] })?.tools || [];
+    const rawEngineStatuses = scanRecord.engineStatuses;
+    const engineStatuses: Record<string, EngineReportStatus> =
+      rawEngineStatuses && typeof rawEngineStatuses === 'object' && !Array.isArray(rawEngineStatuses)
+        ? (rawEngineStatuses as Record<string, EngineReportStatus>)
+        : {};
+    const toolsUsed = [...configuredTools];
+    for (const engine of Object.keys(engineStatuses)) {
+      if (!toolsUsed.includes(engine)) toolsUsed.push(engine);
+    }
     const toolStatuses: Record<string, string> = {};
     for (const t of toolsUsed) {
-      toolStatuses[t] = String(scanRecord[`${t}Status`] || 'UNKNOWN');
+      toolStatuses[t] = String(engineStatuses[t]?.status || scanRecord[`${t}Status`] || 'UNKNOWN');
     }
 
     return {
@@ -98,7 +122,8 @@ export class ReportService {
       endTime: scan.endTime ? String(scan.endTime) : undefined,
       toolsUsed,
       toolStatuses,
-      findings,
+      engineStatuses,
+      findings: findings as ReportData['findings'],
       aiAnalysis
     };
   }
@@ -132,12 +157,16 @@ export class ReportService {
     const tools = toolsUsed !== undefined ? toolsUsed : inferredTools;
     const toolsRequested = tools.length;
     let toolsCompleted = 0;
+    let toolsPartial = 0;
+    let toolsSkipped = 0;
     let toolsFailed = 0;
 
     if (toolStatuses && toolsRequested > 0) {
       for (const t of tools) {
         const s = (toolStatuses[t] || '').toUpperCase();
         if (s === 'COMPLETED') toolsCompleted++;
+        else if (s === 'DEGRADED' || s === 'PARTIAL') toolsPartial++;
+        else if (s === 'SKIPPED') toolsSkipped++;
         else if (s === 'FAILED' || s === 'STOPPED' || s === 'CANCELLED') toolsFailed++;
       }
     } else if (normStatus === 'COMPLETED') {
@@ -183,14 +212,14 @@ export class ReportService {
       assessmentLabel = 'Assessment In Progress';
       coverageStatus = 'PARTIAL';
       coverageLimitation = 'Scan is actively executing. Interim findings do not represent a final assessment.';
-    } else if (toolsFailed > 0 || (toolsCompleted < toolsRequested && normStatus !== 'COMPLETED')) {
+    } else if (toolsFailed > 0 || toolsPartial > 0 || toolsSkipped > 0 || (toolsCompleted < toolsRequested && normStatus !== 'COMPLETED')) {
       coverageStatus = 'PARTIAL';
       assessmentStatus = 'PARTIAL_COVERAGE';
       if (total === 0) {
         grade = 'N/A';
         gradeColor = '#f59e0b';
         assessmentLabel = 'Inconclusive (Partial Coverage)';
-        coverageLimitation = `Scan completed partially (${toolsCompleted}/${toolsRequested} tools succeeded, ${toolsFailed} failed). Zero findings does not imply the target is secure.`;
+        coverageLimitation = `Scan completed partially (${toolsCompleted}/${toolsRequested} tools fully succeeded, ${toolsPartial} degraded, ${toolsSkipped} skipped, ${toolsFailed} failed). Zero findings does not imply the target is secure.`;
       } else {
         if (critical > 0 || riskScore >= 50) { grade = 'F'; gradeColor = '#ef4444'; }
         else if (high > 1 || riskScore >= 35) { grade = 'D'; gradeColor = '#f97316'; }
@@ -198,7 +227,7 @@ export class ReportService {
         else if (medium > 0 || low > 5 || riskScore >= 10) { grade = 'B'; gradeColor = '#3b82f6'; }
         else { grade = 'B'; gradeColor = '#3b82f6'; }
         assessmentLabel = `${grade} (Partial Coverage)`;
-        coverageLimitation = `Some tool executions failed or were skipped (${toolsFailed} failed). Additional vulnerabilities may exist in unassessed areas.`;
+        coverageLimitation = `Some engines were degraded, skipped, or failed (${toolsPartial} degraded, ${toolsSkipped} skipped, ${toolsFailed} failed). Additional vulnerabilities may exist in unassessed areas.`;
       }
     } else if (normStatus === 'COMPLETED') {
       coverageStatus = 'FULL';
@@ -242,6 +271,8 @@ export class ReportService {
       coverageStatus,
       toolsRequested,
       toolsCompleted,
+      toolsPartial,
+      toolsSkipped,
       toolsFailed,
       coverageLimitation
     };
@@ -273,6 +304,26 @@ export class ReportService {
         info: 'background:#3b82f6; color:#fff;',
       };
       const badgeStyle = sevBadgeColors[sev] || 'background:#64748b; color:#fff;';
+      const evidenceText = f.evidence === undefined || f.evidence === null
+        ? ''
+        : typeof f.evidence === 'string'
+          ? f.evidence
+          : JSON.stringify(f.evidence, null, 2);
+      const evidenceBlock = evidenceText
+        ? `<details style="margin-top:10px;"><summary style="cursor:pointer; font-size:12px; color:#38bdf8; font-weight:600;">HTTP Evidence</summary>
+             <pre style="white-space:pre-wrap; word-break:break-all; background:#0b1220; border:1px solid #1e293b; border-radius:8px; padding:10px; font-size:11px; color:#cbd5e1; max-height:320px; overflow:auto;">${escapeHtml(evidenceText.slice(0, 8000))}</pre>
+           </details>`
+        : '';
+      const requestBlock = f.httpRequest
+        ? `<details style="margin-top:8px;"><summary style="cursor:pointer; font-size:12px; color:#a5b4fc; font-weight:600;">HTTP Request</summary>
+             <pre style="white-space:pre-wrap; word-break:break-all; background:#0b1220; border:1px solid #1e293b; border-radius:8px; padding:10px; font-size:11px; color:#cbd5e1;">${escapeHtml(f.httpRequest.slice(0, 8000))}</pre>
+           </details>`
+        : '';
+      const responseBlock = f.httpResponse
+        ? `<details style="margin-top:8px;"><summary style="cursor:pointer; font-size:12px; color:#86efac; font-weight:600;">HTTP Response</summary>
+             <pre style="white-space:pre-wrap; word-break:break-all; background:#0b1220; border:1px solid #1e293b; border-radius:8px; padding:10px; font-size:11px; color:#cbd5e1;">${escapeHtml(f.httpResponse.slice(0, 8000))}</pre>
+           </details>`
+        : '';
 
       return `
         <div class="finding-card" style="background:#111a2e; border:1px solid #1e293b; border-radius:12px; margin-bottom:14px; padding:18px; transition:border-color 0.2s;">
@@ -286,9 +337,34 @@ export class ReportService {
           ${f.url ? `<div style="font-family:monospace; font-size:12px; color:#38bdf8; margin-bottom:8px; word-break:break-all;"><strong>URL:</strong> ${escapeHtml(f.url)}</div>` : ''}
           ${f.description ? `<div style="font-size:13px; color:#94a3b8; line-height:1.6; margin-bottom:8px;">${escapeHtml(f.description)}</div>` : ''}
           ${f.id ? `<div style="font-family:monospace; font-size:11px; color:#64748b;">Finding ID / Template: ${escapeHtml(f.id)}</div>` : ''}
+          ${evidenceBlock}
+          ${requestBlock}
+          ${responseBlock}
         </div>
       `;
     }).join('\n');
+
+    const coverageBadgeStyle = (status: string) => {
+      if (status === 'COMPLETED') return 'background:rgba(16,185,129,0.15); color:#34d399; border:1px solid rgba(16,185,129,0.4);';
+      if (status === 'DEGRADED' || status === 'PARTIAL') return 'background:rgba(245,158,11,0.15); color:#fbbf24; border:1px solid rgba(245,158,11,0.4);';
+      if (status === 'SKIPPED') return 'background:rgba(148,163,184,0.15); color:#cbd5e1; border:1px solid rgba(148,163,184,0.4);';
+      return 'background:rgba(244,63,94,0.15); color:#fb7185; border:1px solid rgba(244,63,94,0.4);';
+    };
+    const coverageHtml = data.toolsUsed.length === 0
+      ? '<tr><td colspan="5" style="padding:12px; color:#94a3b8; text-align:center;">No engines were invoked.</td></tr>'
+      : data.toolsUsed.map(engine => {
+        const detail = data.engineStatuses?.[engine];
+        const status = String(detail?.status || data.toolStatuses?.[engine] || 'UNKNOWN').toUpperCase();
+        const duration = typeof detail?.durationMs === 'number' ? `${(detail.durationMs / 1000).toFixed(1)}s` : '-';
+        const resultCount = typeof detail?.resultCount === 'number' ? String(detail.resultCount) : '-';
+        return `<tr>
+          <td style="padding:8px 10px; border-top:1px solid #1e293b; font-family:monospace; color:#e2e8f0;">${escapeHtml(engine)}</td>
+          <td style="padding:8px 10px; border-top:1px solid #1e293b;"><span style="font-size:10px; font-weight:700; padding:2px 8px; border-radius:10px; text-transform:uppercase; ${coverageBadgeStyle(status)}">${escapeHtml(status)}</span></td>
+          <td style="padding:8px 10px; border-top:1px solid #1e293b; color:#cbd5e1; text-align:right; font-family:monospace;">${escapeHtml(resultCount)}</td>
+          <td style="padding:8px 10px; border-top:1px solid #1e293b; color:#cbd5e1; text-align:right; font-family:monospace;">${escapeHtml(duration)}</td>
+          <td style="padding:8px 10px; border-top:1px solid #1e293b; color:#94a3b8; font-size:11px;">${escapeHtml(detail?.reason || '-')}</td>
+        </tr>`;
+      }).join('');
 
     const html = `<!DOCTYPE html>
 <html lang="en">
@@ -333,7 +409,7 @@ export class ReportService {
         </div>
       </div>
       <div style="margin-top:16px; padding-top:14px; border-top:1px solid #334155; font-size:12px; color:#cbd5e1;">
-        <strong>Engines Deployed:</strong> ${data.toolsUsed.length > 0 ? escapeHtml(data.toolsUsed.join(', ')) : 'None'} (${stats.toolsCompleted}/${stats.toolsRequested} completed)
+        <strong>Engines Deployed:</strong> ${data.toolsUsed.length > 0 ? escapeHtml(data.toolsUsed.join(', ')) : 'None'} (${stats.toolsCompleted}/${stats.toolsRequested} fully covered)
       </div>
     </div>
 
@@ -341,9 +417,26 @@ export class ReportService {
     <div style="background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:16px; margin-bottom:24px; font-size:12px; color:#94a3b8; line-height:1.6;">
       <strong style="color:#cbd5e1;">Assessment Scope, Status & Limitations:</strong><br>
       • <strong>Assessment Status:</strong> ${escapeHtml(stats.assessmentStatus)} (${escapeHtml(stats.assessmentLabel)})<br>
-      • <strong>Coverage Posture:</strong> ${escapeHtml(stats.coverageStatus)} (${stats.toolsCompleted}/${stats.toolsRequested} tools succeeded, ${stats.toolsFailed} failed)<br>
+      • <strong>Coverage Posture:</strong> ${escapeHtml(stats.coverageStatus)} (${stats.toolsCompleted}/${stats.toolsRequested} fully covered, ${stats.toolsPartial} degraded, ${stats.toolsSkipped} skipped, ${stats.toolsFailed} failed)<br>
       • <strong>Assurance Limitation:</strong> ${escapeHtml(stats.coverageLimitation)}<br>
       • <strong>Scoring Notice:</strong> The Risk Score (${stats.riskScore}/100) is an internal operational prioritization index (Critical: 10, High: 6, Medium: 3, Low: 1) and is distinct from official CVSS, EPSS, or CISA KEV scores.
+    </div>
+
+    <!-- Engine Coverage Matrix -->
+    <div style="background:#0f172a; border:1px solid #1e293b; border-radius:12px; padding:16px; margin-bottom:24px;">
+      <h3 style="margin:0 0 10px 0; font-size:14px; color:#e2e8f0;">Engine Coverage Matrix</h3>
+      <table style="width:100%; border-collapse:collapse; font-size:12px;">
+        <thead>
+          <tr style="color:#94a3b8; text-align:left; font-size:10px; text-transform:uppercase; letter-spacing:0.05em;">
+            <th style="padding:0 10px 6px 10px;">Engine</th>
+            <th style="padding:0 10px 6px 10px;">Status</th>
+            <th style="padding:0 10px 6px 10px; text-align:right;">Results</th>
+            <th style="padding:0 10px 6px 10px; text-align:right;">Duration</th>
+            <th style="padding:0 10px 6px 10px;">Reason</th>
+          </tr>
+        </thead>
+        <tbody>${coverageHtml}</tbody>
+      </table>
     </div>
 
     <!-- Severity Summary -->
@@ -414,12 +507,28 @@ export class ReportService {
     md += `**Scan ID:** \`${data.scanId}\`  \n`;
     md += `**Assessment Status:** \`${stats.assessmentStatus}\` (${stats.assessmentLabel})  \n`;
     md += `**Overall Security Grade:** **${stats.grade}** (Risk Score: ${stats.riskScore}/100)  \n`;
-    md += `**Engines Coverage:** ${stats.toolsCompleted}/${stats.toolsRequested} tools completed successfully (${stats.coverageStatus})  \n`;
+    md += `**Engines Coverage:** ${stats.toolsCompleted}/${stats.toolsRequested} fully covered, ${stats.toolsPartial} degraded, ${stats.toolsSkipped} skipped, ${stats.toolsFailed} failed (${stats.coverageStatus})  \n`;
     if (data.workflow) md += `**Workflow:** ${data.workflow.kind}; source scan: ${data.workflow.sourceScanId}; source item: ${data.workflow.findingId ?? data.workflow.endpointId}. Retest does not automatically establish remediation.\n\n`;
     md += `**Generated:** ${new Date().toISOString()}  \n\n`;
 
     md += `> **Scope & Assurance Limitation**: ${stats.coverageLimitation}\n\n`;
     md += `> **Notice**: Risk Score is an internal operational index (Critical: 10, High: 6, Medium: 3, Low: 1) and does not represent an official CVSS or EPSS score.\n\n`;
+
+    md += `## Engine Coverage Matrix\n\n`;
+    const mdCell = (value: unknown) => String(value ?? '-').replace(/\|/g, '\\|').replace(/\s+/g, ' ').trim() || '-';
+    md += `| Engine | Status | Results | Duration | Reason |\n| :--- | :--- | ---: | ---: | :--- |\n`;
+    if (data.toolsUsed.length === 0) {
+      md += `| - | NOT RUN | - | - | No engines were invoked. |\n`;
+    } else {
+      for (const engine of data.toolsUsed) {
+        const detail = data.engineStatuses?.[engine];
+        const status = String(detail?.status || data.toolStatuses?.[engine] || 'UNKNOWN').toUpperCase();
+        const duration = typeof detail?.durationMs === 'number' ? `${(detail.durationMs / 1000).toFixed(1)}s` : '-';
+        const resultCount = typeof detail?.resultCount === 'number' ? String(detail.resultCount) : '-';
+        md += `| ${mdCell(engine)} | ${mdCell(status)} | ${resultCount} | ${duration} | ${mdCell(detail?.reason || '-')} |\n`;
+      }
+    }
+    md += `\n`;
 
     md += `## Executive Summary\n\n`;
     md += `| Severity | Count |\n`;
@@ -447,6 +556,12 @@ export class ReportService {
         if (f.url) md += `- **Affected URL:** \`${f.url}\`\n`;
         if (f.id) md += `- **Finding ID:** \`${f.id}\`\n`;
         if (f.description) md += `- **Description:** ${f.description}\n`;
+        if (f.evidence !== undefined && f.evidence !== null) {
+          const evidenceText = typeof f.evidence === 'string' ? f.evidence : JSON.stringify(f.evidence, null, 2);
+          md += `\n**Evidence:**\n\n\`\`\`json\n${evidenceText.slice(0, 8000)}\n\`\`\`\n`;
+        }
+        if (f.httpRequest) md += `\n**HTTP Request:**\n\n\`\`\`http\n${f.httpRequest.slice(0, 8000)}\n\`\`\`\n`;
+        if (f.httpResponse) md += `\n**HTTP Response:**\n\n\`\`\`http\n${f.httpResponse.slice(0, 8000)}\n\`\`\`\n`;
         md += `\n---\n\n`;
       });
     }
@@ -492,68 +607,107 @@ export class ReportService {
       return 'note';
     };
 
-    const rulesMap = new Map<string, { id: string; name: string; shortDescription: { text: string }; defaultConfiguration: { level: 'error' | 'warning' | 'note' | 'none' } }>();
-    
-    for (const f of data.findings) {
-      const ruleId = f.id || `${f.scanner}-${(f.name || 'finding').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-      if (!rulesMap.has(ruleId)) {
-        rulesMap.set(ruleId, {
-          id: ruleId,
-          name: f.name || 'Security Finding',
-          shortDescription: { text: f.name || 'Security Finding' },
-          defaultConfiguration: {
-            level: mapSarifLevel(f.severity)
-          }
-        });
+    const engineNames = [...new Set([
+      ...data.toolsUsed,
+      ...data.findings.map(f => f.scanner).filter(Boolean)
+    ])];
+    const runEngines = engineNames.length > 0 ? engineNames : ['recon-app'];
+    const ruleIdFor = (f: ReportData['findings'][number]) =>
+      f.id || `${f.scanner}-${(f.name || 'finding').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
+    const endTimeUtc = data.endTime || new Date().toISOString();
+
+    const runs = runEngines.map(engine => {
+      const detail = data.engineStatuses?.[engine];
+      const status = String(
+        detail?.status || data.toolStatuses?.[engine] || (engine === 'recon-app' ? data.status : 'UNKNOWN')
+      ).toUpperCase();
+      const engineFindings = engine === 'recon-app'
+        ? data.findings
+        : data.findings.filter(f => String(f.scanner || '').toLowerCase() === engine.toLowerCase());
+
+      const engineRules = new Map<string, { id: string; name: string; shortDescription: { text: string }; defaultConfiguration: { level: 'error' | 'warning' | 'note' | 'none' } }>();
+      for (const f of engineFindings) {
+        const ruleId = ruleIdFor(f);
+        if (!engineRules.has(ruleId)) {
+          engineRules.set(ruleId, {
+            id: ruleId,
+            name: f.name || 'Security Finding',
+            shortDescription: { text: f.name || 'Security Finding' },
+            defaultConfiguration: { level: mapSarifLevel(f.severity) }
+          });
+        }
       }
-    }
+
+      const executionSuccessful = ['COMPLETED', 'DEGRADED', 'PARTIAL'].includes(status);
+      const notifications = status === 'COMPLETED'
+        ? undefined
+        : [{
+            level: status === 'FAILED' ? 'error' : 'warning',
+            message: {
+              text: `${engine} coverage status: ${status}. ${detail?.reason || 'Coverage was reduced or the engine was not applicable.'}`
+            },
+            timeUtc: endTimeUtc,
+            descriptor: { id: `engine-coverage-${status.toLowerCase()}` },
+            properties: { scanner: engine, status }
+          }];
+
+      return {
+        tool: {
+          driver: {
+            name: `SecOps Recon - ${engine}`,
+            version: '2.0.0',
+            informationUri: 'https://github.com/SecOps/recon-app',
+            rules: Array.from(engineRules.values())
+          }
+        },
+        invocations: [
+          {
+            executionSuccessful,
+            exitCode: typeof detail?.exitCode === 'number' ? detail.exitCode : undefined,
+            startTimeUtc: data.startTime,
+            endTimeUtc,
+            properties: {
+              status,
+              reason: detail?.reason,
+              resultCount: detail?.resultCount,
+              durationMs: detail?.durationMs,
+              artifactPath: detail?.artifactPath
+            },
+            ...(notifications ? { toolExecutionNotifications: notifications } : {})
+          }
+        ],
+        results: engineFindings.map(f => {
+          const ruleId = ruleIdFor(f);
+          return {
+            ruleId,
+            level: mapSarifLevel(f.severity),
+            message: {
+              text: f.description || f.name || 'Security Finding'
+            },
+            locations: f.url ? [
+              {
+                physicalLocation: {
+                  artifactLocation: {
+                    uri: f.url
+                  }
+                }
+              }
+            ] : undefined,
+            properties: {
+              scanner: f.scanner,
+              originalSeverity: f.severity,
+              target: data.target,
+              engineStatus: status
+            }
+          };
+        })
+      };
+    });
 
     const sarifPayload = {
       $schema: 'https://raw.githubusercontent.com/oasis-tcs/sarif-spec/master/Schemata/sarif-schema-2.1.0.json',
       version: '2.1.0',
-      runs: [
-        {
-          tool: {
-            driver: {
-              name: 'SecOps Recon App',
-              version: '2.0.0',
-              informationUri: 'https://github.com/SecOps/recon-app',
-              rules: Array.from(rulesMap.values())
-            }
-          },
-          invocations: [
-            {
-              executionSuccessful: data.status !== 'FAILED',
-              startTimeUtc: data.startTime,
-              endTimeUtc: data.endTime || new Date().toISOString()
-            }
-          ],
-          results: data.findings.map(f => {
-            const ruleId = f.id || `${f.scanner}-${(f.name || 'finding').replace(/[^a-zA-Z0-9_-]/g, '_')}`;
-            return {
-              ruleId,
-              level: mapSarifLevel(f.severity),
-              message: {
-                text: f.description || f.name || 'Security Finding'
-              },
-              locations: f.url ? [
-                {
-                  physicalLocation: {
-                    artifactLocation: {
-                      uri: f.url
-                    }
-                  }
-                }
-              ] : undefined,
-              properties: {
-                scanner: f.scanner,
-                originalSeverity: f.severity,
-                target: data.target
-              }
-            };
-          })
-        }
-      ]
+      runs
     };
 
     await fsPromises.writeFile(reportPath, JSON.stringify(sarifPayload, null, 2), 'utf8');
@@ -596,7 +750,7 @@ export class ReportService {
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       logger.error(`Failed to generate PDF report for ${scanId}: ${msg}`);
-      throw new Error(`PDF generation failed: ${msg}`);
+      throw new Error(`PDF generation failed: ${msg}`, { cause: err });
     }
   }
 }

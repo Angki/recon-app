@@ -1,19 +1,22 @@
 import { useState, useEffect } from 'react';
 import { Routes, Route, Link, useLocation } from 'react-router-dom';
 import { Shield, History, Settings as SettingsIcon, Cpu, Layers, ShieldAlert, Radio } from 'lucide-react';
-import { useScanStore } from './stores/useScanStore';
+import { useScanStore, type ScannerType } from './stores/useScanStore';
 import Dashboard from './pages/Dashboard';
 import HistoryPage from './pages/History';
 import SettingsPage from './pages/Settings';
 import Endpoints from './pages/Endpoints';
 import { CommandHeader } from './components/CommandHeader';
 import { ToolsHubModal } from './components/ToolsHubModal';
+import { ToastViewport } from './components/ui/ToastViewport';
 import './App.css';
 
 function App() {
   const location = useLocation();
   const [showToolsHub, setShowToolsHub] = useState(false);
   const [appVersion, setAppVersion] = useState('1.0.0');
+  const workspaceTab = useScanStore((state) => state.workspaceTab);
+  const setWorkspaceTab = useScanStore((state) => state.setWorkspaceTab);
 
   useEffect(() => {
     window.api?.getAppVersion?.().then((v) => {
@@ -21,13 +24,33 @@ function App() {
     }).catch(() => {});
   }, []);
 
-  const getNavClass = (path: string) => {
-    const isActive = location.pathname === path;
-    return `flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm font-medium ${
+  const isWorkspace = location.pathname === '/';
+  const isConfigView = isWorkspace && workspaceTab === 'config';
+  const isLiveView = isWorkspace && workspaceTab === 'live';
+  const isFindingsView = isWorkspace && workspaceTab === 'findings';
+
+  const getStepClass = (isActive: boolean, activeClass = 'bg-[var(--accent-primary)] text-white shadow-md shadow-[var(--accent-glow)] font-semibold') => (
+    `flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium ${
+      isActive
+        ? activeClass
+        : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
+    }`
+  );
+
+  const getPageClass = (isActive: boolean) => (
+    `flex items-center space-x-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm font-medium ${
       isActive
         ? 'bg-[var(--accent-primary)] text-white shadow-md shadow-[var(--accent-glow)] font-semibold'
         : 'text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'
-    }`;
+    }`
+  );
+
+  const openLiveWorkspace = () => {
+    const state = useScanStore.getState();
+    setWorkspaceTab('live');
+    if (state.activeTab === 'findings' || state.activeTab === 'ai') {
+      state.setActiveTab((state.selectedTools[0] as ScannerType) || 'sqlmap');
+    }
   };
 
   return (
@@ -55,10 +78,11 @@ function App() {
         </div>
 
         <nav className="flex-1 space-y-1" aria-label="Assessment Pipeline Navigation">
-          <Link 
-            to="/" 
-            onClick={() => useScanStore.getState().setActiveTab('nuclei')}
-            className={getNavClass('/') && location.pathname === '/' && useScanStore.getState().activeTab !== 'findings' ? 'flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-semibold bg-[var(--accent-primary)] text-white shadow-md shadow-[var(--accent-glow)]' : 'flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'}
+          <Link
+            to="/"
+            onClick={() => setWorkspaceTab('config')}
+            className={getStepClass(isConfigView)}
+            aria-current={isConfigView ? 'step' : undefined}
             aria-label="1. Target and Engagement Scope"
           >
             <Shield className="w-4 h-4 text-cyan-400 shrink-0" />
@@ -68,9 +92,10 @@ function App() {
             </div>
           </Link>
 
-          <Link 
-            to="/endpoints" 
-            className={getNavClass('/endpoints')}
+          <Link
+            to="/endpoints"
+            className={getStepClass(location.pathname === '/endpoints')}
+            aria-current={location.pathname === '/endpoints' ? 'step' : undefined}
             aria-label="2. Requests and Authentication Workspace"
           >
             <Layers className="w-4 h-4 text-indigo-400 shrink-0" />
@@ -85,6 +110,8 @@ function App() {
             onClick={() => setShowToolsHub(true)}
             className="w-full flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)] cursor-pointer text-left"
             aria-label="3. Engines and Preflight Healthchecks"
+            aria-haspopup="dialog"
+            aria-expanded={showToolsHub}
           >
             <Cpu className="w-4 h-4 text-emerald-400 shrink-0" />
             <div className="flex flex-col">
@@ -93,13 +120,11 @@ function App() {
             </div>
           </button>
 
-          <Link 
-            to="/" 
-            onClick={() => {
-              const active = useScanStore.getState().activeTab;
-              if (active === 'findings') useScanStore.getState().setActiveTab('sqlmap');
-            }}
-            className="flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]"
+          <Link
+            to="/"
+            onClick={openLiveWorkspace}
+            className={getStepClass(isLiveView)}
+            aria-current={isLiveView ? 'step' : undefined}
             aria-label="4. Run and Live Telemetry"
           >
             <Radio className="w-4 h-4 text-amber-400 shrink-0" />
@@ -109,10 +134,14 @@ function App() {
             </div>
           </Link>
 
-          <Link 
-            to="/" 
-            onClick={() => useScanStore.getState().setActiveTab('findings')}
-            className={location.pathname === '/' && useScanStore.getState().activeTab === 'findings' ? 'flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-semibold bg-rose-600/90 text-white shadow-md shadow-rose-900/40' : 'flex items-center space-x-3 px-3 py-2 rounded-xl transition-all duration-200 text-xs font-medium text-[var(--text-secondary)] hover:bg-white/5 hover:text-[var(--text-primary)]'}
+          <Link
+            to="/"
+            onClick={() => {
+              setWorkspaceTab('findings');
+              useScanStore.getState().setActiveTab('findings');
+            }}
+            className={getStepClass(isFindingsView, 'bg-rose-600/90 text-white shadow-md shadow-rose-900/40 font-semibold')}
+            aria-current={isFindingsView ? 'step' : undefined}
             aria-label="5. Findings and Verified Evidence"
           >
             <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
@@ -122,9 +151,10 @@ function App() {
             </div>
           </Link>
 
-          <Link 
-            to="/history" 
-            className={getNavClass('/history')}
+          <Link
+            to="/history"
+            className={getStepClass(location.pathname === '/history')}
+            aria-current={location.pathname === '/history' ? 'step' : undefined}
             aria-label="6. Retests, Baselines, and Compliance Reports"
           >
             <History className="w-4 h-4 text-sky-400 shrink-0" />
@@ -136,7 +166,12 @@ function App() {
         </nav>
 
         <div className="pt-3 border-t border-[var(--border-card)] space-y-1">
-          <Link to="/settings" className={getNavClass('/settings')} aria-label="System Settings">
+          <Link
+            to="/settings"
+            className={getPageClass(location.pathname === '/settings')}
+            aria-current={location.pathname === '/settings' ? 'page' : undefined}
+            aria-label="System Settings"
+          >
             <SettingsIcon className="w-4 h-4" />
             <span>Settings</span>
           </Link>
@@ -182,6 +217,8 @@ function App() {
       {showToolsHub && (
         <ToolsHubModal isOpen={showToolsHub} onClose={() => setShowToolsHub(false)} />
       )}
+
+      <ToastViewport />
     </div>
   );
 }

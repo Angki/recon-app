@@ -114,8 +114,8 @@ test('runner persists success/failure and rejects missing active plan before lau
       const result = await service.startScan(sender,target,{tools:['sqlmap'],activeValidation:plan});
       assert.equal(result.success,true,result.error);
       const end = Date.now()+10000;
-      while (!events.some(e => e.channel==='scan:status' && e.data.scanId===result.scanId && e.data.status===expected) && Date.now()<end) await new Promise(r => setTimeout(r,25));
-      assert.ok(events.some(e => e.channel==='scan:status' && e.data.scanId===result.scanId && e.data.status===expected));
+      while (!events.some(e => e.channel==='scan:status' && e.data.scanId===result.scanId && e.data.scanner==='sqlmap' && e.data.status===expected) && Date.now()<end) await new Promise(r => setTimeout(r,25));
+      assert.ok(events.some(e => e.channel==='scan:status' && e.data.scanId===result.scanId && e.data.scanner==='sqlmap' && e.data.status===expected));
       if (expected==='COMPLETED') {
         assert.ok(events.some(e => e.channel==='scan:findings' && e.data.scanId===result.scanId));
         const {ReportService} = await import('../electron/services/reportService');
@@ -135,7 +135,7 @@ test('runner persists success/failure and rejects missing active plan before lau
       assert.equal(result.success,true,result.error);
       const expected = bad ? 'FAILED' : 'COMPLETED';
       const end = Date.now()+10000;
-      while (!events.some(e => e.channel==='scan:status' && e.data.scanId===result.scanId && e.data.status===expected) && Date.now()<end) await new Promise(r => setTimeout(r,25));
+      while (!events.some(e => e.channel==='scan:status' && e.data.scanId===result.scanId && e.data.scanner==='nikto' && e.data.status===expected) && Date.now()<end) await new Promise(r => setTimeout(r,25));
       assert.equal(dbService.getScanById(result.scanId!)?.status,expected);
     }
     const commixScript = path.join(dir,'commix.py');
@@ -147,7 +147,7 @@ test('runner persists success/failure and rejects missing active plan before lau
       assert.equal(result.success,true,result.error);
       const expected = status === 'completed' ? 'COMPLETED' : 'FAILED';
       const end = Date.now()+10000;
-      while (!events.some(e=>e.channel==='scan:status' && e.data.scanId===result.scanId && e.data.status===expected) && Date.now()<end) await new Promise(r=>setTimeout(r,25));
+      while (!events.some(e=>e.channel==='scan:status' && e.data.scanId===result.scanId && e.data.scanner==='commix' && e.data.status===expected) && Date.now()<end) await new Promise(r=>setTimeout(r,25));
       assert.equal(dbService.getScanById(result.scanId!)?.status,expected);
       if (expected==='COMPLETED') assert.equal(dbService.getFindings(result.scanId!)[0].scanner,'commix');
     }
