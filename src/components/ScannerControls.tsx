@@ -272,7 +272,7 @@ export default function ScannerControls({
                   ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40 shadow-sm'
                   : 'text-[var(--text-muted)] hover:text-[var(--text-primary)] border border-transparent'
               }`}
-              title="Mode Serentak (Parallel): Menjalankan semua scanner terpilih bersamaan sekaligus."
+              title="Mode Serentak (Parallel): Menjalankan semua scanner terpilih bersamaan. Rangkaian discovery (subfinder → dnsx → httpx) tetap berurutan agar host hasil temuan diteruskan ke engine berikutnya."
             >
               <span>⚡ Serentak</span>
             </button>

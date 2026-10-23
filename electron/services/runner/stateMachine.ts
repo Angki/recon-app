@@ -139,16 +139,22 @@ export class ScanStateMachine {
   static recoverDanglingScans(db: {
     getDanglingScans: () => { scanId: string; status: string }[];
     updateScanStatus: (scanId: string, status: string, endTime?: string) => void;
+    stopNonTerminalEngines?: (scanId: string, reason: string, updatedAt: string) => number;
   }): number {
     const dangling = db.getDanglingScans();
     if (dangling.length === 0) return 0;
 
     logger.warn(`Found ${dangling.length} dangling scan(s) from previous session. Recovering...`);
     const now = new Date().toISOString();
+    const engineReason = 'Interrupted when the application session ended; no active engine process remained.';
 
     for (const scan of dangling) {
       logger.info(`Reconciling dangling scan ${scan.scanId} (${scan.status} -> INTERRUPTED)`);
       db.updateScanStatus(scan.scanId, 'INTERRUPTED', now);
+      const stoppedEngines = db.stopNonTerminalEngines?.(scan.scanId, engineReason, now) ?? 0;
+      if (stoppedEngines > 0) {
+        logger.info(`Marked ${stoppedEngines} stale engine status(es) STOPPED for dangling scan ${scan.scanId}`);
+      }
     }
 
     return dangling.length;

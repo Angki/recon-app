@@ -70,9 +70,9 @@ test('engine outcome evaluator: completed, degraded, failed and skipped contract
   assert.match(missingArtifact.reason, /required result artifact/i);
 
   fs.writeFileSync(wapitiCtx.jsonFile, '{}');
-  const wapitiWarn = evaluateEngineOutcome(outcomeInput(wapitiCtx, { exitCode: 1 }));
-  assert.equal(wapitiWarn.status, 'PARTIAL');
-  assert.match(wapitiWarn.reason, /non-fatal warnings/i);
+  const wapitiExitOne = evaluateEngineOutcome(outcomeInput(wapitiCtx, { exitCode: 1 }));
+  assert.equal(wapitiExitOne.status, 'COMPLETED');
+  assert.match(wapitiExitOne.reason, /empty report|no findings/i);
 
   const zapCtx = outcomeFixture(dir, 'zap');
   fs.writeFileSync(zapCtx.jsonFile, JSON.stringify({ site: [] }));
@@ -87,9 +87,10 @@ test('engine outcome evaluator: completed, degraded, failed and skipped contract
 
   const dalfoxCtx = outcomeFixture(dir, 'dalfox');
   fs.writeFileSync(dalfoxCtx.jsonFile, '{}');
-  const dalfoxUsage = evaluateEngineOutcome(outcomeInput(dalfoxCtx, { exitCode: 2 }));
-  assert.equal(dalfoxUsage.status, 'FAILED');
-  assert.match(dalfoxUsage.reason, /usage error/i);
+  const dalfoxNoReport = evaluateEngineOutcome(outcomeInput(dalfoxCtx, { exitCode: 2 }));
+  assert.equal(dalfoxNoReport.status, 'FAILED');
+  assert.match(dalfoxNoReport.reason, /without a usable scan report/i);
+  assert.doesNotMatch(dalfoxNoReport.reason, /usage error/i);
 
   const stopped = evaluateEngineOutcome(outcomeInput(ctx, { userStopped: true }));
   assert.equal(stopped.status, 'STOPPED');

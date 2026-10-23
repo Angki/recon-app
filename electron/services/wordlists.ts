@@ -35,27 +35,56 @@ const DEFAULT_CONTENT_PATHS = [
   'help', 'support'
 ];
 
-let cachedDefaultPath: string | null = null;
+const MIN_WORDLIST_ENTRIES = 8;
+const MAX_WORDLIST_BYTES = 20 * 1024 * 1024;
+
+function usableEntryCount(filePath: string): number {
+  try {
+    if (!fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) return 0;
+    const stats = fs.statSync(filePath);
+    if (stats.size === 0 || stats.size > MAX_WORDLIST_BYTES) return 0;
+
+    const buffer = fs.readFileSync(filePath);
+    if (buffer.length >= 2) {
+      const hasUtf16Bom = (buffer[0] === 0xFF && buffer[1] === 0xFE) || (buffer[0] === 0xFE && buffer[1] === 0xFF);
+      if (hasUtf16Bom) return 0;
+    }
+    // NUL bytes indicate UTF-16/UTF-32 or a binary file, which FFUF cannot consume as UTF-8 paths.
+    if (buffer.includes(0)) return 0;
+
+    const text = buffer.toString('utf8').replace(/^\uFEFF/, '');
+    if (text.includes('\uFFFD')) return 0;
+
+    return text.split(/\r?\n/).filter(line => {
+      const entry = line.trim();
+      return entry.length > 0 && !entry.startsWith('#');
+    }).length;
+  } catch {
+    return 0;
+  }
+}
+
+function isUsableWordlist(filePath: string): boolean {
+  return usableEntryCount(filePath) >= MIN_WORDLIST_ENTRIES;
+}
 
 export function resolveWordlist(configuredPath?: string): string | null {
   const configured = (configuredPath || '').trim();
   if (configured) {
     const resolved = path.resolve(process.cwd(), configured);
-    return fs.existsSync(resolved) && fs.statSync(resolved).isFile() ? resolved : null;
+    if (isUsableWordlist(resolved)) return resolved;
   }
-
-  if (cachedDefaultPath && fs.existsSync(cachedDefaultPath)) return cachedDefaultPath;
 
   const dir = path.join(os.homedir(), 'Documents', 'SecOpsScans', 'wordlists');
   const file = path.join(dir, 'common.txt');
+  if (isUsableWordlist(file)) return file;
+
   try {
-    if (!fs.existsSync(file)) {
-      fs.mkdirSync(dir, { recursive: true });
-      fs.writeFileSync(file, `${DEFAULT_CONTENT_PATHS.join('\n')}\n`, 'utf8');
-    }
-    cachedDefaultPath = file;
-    return file;
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(file, `${DEFAULT_CONTENT_PATHS.join('\n')}\n`, 'utf8');
+    if (isUsableWordlist(file)) return file;
   } catch {
-    return null;
+    // Fall through to the caller, which reports an actionable engine failure.
   }
+  return null;
 }

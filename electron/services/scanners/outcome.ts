@@ -80,6 +80,44 @@ function detectFatalOutput(output: string): string | null {
   return null;
 }
 
+interface DalfoxCoverage {
+  valid: boolean;
+  total: number;
+  scanned: number;
+  skipped: number;
+  skipReasons: string[];
+  incomplete: boolean;
+}
+
+function inspectDalfoxReport(context: ScannerContext): DalfoxCoverage {
+  const coverage: DalfoxCoverage = { valid: false, total: 0, scanned: 0, skipped: 0, skipReasons: [], incomplete: false };
+  try {
+    if (!fs.existsSync(context.jsonFile)) return coverage;
+    const data = JSON.parse(fs.readFileSync(context.jsonFile, 'utf8')) as {
+      findings?: unknown;
+      meta?: { incomplete?: unknown; target_summary?: unknown };
+    };
+    if (!data || typeof data !== 'object' || !Array.isArray(data.findings)) return coverage;
+    coverage.valid = true;
+    coverage.incomplete = data.meta?.incomplete === true;
+    const summaries = Array.isArray(data.meta?.target_summary) ? data.meta.target_summary : [];
+    for (const entry of summaries) {
+      if (!entry || typeof entry !== 'object') continue;
+      const summary = entry as { status?: unknown; error_code?: unknown };
+      coverage.total++;
+      if (summary.status === 'skipped' || typeof summary.error_code === 'string') {
+        coverage.skipped++;
+        if (typeof summary.error_code === 'string') coverage.skipReasons.push(summary.error_code);
+      } else {
+        coverage.scanned++;
+      }
+    }
+    return coverage;
+  } catch {
+    return coverage;
+  }
+}
+
 function inspectZapReport(context: ScannerContext): { siteCount: number; fatal: boolean } {
   let siteCount = 0;
   let fatal = false;
@@ -89,14 +127,31 @@ function inspectZapReport(context: ScannerContext): { siteCount: number; fatal: 
       const data = JSON.parse(content) as { site?: unknown[] | unknown };
       if (Array.isArray(data.site)) siteCount = data.site.length;
       else if (data.site) siteCount = 1;
-      if (/connection reset|failed to attack the url/i.test(content)) fatal = true;
+      if (/failed to attack the url/i.test(content)) fatal = true;
     }
   } catch {
     // Report inspection is best-effort; parse failures are handled separately.
   }
   const tail = readOutputTail(context);
-  if (/failed to attack the url:?\s*connection reset/i.test(tail)) fatal = true;
+  if (/failed to attack the url/i.test(tail)) fatal = true;
   return { siteCount, fatal };
+}
+
+function inspectWapitiReport(context: ScannerContext): { crawledPages: number | null; connectError: boolean } {
+  let crawledPages: number | null = null;
+  try {
+    if (fs.existsSync(context.jsonFile)) {
+      const data = JSON.parse(fs.readFileSync(context.jsonFile, 'utf8')) as {
+        infos?: { crawled_pages_nbr?: unknown };
+      };
+      if (typeof data.infos?.crawled_pages_nbr === 'number') crawledPages = data.infos.crawled_pages_nbr;
+    }
+  } catch {
+    // Report inspection is best-effort; parse failures are handled separately.
+  }
+  const tail = readOutputTail(context);
+  const connectError = /ConnectError|Wapiti found 0 URLs and forms/i.test(tail);
+  return { crawledPages, connectError };
 }
 
 export function evaluateEngineOutcome(input: EngineOutcomeInput): EngineOutcome {
@@ -151,15 +206,45 @@ export function evaluateEngineOutcome(input: EngineOutcomeInput): EngineOutcome 
   if (scanner === 'zap') {
     const report = inspectZapReport(context);
     if (report.fatal) {
-      return { ...base, status: 'FAILED', reason: 'ZAP could not attack the target (connection reset). No meaningful scan coverage was obtained.' };
+      return { ...base, status: 'FAILED', reason: 'ZAP could not attack the target (request failure such as a connection reset or HTTP 403). No meaningful scan coverage was obtained.' };
     }
     if (report.siteCount === 0) {
       return { ...base, status: 'DEGRADED', reason: 'ZAP produced a report without any scanned site records; coverage is unreliable.' };
     }
   }
 
+  if (scanner === 'wapiti') {
+    const report = inspectWapitiReport(context);
+    if (report.connectError || report.crawledPages === 0) {
+      return {
+        ...base,
+        status: 'FAILED',
+        reason: report.connectError
+          ? 'Wapiti could not crawl the target (connection error). No URLs or forms were assessed.'
+          : 'Wapiti crawled 0 pages; the report contains no assessed target coverage.'
+      };
+    }
+  }
+
+  const dalfoxCoverage = scanner === 'dalfox' ? inspectDalfoxReport(context) : null;
+
   if (scanner === 'dalfox' && exitCode === 2) {
-    return { ...base, status: 'FAILED', reason: 'Dalfox exited with a CLI/usage error (exit code 2); no scan coverage was obtained.' };
+    if (!dalfoxCoverage?.valid) {
+      return { ...base, status: 'FAILED', reason: 'Dalfox exited with code 2 without a usable scan report; no scan coverage was obtained.' };
+    }
+    if (dalfoxCoverage.scanned === 0) {
+      const codes = [...new Set(dalfoxCoverage.skipReasons)].slice(0, 3).join(', ');
+      return {
+        ...base,
+        status: 'FAILED',
+        reason: `Dalfox could not scan any target${codes ? ` (${codes})` : ''}; no XSS coverage was obtained.`
+      };
+    }
+    return {
+      ...base,
+      status: 'DEGRADED',
+      reason: `Dalfox exited with code 2 after scanning ${dalfoxCoverage.scanned} target(s)${dalfoxCoverage.skipped > 0 ? ` and skipping ${dalfoxCoverage.skipped}` : ''}; coverage is partial.`
+    };
   }
 
   if (!isSuccessExit) {
@@ -183,8 +268,15 @@ export function evaluateEngineOutcome(input: EngineOutcomeInput): EngineOutcome 
     return { ...base, status: 'FAILED', reason: `Engine reported a fatal execution problem (${fatal}); results are inconclusive.` };
   }
 
-  if (scanner === 'wapiti' && exitCode === 1) {
-    return { ...base, status: 'PARTIAL', reason: 'Wapiti exited with non-fatal warnings; a report was generated but coverage may be incomplete.' };
+  if (dalfoxCoverage?.valid && (dalfoxCoverage.skipped > 0 || dalfoxCoverage.incomplete)) {
+    const codes = [...new Set(dalfoxCoverage.skipReasons)].slice(0, 3).join(', ');
+    return {
+      ...base,
+      status: 'DEGRADED',
+      reason: dalfoxCoverage.skipped > 0
+        ? `Dalfox skipped ${dalfoxCoverage.skipped} of ${dalfoxCoverage.total} target(s)${codes ? ` (${codes})` : ''}; coverage is partial.`
+        : 'Dalfox marked the scan as incomplete; coverage is partial.'
+    };
   }
 
   if (resultCount === 0) {

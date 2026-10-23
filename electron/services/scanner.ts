@@ -11,6 +11,7 @@ import fs from 'fs';
 import { toolCatalog } from './catalog';
 import { activeRuntime, isActiveValidationTool, validateActiveConfig } from './scanners/activeValidation';
 import { endpointInventory, DISCOVERY_TOOLS } from './endpointInventory';
+import { HOST_SOURCE_SCANNERS, captureDiscoveredHosts } from './hostInventory';
 import { resolveTarget, validateToolsForTarget } from './target/targetValidator';
 import { ScopeEnforcer, type EngagementScope } from './workspace/scopeEnforcement';
 import { authService } from './workspace/authService';
@@ -21,6 +22,7 @@ import { dockerService } from './platform/dockerService';
 import { evaluateEngineOutcome } from './scanners/outcome';
 import { runHttpPosture } from './scanners/httpPosture';
 import { correlateServiceAdvisories } from './correlation/advisories';
+import { planExecution } from './pipeline/executionPlan';
 
 /** Safely send IPC to renderer — no-op if the window was already closed */
 function safeSend(sender: Electron.WebContents, channel: string, data: unknown) {
@@ -390,31 +392,47 @@ export class ScannerService {
       }, 1000));
 
       const executionMode = config.executionMode === 'concurrent' ? 'concurrent' : 'pipeline';
-      const orderedTools = executionMode === 'pipeline'
-        ? [...toolsToRun].sort((a, b) => (TOOL_PIPELINE_PRIORITY[a] ?? 99) - (TOOL_PIPELINE_PRIORITY[b] ?? 99))
-        : toolsToRun;
+      const executionPlan = planExecution(toolsToRun, executionMode, TOOL_PIPELINE_PRIORITY);
 
-      this.scanRemainingTools.set(scanId, new Set(orderedTools));
+      this.scanRemainingTools.set(scanId, new Set(toolsToRun));
 
       // Built-in posture checks run independently of external CLIs, so every scan
       // has baseline header/cookie coverage even when DAST engines are unavailable.
       void this.runPostureEngine(sender, scanId, targetUrl, authHeadersFromConfig(config));
 
-      // Start requested tools
+      const launchTool = (tool: string) => {
+        const outDir = tool === 'nuclei' ? nucleiDir : tool === 'wapiti' ? wapitiDir : scanDir;
+        return this.runGenericTool(sender, scanId, targetUrl, domain, tool, toolBinaries[tool], outDir, config);
+      };
+      const runStaged = async () => {
+        for (const tool of executionPlan.staged) {
+          if (this.stoppedScans.has(scanId)) break;
+          await launchTool(tool);
+        }
+      };
+
       if (executionMode === 'concurrent') {
-        for (const tool of orderedTools) {
-          const outDir = tool === 'nuclei' ? nucleiDir : tool === 'wapiti' ? wapitiDir : scanDir;
-          this.runGenericTool(sender, scanId, targetUrl, domain, tool, toolBinaries[tool], outDir, config);
+        for (const tool of executionPlan.parallel) void launchTool(tool);
+        if (executionPlan.staged.length > 0) {
+          if (executionPlan.staged.length > 1) {
+            safeSend(sender, 'scan:output', {
+              scanId,
+              scanner: 'system',
+              type: 'stdout',
+              message: `[DISCOVERY] Host discovery engines run in dependency order so discovered hosts feed downstream engines: ${executionPlan.staged.join(' → ')}\n`
+            });
+            for (const tool of executionPlan.staged.slice(1)) {
+              safeSend(sender, 'scan:status', { scanId, scanner: tool, status: 'QUEUED' });
+              void storage.updateStatus(scanId, tool, 'QUEUED');
+            }
+          }
+          void runStaged().catch(err => {
+            logger.error(`Error in staged discovery chain for ${scanId}:`, err);
+          });
         }
       } else {
         // Mode Bertahap (Phased Pipeline): execute orderly per phase to avoid network choking & WAF bans
-        (async () => {
-          for (const tool of orderedTools) {
-            if (this.stoppedScans.has(scanId)) break;
-            const outDir = tool === 'nuclei' ? nucleiDir : tool === 'wapiti' ? wapitiDir : scanDir;
-            await this.runGenericTool(sender, scanId, targetUrl, domain, tool, toolBinaries[tool], outDir, config);
-          }
-        })().catch(err => {
+        void runStaged().catch(err => {
           logger.error(`Error in phased pipeline scan for ${scanId}:`, err);
         });
       }
@@ -912,6 +930,18 @@ export class ScannerService {
     const empty = { ok: true, count: 0, inserted: [], observations: 0, duplicates: 0 };
     if (adapter.parseFindings) {
       try {
+        if (HOST_SOURCE_SCANNERS.has(context.scannerName)) {
+          const hosts = captureDiscoveredHosts(context);
+          if (hosts.length > 1) {
+            safeSend(context.sender, 'scan:output', {
+              scanId: context.scanId,
+              scanner: context.scannerName,
+              type: 'stdout',
+              message: `[HOST INVENTORY] ${hosts.length} in-scope host(s) available for downstream engines: ${hosts.join(', ')}\n`
+            });
+          }
+        }
+
         if (DISCOVERY_TOOLS.includes(context.scannerName)) {
           const count = endpointInventory.capture(context);
           const parameterized = endpointInventory.getParameterizedEndpoints(context.scanId);

@@ -7,6 +7,7 @@ import { logger } from '../logger';
 import { activeAdapters } from './activeValidation';
 import { storage } from '../storage';
 import { resolveWordlist } from '../wordlists';
+import { discoveredHostsFile } from '../hostInventory';
 
 function authHeaderArgs(ctx: ScannerContext): string[] {
   const headers = ctx.authHeaders || {};
@@ -330,7 +331,18 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
   },
   alterx: {
     getCommandArgs(ctx) { return ['-silent', '-o', ctx.outputFile]; },
-    handleStdin(ctx, proc) { proc.stdin?.write(ctx.domain + '\n'); },
+    handleStdin(ctx, proc) {
+      const hostsFile = discoveredHostsFile(ctx);
+      if (hostsFile) {
+        try {
+          proc.stdin?.write(fs.readFileSync(hostsFile, 'utf8'));
+          return;
+        } catch {
+          // Fall back to the root domain below.
+        }
+      }
+      proc.stdin?.write(ctx.domain + '\n');
+    },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.outputFile)) return [];
       const content = fs.readFileSync(ctx.outputFile, 'utf-8');
@@ -350,8 +362,16 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   dnsx: {
-    getCommandArgs(ctx) { return ['-silent', '-json', '-o', ctx.jsonFile]; },
-    handleStdin(ctx, proc) { proc.stdin?.write(ctx.domain + '\n'); },
+    getCommandArgs(ctx) {
+      const hostsFile = discoveredHostsFile(ctx);
+      return hostsFile
+        ? ['-l', hostsFile, '-silent', '-json', '-o', ctx.jsonFile]
+        : ['-silent', '-json', '-o', ctx.jsonFile];
+    },
+    handleStdin(ctx, proc) {
+      if (discoveredHostsFile(ctx)) return;
+      proc.stdin?.write(ctx.domain + '\n');
+    },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
@@ -376,7 +396,12 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   naabu: {
-    getCommandArgs(ctx) { return ['-host', ctx.domain, '-top-ports', '100', '-silent', '-json', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) {
+      const hostsFile = discoveredHostsFile(ctx);
+      return hostsFile
+        ? ['-list', hostsFile, '-top-ports', '100', '-silent', '-json', '-o', ctx.jsonFile]
+        : ['-host', ctx.domain, '-top-ports', '100', '-silent', '-json', '-o', ctx.jsonFile];
+    },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
@@ -400,7 +425,12 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   tlsx: {
-    getCommandArgs(ctx) { return ['-u', ctx.domain, '-silent', '-json', '-o', ctx.jsonFile]; },
+    getCommandArgs(ctx) {
+      const hostsFile = discoveredHostsFile(ctx);
+      return hostsFile
+        ? ['-l', hostsFile, '-silent', '-json', '-o', ctx.jsonFile]
+        : ['-u', ctx.domain, '-silent', '-json', '-o', ctx.jsonFile];
+    },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
@@ -426,7 +456,11 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
     }
   },
   httpx: {
-    getCommandArgs(ctx) { return ['-u', ctx.targetUrl, '-title', '-tech-detect', '-status-code', '-silent', '-json', '-o', ctx.jsonFile, ...authHeaderArgs(ctx)]; },
+    getCommandArgs(ctx) {
+      const hostsFile = discoveredHostsFile(ctx);
+      const targetArgs = hostsFile ? ['-l', hostsFile] : ['-u', ctx.targetUrl];
+      return [...targetArgs, '-title', '-tech-detect', '-status-code', '-silent', '-json', '-o', ctx.jsonFile, ...authHeaderArgs(ctx)];
+    },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
       const content = fs.readFileSync(ctx.jsonFile, 'utf-8');
@@ -783,7 +817,7 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       if (!wordlist) {
         throw new Error('FFUF wordlist is unavailable. Configure "wordlistPath" in Settings to an existing file.');
       }
-      return ['-u', `${ctx.targetUrl}/FUZZ`, '-w', wordlist, '-v', '-o', ctx.jsonFile, '-of', 'json', ...authHeaderArgs(ctx)];
+      return ['-u', `${ctx.targetUrl.replace(/\/+$/, '')}/FUZZ`, '-w', wordlist, '-v', '-o', ctx.jsonFile, '-of', 'json', ...authHeaderArgs(ctx)];
     },
     parseFindings(ctx) {
       if (!fs.existsSync(ctx.jsonFile)) return [];
@@ -942,20 +976,22 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
 
   dalfox: {
     getCommandArgs(ctx) {
-      let targetArgs = ['url', ctx.targetUrl];
+      let target = ctx.targetUrl;
+      let inputType = 'url';
       try {
         const scanDir = storage.getScanDir(ctx.scanId);
         const endpointsFile = path.join(scanDir, 'discovered_endpoints.txt');
         if (fs.existsSync(endpointsFile) && fs.statSync(endpointsFile).size > 0) {
-          targetArgs = ['file', endpointsFile];
+          target = endpointsFile;
+          inputType = 'file';
         }
       } catch {
-        // Fallback to url ctx.targetUrl
+        // Fallback to the single target URL.
       }
-      return [...targetArgs, '--format', 'json', '-o', ctx.jsonFile, '--no-color', '--timeout', '8', '-w', '5', '--skip-mining-dict', '--ignore-return', '302,403,404', ...authHeaderArgs(ctx)];
+      return ['scan', target, '--input-type', inputType, '--format', 'json', '-o', ctx.jsonFile, '--no-color', '--timeout', '8', '--workers', '5', '--skip-mining-dict', '--ignore-return', '302,403,404', ...authHeaderArgs(ctx)];
     },
     isSuccessExitCode(code: number | null) {
-      // Dalfox: 0 = completed clean, 1 = findings found, 2 = CLI/usage error.
+      // Dalfox v3: 2 = no target could be scanned; the report-based outcome classifier decides coverage.
       return code === 0 || code === 1;
     },
     parseFindings(ctx) {
@@ -1196,13 +1232,15 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
       try {
         const content = fs.readFileSync(targetFile, 'utf-8');
         const data = JSON.parse(content);
+        const cmsName = typeof data?.cms_name === 'string' ? data.cms_name.trim() : '';
+        if (!cmsName) return [];
         return [{
           id: 'cmseek-cms',
-          name: `CMS Detected: ${data.cms_name || 'Web CMS'}`,
-          severity: data.vulnerabilities && data.vulnerabilities.length > 0 ? 'high' : 'info',
+          name: `CMS Detected: ${cmsName}`,
+          severity: Array.isArray(data.vulnerabilities) && data.vulnerabilities.length > 0 ? 'high' : 'info',
           scanner: 'cmseek',
           url: data.url || ctx.targetUrl,
-          description: `CMS: ${data.cms_name || 'Unknown'} (v${data.cms_version || 'unknown'}). ${data.vulnerabilities ? `Vulns: ${JSON.stringify(data.vulnerabilities)}` : ''}`,
+          description: `CMS: ${cmsName} (v${data.cms_version || 'unknown'}). ${Array.isArray(data.vulnerabilities) && data.vulnerabilities.length > 0 ? `Vulns: ${JSON.stringify(data.vulnerabilities)}` : ''}`,
           timestamp: new Date().toISOString(),
           rawJson: content,
         }];
@@ -1281,58 +1319,81 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
         if (!content) return [];
         const data = JSON.parse(content);
         const findings: Record<string, unknown>[] = [];
-        const results = data.server_scan_results || [];
+        const results = Array.isArray(data.server_scan_results) ? data.server_scan_results : [];
+
+        const asRecord = (value: unknown): Record<string, unknown> | null => (
+          value && typeof value === 'object' ? value as Record<string, unknown> : null
+        );
+        // SSLyze 4.x stores plugin output directly; 6.x wraps it as { status, result }.
+        const unwrap = (value: unknown): Record<string, unknown> => {
+          const record = asRecord(value);
+          if (!record) return {};
+          return asRecord(record.result) || record;
+        };
 
         for (const targetResult of results) {
-          const host = targetResult.server_location?.hostname || ctx.domain;
-          const scanCommands = targetResult.scan_commands_results || {};
+          const resultRecord = asRecord(targetResult) || {};
+          const serverLocation = asRecord(resultRecord.server_location) || {};
+          const host = typeof serverLocation.hostname === 'string' ? serverLocation.hostname : ctx.domain;
+          const scanCommands = asRecord(resultRecord.scan_result) || asRecord(resultRecord.scan_commands_results) || {};
 
           // Certificate Validation
-          const certInfo = scanCommands.certificate_info;
-          if (certInfo && certInfo.certificate_deployments) {
-            for (const deployment of certInfo.certificate_deployments) {
-              const chainValidation = deployment.path_validation_results?.[0];
-              if (chainValidation && chainValidation.was_validation_successful === false) {
+          const certInfo = unwrap(scanCommands.certificate_info);
+          const deployments = Array.isArray(certInfo.certificate_deployments) ? certInfo.certificate_deployments : [];
+          for (const deploymentRaw of deployments) {
+            const deployment = asRecord(deploymentRaw) || {};
+            const validations = Array.isArray(deployment.path_validation_results) ? deployment.path_validation_results : [];
+            const chainValidation = asRecord(validations[0]);
+            if (chainValidation && chainValidation.was_validation_successful === false) {
+              findings.push({
+                id: 'sslyze-invalid-certificate',
+                name: 'Untrusted or Invalid SSL/TLS Certificate',
+                severity: 'high',
+                scanner: 'sslyze',
+                url: `https://${host}`,
+                description: typeof chainValidation.openssl_error_string === 'string'
+                  ? chainValidation.openssl_error_string
+                  : 'Certificate path validation failed: untrusted root or verification error.',
+                timestamp: new Date().toISOString()
+              });
+            }
+
+            const chain = Array.isArray(deployment.received_certificate_chain) ? deployment.received_certificate_chain : [];
+            const leaf = asRecord(chain[0]);
+            if (typeof leaf?.not_valid_after === 'string') {
+              const expiry = new Date(leaf.not_valid_after);
+              if (expiry < new Date()) {
                 findings.push({
-                  id: 'sslyze-invalid-certificate',
-                  name: 'Untrusted or Invalid SSL/TLS Certificate',
+                  id: 'sslyze-expired-certificate',
+                  name: 'Expired SSL/TLS Certificate',
                   severity: 'high',
                   scanner: 'sslyze',
                   url: `https://${host}`,
-                  description: chainValidation.openssl_error_string || 'Certificate path validation failed: untrusted root or verification error.',
+                  description: `Certificate expired on ${expiry.toISOString()}.`,
                   timestamp: new Date().toISOString()
                 });
-              }
-
-              const leaf = deployment.received_certificate_chain?.[0];
-              if (leaf?.not_valid_after) {
-                const expiry = new Date(leaf.not_valid_after);
-                if (expiry < new Date()) {
-                  findings.push({
-                    id: 'sslyze-expired-certificate',
-                    name: 'Expired SSL/TLS Certificate',
-                    severity: 'high',
-                    scanner: 'sslyze',
-                    url: `https://${host}`,
-                    description: `Certificate expired on ${expiry.toISOString()}.`,
-                    timestamp: new Date().toISOString()
-                  });
-                }
               }
             }
           }
 
           // Insecure Protocols (SSL 2.0 / SSL 3.0 / TLS 1.0 / TLS 1.1)
+          const acceptedCipherCount = (cmdKey: string): number => {
+            const protoResult = unwrap(scanCommands[cmdKey]);
+            if (Array.isArray(protoResult.accepted_cipher_suites)) return protoResult.accepted_cipher_suites.length;
+            if (Array.isArray(protoResult.ciphers_supported)) return protoResult.ciphers_supported.length;
+            return 0;
+          };
+
           const checkProtocol = (cmdKey: string, protocolName: string, sev: string) => {
-            const protoResult = scanCommands[cmdKey];
-            if (protoResult && protoResult.ciphers_supported && protoResult.ciphers_supported.length > 0) {
+            const acceptedCount = acceptedCipherCount(cmdKey);
+            if (acceptedCount > 0) {
               findings.push({
                 id: `sslyze-${protocolName.toLowerCase().replace(/[^a-z0-9]/g, '-')}-enabled`,
                 name: `Deprecated Protocol Enabled: ${protocolName}`,
                 severity: sev,
                 scanner: 'sslyze',
                 url: `https://${host}`,
-                description: `${protocolName} is deprecated, insecure, and should be disabled in server configuration. Accepted ciphers: ${protoResult.ciphers_supported.length}`,
+                description: `${protocolName} is deprecated, insecure, and should be disabled in server configuration. Accepted ciphers: ${acceptedCount}`,
                 remediation: `Disable ${protocolName} in web server TLS settings and enforce TLS 1.2 and TLS 1.3 only.`,
                 timestamp: new Date().toISOString()
               });
@@ -1344,8 +1405,42 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
           checkProtocol('tls_1_0_cipher_suites', 'TLS 1.0', 'medium');
           checkProtocol('tls_1_1_cipher_suites', 'TLS 1.1', 'medium');
 
+          // Legacy / weak cipher suites negotiated on supported protocol versions.
+          const legacySuites = new Set<string>();
+          const brokenSuites = new Set<string>();
+          for (const versionKey of ['tls_1_2_cipher_suites', 'tls_1_3_cipher_suites']) {
+            const versionResult = unwrap(scanCommands[versionKey]);
+            const accepted = Array.isArray(versionResult.accepted_cipher_suites) ? versionResult.accepted_cipher_suites : [];
+            for (const entryRaw of accepted) {
+              const entry = asRecord(entryRaw);
+              const suite = asRecord(entry?.cipher_suite);
+              const name = typeof suite?.name === 'string'
+                ? suite.name
+                : typeof entry?.name === 'string' ? entry.name : '';
+              if (!name) continue;
+              if (/RC4|3DES|DES_|NULL|EXPORT/i.test(name)) brokenSuites.add(name);
+              else if (versionKey === 'tls_1_2_cipher_suites' && /CBC/i.test(name)) legacySuites.add(name);
+            }
+          }
+          if (brokenSuites.size > 0 || legacySuites.size > 0) {
+            const suites = [...brokenSuites, ...legacySuites];
+            findings.push({
+              id: 'sslyze-weak-cipher-suites',
+              name: brokenSuites.size > 0
+                ? 'Weak Cipher Suites Enabled (RC4/3DES/NULL/EXPORT)'
+                : 'Legacy CBC Cipher Suites Enabled',
+              severity: brokenSuites.size > 0 ? 'medium' : 'low',
+              scanner: 'sslyze',
+              url: `https://${host}`,
+              description: `Server accepts ${suites.length} legacy cipher suite(s): ${suites.join(', ')}. Prefer AEAD suites (AES-GCM or ChaCha20-Poly1305) and disable CBC/RC4/3DES where possible.`,
+              remediation: 'Restrict the TLS configuration to modern AEAD cipher suites and remove legacy CBC, RC4 and 3DES suites.',
+              timestamp: new Date().toISOString()
+            });
+          }
+
           // Vulnerability checks
-          if (scanCommands.heartbleed?.is_vulnerable_to_heartbleed) {
+          const heartbleed = unwrap(scanCommands.heartbleed);
+          if (heartbleed.is_vulnerable_to_heartbleed === true) {
             findings.push({
               id: 'sslyze-heartbleed-vulnerable',
               name: 'Vulnerable to OpenSSL Heartbleed (CVE-2014-0160)',
@@ -1358,14 +1453,16 @@ export const ScannerAdapters: Record<string, IScannerAdapter> = {
             });
           }
 
-          if (scanCommands.robot?.robot_result && scanCommands.robot.robot_result !== 'NOT_VULNERABLE') {
+          const robot = unwrap(scanCommands.robot);
+          const robotResult = typeof robot.robot_result === 'string' ? robot.robot_result : '';
+          if (robotResult && !/NOT_VULNERABLE/i.test(robotResult)) {
             findings.push({
               id: 'sslyze-robot-vulnerable',
               name: 'Vulnerable to Return of Bleichenbacher Attack (ROBOT)',
               severity: 'high',
               scanner: 'sslyze',
               url: `https://${host}`,
-              description: `Target server is vulnerable to ROBOT attack: ${scanCommands.robot.robot_result}.`,
+              description: `Target server is vulnerable to ROBOT attack: ${robotResult}.`,
               remediation: 'Disable RSA encryption cipher suites and utilize ECDHE key exchange.',
               timestamp: new Date().toISOString()
             });

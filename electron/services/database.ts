@@ -191,6 +191,15 @@ export class DatabaseService {
     return stmt.all() as { scanId: string; status: string }[];
   }
 
+  stopNonTerminalEngines(scanId: string, reason: string, updatedAt: string): number {
+    const stmt = this.db.prepare(`
+      UPDATE scan_status
+      SET status = 'STOPPED', reason = ?, updatedAt = ?
+      WHERE scanId = ? AND status IN ('RUNNING', 'QUEUED', 'VALIDATING', 'PARSING')
+    `);
+    return stmt.run(reason, updatedAt, scanId).changes;
+  }
+
   updateScannerStatus(scanId: string, scanner: string, status: string, details: Partial<Omit<EngineStatusDetail, 'status'>> = {}) {
     const stmt = this.db.prepare(`
       INSERT INTO scan_status (scanId, scanner, status, reason, exitCode, artifactPath, resultCount, durationMs, updatedAt)
