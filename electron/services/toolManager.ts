@@ -10,7 +10,7 @@ import { activeRuntime, isActiveValidationTool } from './scanners/activeValidati
 import type { ToolCategory } from './catalog/types';
 import { installActiveTool, supportsActiveInstall } from './activeToolInstaller';
 import { processLock } from './platform/processLock';
-import { StagingInstaller } from './platform/installer';
+import { StagingInstaller, InstallerError } from './platform/installer';
 import { pythonVenv } from './platform/pythonVenv';
 
 export interface ToolDef {
@@ -75,7 +75,35 @@ export class ToolManager {
     return this.binDir;
   }
 
+  /**
+   * Destructive tool operations (rollback/uninstall) must only ever target a
+   * catalog-managed tool id. This prevents renderer-supplied paths such as
+   * `..\\..\\Windows\\System32` from escaping the managed bin directory.
+   */
+  private assertManagedTool(toolName: string): ToolDef {
+    if (typeof toolName !== 'string' || !toolName) {
+      throw new InstallerError('INVALID_TOOL_ID', 'A non-empty managed tool id is required.');
+    }
+    const tool = MANAGED_TOOLS.find(t => t.name === toolName);
+    if (!tool) {
+      throw new InstallerError('UNKNOWN_TOOL', `Refusing to manage unknown tool '${toolName}'.`);
+    }
+    return tool;
+  }
+
+  private assertContainedIn(targetPath: string, rootDir: string): string {
+    const resolvedRoot = path.resolve(rootDir);
+    const resolvedTarget = path.resolve(targetPath);
+    if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
+      throw new InstallerError('PATH_ESCAPE', `Refusing to operate outside the managed directory: ${targetPath}`);
+    }
+    return resolvedTarget;
+  }
+
   resolveToolPath(toolName: string): string {
+    if (typeof toolName !== 'string' || !toolName || toolName.includes('..') || /[\\/]/.test(toolName)) {
+      return '';
+    }
     const settings = settingsStore.get();
     const settingMap: Record<string, string | undefined> = {
       nuclei: settings.nucleiPath,
@@ -326,6 +354,11 @@ export class ToolManager {
         sender.send('tools:update-progress', { tool: toolName, message: msg });
       }
     };
+
+    if (typeof toolName !== 'string' || (!MANAGED_TOOLS.some(t => t.name === toolName) && toolName !== 'nuclei-templates')) {
+      sendOutput(`[-] Unknown tool: ${String(toolName)}`);
+      return false;
+    }
 
     sendOutput(`[*] Starting update for ${toolName}...`);
     try {
@@ -597,17 +630,15 @@ export class ToolManager {
 
   rollbackTool(toolName: string): boolean {
     processLock.assertToolNotLocked(toolName);
-    const tool = MANAGED_TOOLS.find(t => t.name === toolName);
-    const exeName = tool ? tool.exeName : (process.platform === 'win32' ? `${toolName}.exe` : toolName);
-    const liveFilePath = path.join(this.binDir, exeName);
-    return this.stagingInstaller.rollback(toolName, liveFilePath);
+    const tool = this.assertManagedTool(toolName);
+    const liveFilePath = this.assertContainedIn(path.join(this.binDir, tool.exeName), this.binDir);
+    return this.stagingInstaller.rollback(tool.name, liveFilePath);
   }
 
   uninstallTool(toolName: string, sender?: Electron.WebContents): boolean {
     processLock.assertToolNotLocked(toolName);
-    const tool = MANAGED_TOOLS.find(t => t.name === toolName);
-    const exeName = tool ? tool.exeName : (process.platform === 'win32' ? `${toolName}.exe` : toolName);
-    const liveFilePath = path.join(this.binDir, exeName);
+    const tool = this.assertManagedTool(toolName);
+    const liveFilePath = this.assertContainedIn(path.join(this.binDir, tool.exeName), this.binDir);
     let removed = false;
     if (fs.existsSync(liveFilePath)) {
       try {
@@ -615,18 +646,18 @@ export class ToolManager {
         removed = true;
       } catch { /* ignore */ }
     }
-    const cmdPath = path.join(this.binDir, `${toolName}.cmd`);
-    const batPath = path.join(this.binDir, `${toolName}.bat`);
+    const cmdPath = this.assertContainedIn(path.join(this.binDir, `${tool.name}.cmd`), this.binDir);
+    const batPath = this.assertContainedIn(path.join(this.binDir, `${tool.name}.bat`), this.binDir);
     if (fs.existsSync(cmdPath)) { try { fs.unlinkSync(cmdPath); removed = true; } catch { /* ignore */ } }
     if (fs.existsSync(batPath)) { try { fs.unlinkSync(batPath); removed = true; } catch { /* ignore */ } }
 
-    const venvDir = pythonVenv.getVenvDir(toolName);
+    const venvDir = this.assertContainedIn(pythonVenv.getVenvDir(tool.name), pythonVenv.getVenvRoot());
     if (fs.existsSync(venvDir)) {
       try { fs.rmSync(venvDir, { recursive: true, force: true }); removed = true; } catch { /* ignore */ }
     }
 
     if (sender && !sender.isDestroyed()) {
-      sender.send('tools:update-progress', { tool: toolName, message: removed ? `[+] Uninstalled ${toolName}` : `[-] ${toolName} was not found` });
+      sender.send('tools:update-progress', { tool: tool.name, message: removed ? `[+] Uninstalled ${tool.name}` : `[-] ${tool.name} was not found` });
     }
     return removed;
   }

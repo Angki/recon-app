@@ -26,6 +26,11 @@
 - **Active Retest Workflow**: Directly dispatch targeted active verification (SQLmap, Dalfox, CRLFSuite, Commix) against specific endpoints from the UI.
 - **Deduplication & Fingerprinting**: Automatic finding fingerprinting ensures reliable baseline diffing and resolution tracking across repeat assessments.
 
+### 🧭 Findings Triage & Baseline Differential
+- **Per-Fingerprint Triage**: Record Open, False Positive, Accepted Risk, or Fixed decisions with analyst rationale, actor, and optional expiry; badges and audit history appear directly in Findings.
+- **Scan-to-Scan Diff**: Compare any assessment against a completed baseline to surface new, persistent, resolved, reopened, and not-reassessed findings.
+- **Fail-Safe Resolution**: Incomplete or failed runs are never allowed to claim findings as resolved, and expired triage decisions stop influencing results.
+
 ### 💾 High-Throughput SQLite Storage Engine
 - **Idempotent Versioned Migrations**: Automated database schema migrations (v1 to v5) ensure backward compatibility and zero data corruption.
 - **WAL Mode & Streaming Buffer Protection**: Safe parsing for discovery outputs up to hundreds of megabytes with strict buffer slicing.
@@ -86,7 +91,7 @@ npm run dev
 ```bash
 npm run test
 ```
-*Executes the complete test suite (187 / 187 passing tests) across all 6 verification phases in an isolated sandbox environment.*
+*Executes the complete test suite across all verification phases in an isolated sandbox environment.*
 
 ---
 
@@ -100,6 +105,8 @@ npm run dist
 
 ### Verified Release Artifacts (v1.0.0)
 
+The checksums below belong to the verification build in `release/build-verify/`, not to an arbitrary rebuild. Rebuilding the application changes the binary hashes.
+
 | Artifact | Type | File Size | SHA-256 Checksum |
 |---|---|---|---|
 | **`Recon App Setup 1.0.0.exe`** | NSIS Installer | 104,978,985 bytes | `5A9A798CA61BCF2EBC75CBDDA6023C696E476776DD2E785FD068841C254F6023` |
@@ -107,9 +114,19 @@ npm run dist
 
 #### Verifying Checksums
 ```powershell
-Get-FileHash -Algorithm SHA256 "release\Recon App Setup 1.0.0.exe"
-Get-FileHash -Algorithm SHA256 "release\Recon App 1.0.0.exe"
+Get-FileHash -Algorithm SHA256 "release\build-verify\Recon App Setup 1.0.0.exe"
+Get-FileHash -Algorithm SHA256 "release\build-verify\Recon App 1.0.0.exe"
 ```
+
+Every `npm run dist` also regenerates `release\SHA256SUMS` for the artifacts it produced:
+
+```powershell
+npm run checksums
+Get-Content "release\SHA256SUMS"
+```
+
+> [!IMPORTANT]
+> `release/` is excluded from version control. Always distribute the `SHA256SUMS` file generated from the exact binaries you ship. Do not copy the historical verification-build hashes above onto a different build.
 
 > [!NOTE]
 > **Code Signing Notice**: This software is released for cybersecurity research and authorized penetration testing without an expensive commercial EV certificate. Windows Defender SmartScreen may display a warning on first run (*"Windows protected your PC"*). Click **More info** -> **Run anyway** after verifying the SHA-256 checksum against this repository.

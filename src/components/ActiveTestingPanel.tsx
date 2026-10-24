@@ -46,12 +46,19 @@ export default function ActiveTestingPanel({ target, tools, value, onChange, dis
   } catch { /* URL input may be incomplete */ }
 
   useEffect(() => {
-    if (origin && !value.scopeOrigin) {
-      onChange({
-        ...value,
-        scopeOrigin: origin,
-        parameters: value.parameters.length === 0 ? parameters : value.parameters,
-      });
+    if (origin) {
+      let currentOrigin = '';
+      try {
+        currentOrigin = new URL(value.scopeOrigin).origin;
+      } catch { /* empty or invalid */ }
+
+      if (!currentOrigin || currentOrigin !== origin) {
+        onChange({
+          ...value,
+          scopeOrigin: origin,
+          parameters: value.parameters.length === 0 ? parameters : value.parameters,
+        });
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [origin]);

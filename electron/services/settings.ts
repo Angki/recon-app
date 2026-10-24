@@ -56,6 +56,7 @@ export interface PublicAppSettings extends AppSettings {
   hasAcunetixApiKey: boolean;
   hasAcunetixPassword: boolean;
   hasWpscanApiToken: boolean;
+  hasInteractshToken: boolean;
   isStorageEncrypted: boolean;
 }
 
@@ -181,6 +182,7 @@ class SettingsStore {
     pub.hasAcunetixApiKey = Boolean(current.acunetixApiKey);
     pub.hasAcunetixPassword = Boolean(current.acunetixPassword);
     pub.hasWpscanApiToken = Boolean(current.wpscanApiToken);
+    pub.hasInteractshToken = Boolean(current.interactshToken);
     pub.isStorageEncrypted = this.isEncryptionAvailable();
 
     // Mask sensitive fields
@@ -188,6 +190,7 @@ class SettingsStore {
     pub.acunetixApiKey = current.acunetixApiKey ? MASKED_SENTINEL : '';
     pub.acunetixPassword = current.acunetixPassword ? MASKED_SENTINEL : '';
     pub.wpscanApiToken = current.wpscanApiToken ? MASKED_SENTINEL : '';
+    pub.interactshToken = current.interactshToken ? MASKED_SENTINEL : '';
 
     return pub as unknown as PublicAppSettings;
   }

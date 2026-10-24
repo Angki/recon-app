@@ -42,7 +42,11 @@ export class LoggerService {
       .replace(/Basic\s+[A-Za-z0-9+/=]+/gi, 'Basic [REDACTED]')
       .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_.-]+/g, '[REDACTED_JWT]')
       .replace(/(sessionid|connect\.sid|PHPSESSID|JSESSIONID)=[^;\s&]+/gi, '$1=[REDACTED]')
-      .replace(/(api[_-]?key|password|passwd|token|secret|access_token|auth_token)\s*[:=]\s*["']?([^\s"',&]+)["']?/gi, '$1=[REDACTED]');
+      .replace(/(api[_-]?key|password|passwd|token|secret|access_token|auth_token)\s*[:=]\s*["']?([^\s"',&]+)["']?/gi, '$1=[REDACTED]')
+      // CLI flags with a separate value, e.g. --api-token SECRET or -token SECRET
+      .replace(/(--?[a-z0-9_-]*(?:api[_-]?key|token|secret|password|passwd|auth)[a-z0-9_-]*)(\s+)(["']?)([^\s"']+)\3/gi, '$1$2$3[REDACTED]$3')
+      // Credentials embedded in URLs
+      .replace(/(https?:\/\/)([^/\s:@]+):([^/\s@]+)@/gi, '$1$2:[REDACTED]@');
   }
 
   private rotateIfNeeded(targetPath: string) {

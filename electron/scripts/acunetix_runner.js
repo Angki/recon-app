@@ -76,6 +76,25 @@ async function sleep(ms) {
 }
 
 /**
+ * Persist an explicit inconclusive marker. The scanner adapter refuses to treat
+ * this document as a valid (possibly empty) vulnerability list, so the scan
+ * ends FAILED instead of silently reporting a clean target.
+ */
+function writeInconclusive(code, message) {
+  const payload = {
+    __recon_error: true,
+    code,
+    message: String(message || 'Acunetix scan did not produce a verifiable result.')
+  };
+  try {
+    fs.writeFileSync(jsonFile, JSON.stringify(payload, null, 2));
+  } catch (writeErr) {
+    console.error(`[ERROR] Failed to persist inconclusive marker: ${writeErr.message}`);
+  }
+  console.error(`[INCONCLUSIVE] ${payload.code}: ${payload.message}`);
+}
+
+/**
  * Check if Docker daemon is running by executing `docker info`.
  * Returns true if Docker is responsive.
  */
@@ -282,44 +301,53 @@ async function run() {
 
     let resultId = null;
     let completed = false;
+    let finalScanStatus = null;
     while (!completed) {
       await sleep(10000); // Poll every 10 seconds
       const statusData = await request('GET', `/api/v1/scans/${scanId}`);
-      const status = statusData.data.current_session.status;
+      finalScanStatus = statusData.data.current_session.status;
       const severity = statusData.data.current_session.severity_counts || {};
       resultId = statusData.data.current_session.scan_session_id;
       
-      console.log(`[Acunetix] Status: ${status} | High: ${severity.high||0}, Med: ${severity.medium||0}, Low: ${severity.low||0}`);
+      console.log(`[Acunetix] Status: ${finalScanStatus} | High: ${severity.high||0}, Med: ${severity.medium||0}, Low: ${severity.low||0}`);
       
-      if (status === 'completed' || status === 'aborted' || status === 'failed') {
+      if (finalScanStatus === 'completed' || finalScanStatus === 'aborted' || finalScanStatus === 'failed') {
         completed = true;
       }
     }
 
+    if (finalScanStatus !== 'completed') {
+      const message = `Acunetix scan ended with status '${finalScanStatus}'. Results cannot be treated as a clean scan.`;
+      writeInconclusive('ACUNETIX_SCAN_NOT_COMPLETED', message);
+      throw new Error(message);
+    }
+
+    if (!resultId) {
+      const message = 'Acunetix completed without a result session id. The vulnerability result is unavailable.';
+      writeInconclusive('ACUNETIX_MISSING_RESULT_SESSION', message);
+      throw new Error(message);
+    }
+
     console.log(`[Acunetix] Fetching vulnerabilities...`);
     try {
-      if (resultId) {
-        let allVulns = [];
-        let cursor = 0;
-        let limit = 100;
-        let fetchedAll = false;
-        
-        while (!fetchedAll) {
-          const vulnsData = await request('GET', `/api/v1/scans/${scanId}/results/${resultId}/vulnerabilities?c=${cursor}`);
-          if (vulnsData.data && vulnsData.data.vulnerabilities && vulnsData.data.vulnerabilities.length > 0) {
-            allVulns = allVulns.concat(vulnsData.data.vulnerabilities);
-            cursor += vulnsData.data.vulnerabilities.length;
-          } else {
-            fetchedAll = true;
-          }
+      let allVulns = [];
+      let cursor = 0;
+      let fetchedAll = false;
+
+      while (!fetchedAll) {
+        const vulnsData = await request('GET', `/api/v1/scans/${scanId}/results/${resultId}/vulnerabilities?c=${cursor}`);
+        if (vulnsData.data && vulnsData.data.vulnerabilities && vulnsData.data.vulnerabilities.length > 0) {
+          allVulns = allVulns.concat(vulnsData.data.vulnerabilities);
+          cursor += vulnsData.data.vulnerabilities.length;
+        } else {
+          fetchedAll = true;
         }
-        fs.writeFileSync(jsonFile, JSON.stringify(allVulns, null, 2));
-      } else {
-        fs.writeFileSync(jsonFile, "[]");
       }
+      fs.writeFileSync(jsonFile, JSON.stringify(allVulns, null, 2));
     } catch(err) {
-      console.warn(`[Acunetix] WARNING: Failed to fetch vulnerabilities JSON: ${err.message}`);
-      fs.writeFileSync(jsonFile, "[]");
+      const message = `Failed to fetch vulnerabilities JSON: ${err.message}`;
+      writeInconclusive('ACUNETIX_VULN_FETCH_FAILED', message);
+      throw new Error(message);
     }
 
     console.log(`[Acunetix] Generating XML report...`);
@@ -344,57 +372,91 @@ async function run() {
 
     const reportIdXML = reportDataXML.data.report_id;
     const reportIdPDF = reportDataPDF.data.report_id;
-    console.log(`[Acunetix] Report generation queued (XML ID: ${reportIdXML}, PDF ID: ${reportIdPDF})`);
-
-    // Poll for XML report
-    let xmlReportUrl = null;
-    while (!xmlReportUrl) {
-      await sleep(5000);
-      const repStatus = await request('GET', `/api/v1/reports/${reportIdXML}`);
-      if (repStatus.data.status === 'completed') {
-        xmlReportUrl = repStatus.data.download.find(d => d.endsWith('.xml')) || repStatus.data.download[1] || repStatus.data.download[0];
-      } else if (repStatus.data.status === 'failed') {
-        throw new Error('XML Report generation failed');
-      }
+    if (!reportIdXML) {
+      throw new Error('Acunetix did not return an XML report id.');
     }
+    console.log(`[Acunetix] Report generation queued (XML ID: ${reportIdXML}, PDF ID: ${reportIdPDF || 'n/a'})`);
 
-    // Poll for PDF report
-    let pdfReportUrl = null;
-    while (!pdfReportUrl) {
-      await sleep(5000);
-      const repStatus = await request('GET', `/api/v1/reports/${reportIdPDF}`);
-      if (repStatus.data.status === 'completed') {
-        pdfReportUrl = repStatus.data.download.find(d => d.endsWith('.pdf')) || repStatus.data.download[1] || repStatus.data.download[0];
-      } else if (repStatus.data.status === 'failed') {
-        console.warn('[Acunetix] WARNING: PDF Report generation failed, continuing without PDF.');
-        break;
+    const REPORT_POLL_INTERVAL_MS = 5000;
+    const REPORT_MAX_ATTEMPTS = 120; // 10 minutes per report
+
+    const waitForReport = async (reportId, extension, optional) => {
+      if (!reportId) {
+        if (optional) return null;
+        throw new Error(`Missing ${extension.toUpperCase()} report id.`);
       }
-    }
+      for (let attempt = 0; attempt < REPORT_MAX_ATTEMPTS; attempt++) {
+        await sleep(REPORT_POLL_INTERVAL_MS);
+        const repStatus = await request('GET', `/api/v1/reports/${reportId}`);
+        const status = repStatus.data && repStatus.data.status;
+        if (status === 'completed') {
+          const downloads = Array.isArray(repStatus.data.download) ? repStatus.data.download : [];
+          const match = downloads.find(d => typeof d === 'string' && d.toLowerCase().endsWith(extension));
+          if (match) return match;
+          throw new Error(`${extension.toUpperCase()} report completed without a ${extension} download path.`);
+        }
+        if (status === 'failed') {
+          if (optional) {
+            console.warn(`[Acunetix] WARNING: ${extension.toUpperCase()} report generation failed; continuing without it.`);
+            return null;
+          }
+          throw new Error(`${extension.toUpperCase()} report generation failed.`);
+        }
+      }
+      if (optional) {
+        console.warn(`[Acunetix] WARNING: ${extension.toUpperCase()} report timed out; continuing without it.`);
+        return null;
+      }
+      throw new Error(`${extension.toUpperCase()} report did not complete within the allowed time.`);
+    };
+
+    const xmlReportUrl = await waitForReport(reportIdXML, '.xml', false);
+    const pdfReportUrl = await waitForReport(reportIdPDF, '.pdf', true);
 
     console.log(`[Acunetix] Downloading reports...`);
-    // Download the XML report
-    const downloadXML = new Promise((resolve, reject) => {
-      const xmlUrl = new URL(`${apiUrl}${xmlReportUrl}`);
-      const fileXML = fs.createWriteStream(xmlFile);
-      https.get(xmlUrl, { agent, headers: { 'X-Auth': apiKey } }, (res) => {
-        res.pipe(fileXML);
-        fileXML.on('finish', () => { fileXML.close(resolve); });
-      }).on('error', reject);
+    const downloadFile = (reportUrl, destination, label) => new Promise((resolve, reject) => {
+      const fileUrl = new URL(`${apiUrl}${reportUrl}`);
+      const stream = fs.createWriteStream(destination);
+      const req = https.get(fileUrl, { agent, headers: { 'X-Auth': apiKey } }, (res) => {
+        if (res.statusCode !== 200) {
+          res.resume();
+          stream.close();
+          reject(new Error(`${label} download failed with HTTP ${res.statusCode}`));
+          return;
+        }
+        res.on('error', (err) => {
+          stream.close();
+          reject(err);
+        });
+        res.pipe(stream);
+        stream.on('finish', () => stream.close(resolve));
+        stream.on('error', reject);
+      });
+      req.on('error', (err) => {
+        stream.close();
+        reject(err);
+      });
     });
 
-    // Download the PDF report
-    const downloadPDF = new Promise((resolve, reject) => {
-      if (!pdfReportUrl) return resolve();
-      const pdfFile = xmlFile.replace('.xml', '.pdf');
-      const pdfUrl = new URL(`${apiUrl}${pdfReportUrl}`);
-      const filePDF = fs.createWriteStream(pdfFile);
-      https.get(pdfUrl, { agent, headers: { 'X-Auth': apiKey } }, (res) => {
-        res.pipe(filePDF);
-        filePDF.on('finish', () => { filePDF.close(resolve); });
-      }).on('error', reject);
-    });
+    await downloadFile(xmlReportUrl, xmlFile, 'XML report');
+    if (pdfReportUrl) {
+      await downloadFile(pdfReportUrl, xmlFile.replace('.xml', '.pdf'), 'PDF report');
+    }
 
-    await Promise.all([downloadXML, downloadPDF]);
+    const xmlStats = fs.existsSync(xmlFile) ? fs.statSync(xmlFile) : null;
+    const xmlHeader = xmlStats && xmlStats.size > 0
+      ? fs.readFileSync(xmlFile, 'utf-8').slice(0, 512).replace(/^\uFEFF/, '').trimStart()
+      : '';
+    const headerLower = xmlHeader.toLowerCase();
+    if (
+      !xmlStats ||
+      xmlStats.size === 0 ||
+      !xmlHeader.startsWith('<') ||
+      headerLower.startsWith('<html') ||
+      headerLower.startsWith('<!doctype html')
+    ) {
+      throw new Error('Acunetix XML report is missing or is not a valid XML document.');
+    }
 
     console.log(`[Acunetix] Reports saved successfully.`);
     console.log(`[Acunetix] Process complete.`);

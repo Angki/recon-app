@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { 
   Settings as SettingsIcon, Save, ShieldAlert, Cpu, Network, Database, 
-  Wrench, Globe, TerminalSquare, Key, Sparkles, RefreshCw, CheckCircle2, XCircle, Activity, Bot
+  Wrench, Globe, TerminalSquare, Key, Sparkles, RefreshCw, CheckCircle2, XCircle, Activity, Bot, Box
 } from 'lucide-react';
 import { ToolsHubModal } from '../components/ToolsHubModal';
 
@@ -66,6 +66,8 @@ export default function SettingsPage() {
   const [connectionStatus, setConnectionStatus] = useState<{ success?: boolean; message?: string; latencyMs?: number; modelCount?: number } | null>(null);
   const [saving, setSaving] = useState(false);
   const [showToolsHub, setShowToolsHub] = useState(false);
+  const [dockerStatus, setDockerStatus] = useState<{ installed: boolean; running: boolean; version?: string; desktopExecutable?: string } | null>(null);
+  const [startingDocker, setStartingDocker] = useState(false);
 
   const fetchOllamaModels = async (baseUrl?: string) => {
     if (!window.api?.getOllamaModels) return;
@@ -96,6 +98,27 @@ export default function SettingsPage() {
       setConnectionStatus({ success: false, message: e.message || 'Connection failed' });
     } finally {
       setTestingConnection(false);
+    }
+  };
+
+  const checkDocker = async () => {
+    if (!window.api?.getDockerStatus) return;
+    try {
+      const res = await window.api.getDockerStatus();
+      setDockerStatus(res);
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleStartDocker = async () => {
+    if (!window.api?.startDocker) return;
+    setStartingDocker(true);
+    try {
+      await window.api.startDocker();
+      await checkDocker();
+    } finally {
+      setStartingDocker(false);
     }
   };
 
@@ -135,6 +158,7 @@ export default function SettingsPage() {
           fetchOllamaModels(settings.aiBaseUrl);
         }
       });
+      checkDocker();
     }
   }, []);
 
@@ -277,6 +301,57 @@ export default function SettingsPage() {
                   />
                 </div>
               </div>
+            </div>
+          </div>
+
+          {/* Docker & Container Engine Orchestration */}
+          <div className="theme-card p-5 rounded-2xl relative overflow-hidden">
+            <div className={`absolute top-0 left-0 w-1 h-full ${dockerStatus?.running ? 'bg-emerald-500' : 'bg-sky-500'}`}></div>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-sm font-bold uppercase tracking-wider text-[var(--text-primary)] flex items-center gap-2">
+                <Box className="w-4 h-4 text-sky-400" />
+                Docker Desktop & Container Engines
+              </h2>
+              {dockerStatus ? (
+                <span className={`inline-flex items-center gap-1.5 text-[10px] font-mono px-2 py-0.5 rounded-full border font-semibold ${
+                  dockerStatus.running
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/25'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/25'
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${dockerStatus.running ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
+                  {dockerStatus.running ? `Online (v${dockerStatus.version || 'Daemon'})` : 'Offline / Stopped'}
+                </span>
+              ) : (
+                <span className="text-[10px] font-mono text-[var(--text-muted)]">Checking...</span>
+              )}
+            </div>
+
+            <p className="text-xs text-[var(--text-secondary)] mb-4 leading-relaxed">
+              Required for containerized engines (<span className="text-[var(--accent-primary)] font-mono font-medium">WPScan</span>, <span className="text-[var(--accent-primary)] font-mono font-medium">Nikto Docker</span>, <span className="text-[var(--accent-primary)] font-mono font-medium">Semgrep SAST</span>, <span className="text-[var(--accent-primary)] font-mono font-medium">OSV-Scanner</span>).
+              ReconApp automatically detects and launches Docker Desktop in the background when a containerized scan begins.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-card)]">
+              <div className="space-y-0.5">
+                <div className="text-[11px] font-mono font-bold text-[var(--text-primary)]">
+                  {dockerStatus?.desktopExecutable || 'Docker Desktop (Default Path)'}
+                </div>
+                <div className="text-[10px] text-[var(--text-muted)]">
+                  {dockerStatus?.running ? 'Docker engine is active and ready for container execution.' : 'Engine offline. You can auto-start now or let scans start it automatically.'}
+                </div>
+              </div>
+
+              {!dockerStatus?.running && (
+                <button
+                  type="button"
+                  onClick={handleStartDocker}
+                  disabled={startingDocker}
+                  className="px-3.5 py-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/25 text-xs font-mono font-medium flex items-center gap-1.5 transition-colors shrink-0 disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3 h-3 ${startingDocker ? 'animate-spin' : ''}`} />
+                  <span>{startingDocker ? 'Starting Docker...' : 'Start Docker Desktop'}</span>
+                </button>
+              )}
             </div>
           </div>
         </div>

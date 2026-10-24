@@ -454,16 +454,26 @@ export class RequestWorkspace {
         break;
       }
       case 'sstimap': {
-        args.push('-u', req.url, '--batch', '--verify');
+        let targetUrl = req.url;
+        if (req.testParameters && req.testParameters.length > 0) {
+          try {
+            const parsed = new URL(targetUrl);
+            for (const param of req.testParameters) {
+              if (parsed.searchParams.has(param)) {
+                const val = parsed.searchParams.get(param) || '';
+                if (!val.endsWith('*')) parsed.searchParams.set(param, `${val}*`);
+              }
+            }
+            targetUrl = parsed.toString();
+          } catch { /* use as is */ }
+        }
+        args.push('-u', targetUrl, '-P', req.method === 'POST' ? 'QB' : 'Q', '--no-color');
         if (req.method === 'POST' && req.body) {
           args.push(`--data=${req.body}`);
         }
-        if (req.testParameters.length > 0) {
-          args.push('-p', req.testParameters.join(','));
-        }
         const cookies = Object.entries(req.cookies).map(([k, v]) => `${k}=${v}`).join('; ');
         if (cookies) args.push(`--cookie=${cookies}`);
-        if (authHeader) args.push(`--headers=Authorization: ${authHeader}`);
+        if (authHeader) args.push(`--header=Authorization: ${authHeader}`);
         break;
       }
       case 'jwt_tool': {

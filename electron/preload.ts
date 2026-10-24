@@ -137,6 +137,10 @@ contextBridge.exposeInMainWorld('api', {
   // Engagement Scope
   evaluateScopeUrl: (url: string, scope: Record<string, unknown>) => ipcRenderer.invoke('scope:evaluateUrl', url, scope),
 
+  // Docker Management
+  getDockerStatus: () => ipcRenderer.invoke('docker:getStatus'),
+  startDocker: () => ipcRenderer.invoke('docker:start'),
+
   // Application Version
   getAppVersion: () => ipcRenderer.invoke('app:getVersion'),
 });

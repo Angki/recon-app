@@ -148,7 +148,9 @@ function processOptions(ctx: ScannerContext) {
       '--volume',`${ctx.outDir}:/output`,runtime.image,...toolArgs
     ],useShell:false,cwd:ctx.outDir};
   }
-  return {executable:runtime.executable,args:[runtime.script,...toolArgs],useShell:false,cwd:ctx.outDir};
+  const isPython = runtime.executable.toLowerCase().includes('python');
+  const prefix = isPython ? ['-X', 'utf8', runtime.script] : [runtime.script];
+  return {executable:runtime.executable,args:[...prefix,...toolArgs],useShell:false,cwd:ctx.outDir};
 }
 export function parseCommix(text: string, target: string, parameters: string[]) {
   const report = JSON.parse(text);
@@ -165,7 +167,11 @@ export function parseCommix(text: string, target: string, parameters: string[]) 
 }
 
 export function parseSstimap(text: string, ctx: Pick<ScannerContext, 'targetUrl'>) {
-  const errors = text.split(/\r?\n/).filter(line => /\[(?:CRITICAL|ERROR)\]/i.test(line));
+  if (/usage:\s*sstimap\.py/i.test(text) || /sstimap\.py:\s*error:/i.test(text) || /UnicodeEncodeError/i.test(text)) {
+    throw new Error('SSTImap reported a command-line or runtime error; inspect its log.');
+  }
+
+  const errors = text.split(/\r?\n/).filter(line => /\[(?:CRITICAL|ERROR)\]/i.test(line) || /^Error:/i.test(line));
   if (errors.length > 0 && !/template injection/i.test(text)) {
     throw new Error('SSTImap reported an execution error; inspect its log.');
   }
@@ -177,6 +183,9 @@ export function parseSstimap(text: string, ctx: Pick<ScannerContext, 'targetUrl'
       return [];
     }
     if (!text.trim()) throw new Error('SSTImap produced empty output; assessment is inconclusive.');
+    if (/Scanning url:|Testing if Query parameter/i.test(text)) {
+      return [];
+    }
     return [];
   }
 
@@ -314,15 +323,24 @@ export const activeAdapters: Record<string, IScannerAdapter> = {
   sstimap: {
     getCommandArgs(ctx) {
       const config = plan(ctx);
+      let targetUrl = ctx.targetUrl;
+      if (config.parameters.length > 0) {
+        try {
+          const parsed = new URL(targetUrl);
+          for (const param of config.parameters) {
+            if (parsed.searchParams.has(param)) {
+              const val = parsed.searchParams.get(param) || '';
+              if (!val.endsWith('*')) parsed.searchParams.set(param, `${val}*`);
+            }
+          }
+          targetUrl = parsed.toString();
+        } catch { /* use targetUrl as is */ }
+      }
       return [
-        '-u', ctx.targetUrl,
-        '-p', config.parameters.join(','),
-        '--batch',
-        '--verify',
-        '--engine-detection',
-        `--delay=${config.delaySeconds}`,
-        '--timeout=15',
-        `--output-dir=${path.join(ctx.outDir, 'sstimap')}`
+        '-u', targetUrl,
+        '-P', 'Q',
+        '--no-color',
+        `--delay=${config.delaySeconds}`
       ];
     },
     getProcessOptions: processOptions,

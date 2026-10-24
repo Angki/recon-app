@@ -52,6 +52,7 @@ test('SSTImap parser distinguishes clean negative, empty output, and error condi
 
   assert.throws(() => parseSstimap('', { targetUrl }), /empty output/);
   assert.throws(() => parseSstimap('[CRITICAL] Target host unreachable: connection refused', { targetUrl }), /execution error/);
+  assert.throws(() => parseSstimap('usage: sstimap.py [-h] ...\nsstimap.py: error: ambiguous option: --verify could match --verify-ssl', { targetUrl }), /command-line or runtime error/);
 });
 
 test('SSTImap adapter uses non-destructive verification without shell or exfiltration flags', () => {
@@ -67,15 +68,20 @@ test('SSTImap adapter uses non-destructive verification without shell or exfiltr
 
   const args = activeAdapters.sstimap.getCommandArgs(ctx);
   assert.ok(args.includes('-u'));
-  assert.ok(args.includes(targetUrl));
-  assert.ok(args.includes('-p'));
-  assert.ok(args.includes('q'));
-  assert.ok(args.includes('--verify'));
-  assert.ok(args.includes('--batch'));
-  assert.ok(args.includes('--engine-detection'));
+  assert.ok(args.some(a => a.includes('http://127.0.0.1:5000/search?q=test*')));
+  assert.ok(args.includes('-P'));
+  assert.ok(args.includes('Q'));
+  assert.ok(args.includes('--no-color'));
+  assert.ok(args.includes('--delay=1'));
+  // Ensure invalid or proxy flags are omitted
+  assert.ok(!args.includes('-p'));
+  assert.ok(!args.includes('--verify'));
+  assert.ok(!args.includes('--batch'));
+  assert.ok(!args.includes('--engine-detection'));
   assert.ok(!args.some(a => /--os-shell|--os-cmd|--eval-shell|--bind-shell|--reverse-shell|--upload|--download/.test(a)));
   assert.ok(activeAdapters.sstimap.isSuccessExitCode!(0, ctx));
   assert.ok(activeAdapters.sstimap.isSuccessExitCode!(1, ctx));
+  assert.ok(!activeAdapters.sstimap.isSuccessExitCode!(2, ctx));
 });
 
 test('jwt_tool parser detects server-verified vulnerabilities with strict secret redaction', () => {
@@ -283,11 +289,13 @@ test('RequestWorkspace argument generation and safe preview secret redaction for
   // 1. SSTImap arguments and safe preview
   const sstimapArgs = RequestWorkspace.buildToolArguments('sstimap', req, secretAuth);
   assert.ok(sstimapArgs.includes('-u'));
-  assert.ok(sstimapArgs.includes('https://api.internal.lab/v1/profile?category=admin'));
+  assert.ok(sstimapArgs.includes('https://api.internal.lab/v1/profile?category=admin*'));
+  assert.ok(sstimapArgs.includes('-P'));
+  assert.ok(sstimapArgs.includes('QB'));
+  assert.ok(sstimapArgs.includes('--no-color'));
   assert.ok(sstimapArgs.includes('--data={"query": "admin"}'));
-  assert.ok(sstimapArgs.includes('-p'));
-  assert.ok(sstimapArgs.includes('category'));
-  assert.ok(sstimapArgs.includes('--headers=Authorization: ' + secretAuth));
+  assert.ok(!sstimapArgs.includes('-p'));
+  assert.ok(sstimapArgs.includes('--header=Authorization: ' + secretAuth));
 
   const sstimapPreview = RequestWorkspace.buildSafePreview('sstimap', req, secretAuth);
   assert.ok(!JSON.stringify(sstimapPreview).includes('secret'));

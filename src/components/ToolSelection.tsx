@@ -3,6 +3,7 @@ import {
   Layers, Shield, Globe, Terminal, Zap, Building2, ChevronRight, 
   KeyRound, SlidersHorizontal, Sparkles
 } from 'lucide-react';
+import { toast } from '../stores/useToastStore';
 
 interface ToolSelectionProps {
   allTools: string[];
@@ -181,7 +182,7 @@ export default function ToolSelection({
   const applyProfile = (tools: string[], profileId?: string) => {
     if (isRunning) return;
     if (isWebTarget && profileId === 'secrets-supplychain') {
-      alert("Preset 'Code & Secrets' (Gitleaks, Semgrep, Trivy) requires a local source repository or directory, not a live web URL.");
+      toast.warning("Preset 'Code & Secrets' (Gitleaks, Semgrep, Trivy) requires a local source repository or directory, not a live web URL.");
       return;
     }
     const compatibleTools = isWebTarget ? tools.filter(t => !sourceOnlyTools.includes(t)) : tools;
@@ -195,7 +196,7 @@ export default function ToolSelection({
       : categoryTools;
 
     if (compatibleTools.length === 0) {
-      alert('These tools require a local repository/directory target, and cannot run against a live web URL.');
+      toast.warning('These tools require a local repository/directory target, and cannot run against a live web URL.');
       return;
     }
 
@@ -402,7 +403,7 @@ export default function ToolSelection({
                           onClick={() => {
                             if (isRunning) return;
                             if (isIncompatible) {
-                              alert(`Tool '${tool}' requires a local source repository or directory target ('local_source'), and cannot run against a web URL. Use DAST engines (Nuclei, Wapiti, ZAP) for web application testing.`);
+                              toast.warning(`Tool '${tool}' requires a local source repository or directory target ('local_source'), and cannot run against a web URL. Use DAST engines (Nuclei, Wapiti, ZAP) for web application testing.`);
                               return;
                             }
                             if (isSelected) {

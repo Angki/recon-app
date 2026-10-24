@@ -68,8 +68,27 @@ export class PythonVenvManager {
     }
   }
 
+  getVenvRoot(): string {
+    return path.resolve(this.baseDir, 'venvs');
+  }
+
   getVenvDir(toolName: string): string {
-    return path.join(this.baseDir, 'venvs', toolName);
+    if (
+      typeof toolName !== 'string' ||
+      !toolName.trim() ||
+      toolName.includes('..') ||
+      toolName.includes('/') ||
+      toolName.includes('\\') ||
+      toolName.includes('\0')
+    ) {
+      throw new Error(`Invalid tool id for virtualenv path: '${String(toolName)}'.`);
+    }
+    const root = this.getVenvRoot();
+    const target = path.resolve(root, toolName);
+    if (target !== root && !target.startsWith(`${root}${path.sep}`)) {
+      throw new Error(`Refusing to resolve virtualenv outside the managed root: '${toolName}'.`);
+    }
+    return target;
   }
 
   getVenvPython(toolName: string): string {

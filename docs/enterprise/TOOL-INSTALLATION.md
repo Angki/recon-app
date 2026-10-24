@@ -27,3 +27,5 @@ Sumber: [SQLmap](https://github.com/sqlmapproject/sqlmap), [Commix](https://gith
 4. Installer tool berbasis manifest dengan versi/checksum, rollback, serta status dependency yang terpisah dari status executable.
 
 Penambahan engine berikutnya sebaiknya mengikuti kebutuhan yang belum tercakup dan disertai fixture parser serta pengujian lab. Katalog saat ini sudah memiliki banyak engine; kesiapan runtime dan keandalan hasil menjadi prioritas pada iterasi ini.
+
+Checklist integrasi tool baru tersedia di [ADDING-A-TOOL.md](./ADDING-A-TOOL.md).

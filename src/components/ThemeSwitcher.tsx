@@ -22,6 +22,8 @@ export const ThemeSwitcher: React.FC = () => {
             key={t.id}
             onClick={() => setTheme(t.id)}
             title={`Switch to ${t.label}`}
+            aria-label={`Switch to ${t.label} theme`}
+            aria-pressed={isActive}
             className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium transition-all duration-150 cursor-pointer ${
               isActive
                 ? 'bg-[var(--accent-primary)] text-white shadow-md font-semibold'

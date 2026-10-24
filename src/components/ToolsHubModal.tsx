@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { ToolHealthInfo } from '../types/global';
 import { useScanStore } from '../stores/useScanStore';
+import { Modal } from './ui/Modal';
 
 interface ToolsHubModalProps {
   isOpen: boolean;
@@ -112,8 +113,13 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4 animate-in fade-in duration-200">
-      <div className="w-full max-w-5xl max-h-[90vh] bg-[var(--bg-surface)] border border-[var(--border-card)] rounded-2xl shadow-2xl flex flex-col overflow-hidden theme-card">
+    <Modal
+      isOpen={isOpen}
+      onClose={onClose}
+      labelledBy="tools-hub-title"
+      describedBy="tools-hub-description"
+      panelClassName="w-full max-w-5xl max-h-[90vh] bg-[var(--bg-surface)] border border-[var(--border-card)] rounded-2xl shadow-2xl flex flex-col overflow-hidden theme-card"
+    >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-card)] bg-[var(--bg-card)]">
           <div className="flex items-center gap-3">
@@ -121,10 +127,10 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
               <Cpu className="w-6 h-6 text-[var(--accent-primary)]" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-[var(--text-primary)] tracking-tight">
+              <h2 id="tools-hub-title" className="text-lg font-bold text-[var(--text-primary)] tracking-tight">
                 Engines & Security Tool Suite
               </h2>
-              <p className="text-xs text-[var(--text-secondary)]">
+              <p id="tools-hub-description" className="text-xs text-[var(--text-secondary)]">
                 Manage, update, and auto-download ProjectDiscovery tools, Nuclei templates, and Wapiti.
               </p>
             </div>
@@ -154,8 +160,9 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
             <button
               onClick={onClose}
               className="p-1.5 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-white/5 transition-colors cursor-pointer ml-1"
+              aria-label="Close engines and preflight dialog"
             >
-              <X className="w-5 h-5" />
+              <X className="w-5 h-5" aria-hidden="true" />
             </button>
           </div>
         </div>
@@ -194,6 +201,7 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
               <button
                 key={cat}
                 onClick={() => setFilterCategory(cat)}
+                aria-pressed={filterCategory === cat}
                 className={`px-3 py-1 rounded-lg text-xs font-medium uppercase tracking-wider transition-all cursor-pointer ${
                   filterCategory === cat
                     ? 'bg-[var(--accent-primary)] text-white shadow-sm'
@@ -317,6 +325,7 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
               <button
                 onClick={() => setLogs([])}
                 className="hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+                aria-label="Clear engine console output"
               >
                 Clear Output
               </button>
@@ -329,7 +338,6 @@ export const ToolsHubModal: React.FC<ToolsHubModalProps> = ({ isOpen, onClose })
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 };

@@ -24,6 +24,13 @@ if (existingDirs.length > 0) {
 }
 process.env.PYTHONIOENCODING = 'utf-8';
 
+// Disable Chromium network service sandbox on Windows only for local dev servers.
+// Production builds keep the Chromium sandbox enabled.
+const isDev = Boolean(process.env.VITE_DEV_SERVER_URL);
+if (isDev && process.platform === 'win32') {
+  app.commandLine.appendSwitch('disable-features', 'NetworkServiceSandbox');
+}
+
 let mainWindow: BrowserWindow | null = null;
 
 function createWindow() {
@@ -34,6 +41,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
       contextIsolation: true,
+      sandbox: !isDev,
     },
     titleBarStyle: 'hidden', // Sleek dashboard look
     titleBarOverlay: {

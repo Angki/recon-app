@@ -476,6 +476,7 @@ export default function TerminalPane({
             <input 
               type="text" 
               placeholder="Search logs..."
+              aria-label="Search console logs"
               className="bg-transparent border-none text-xs text-[var(--text-primary)] outline-none w-24 md:w-32 placeholder-[var(--text-muted)]"
               value={searchTerm}
               onChange={e => setSearchTerm(e.target.value)}
@@ -489,6 +490,7 @@ export default function TerminalPane({
           </div>
           <button 
             onClick={toggleAutoScroll}
+            aria-pressed={autoScroll}
             className={`text-xs px-2.5 py-1 rounded-lg transition-all font-medium cursor-pointer ${
               autoScroll 
                 ? 'bg-[var(--accent-primary)] text-white shadow-sm' 
@@ -498,12 +500,12 @@ export default function TerminalPane({
             Auto-scroll
           </button>
           <div className="flex bg-[var(--bg-card)] rounded-lg border border-[var(--border-card)] overflow-hidden">
-            <button onClick={handleCopy} className="p-1.5 hover:bg-white/5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer" title="Copy Console Output">
-              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+            <button onClick={handleCopy} className="p-1.5 hover:bg-white/5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer" title="Copy Console Output" aria-label="Copy console output">
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" aria-hidden="true" /> : <Copy className="w-3.5 h-3.5" aria-hidden="true" />}
             </button>
             <div className="w-[1px] bg-[var(--border-card)]"></div>
-            <button onClick={clearTerminal} className="p-1.5 hover:bg-red-500/20 text-[var(--text-secondary)] hover:text-red-400 transition-colors cursor-pointer" title="Clear Console">
-              <Trash2 className="w-3.5 h-3.5" />
+            <button onClick={clearTerminal} className="p-1.5 hover:bg-red-500/20 text-[var(--text-secondary)] hover:text-red-400 transition-colors cursor-pointer" title="Clear Console" aria-label="Clear console output">
+              <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
             </button>
           </div>
         </div>

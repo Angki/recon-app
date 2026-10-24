@@ -92,6 +92,10 @@ declare global {
       // Engagement Scope
       evaluateScopeUrl: (url: string, scope: any) => Promise<{ inScope: boolean; reason?: string }>;
 
+      // Docker Management
+      getDockerStatus: () => Promise<{ installed: boolean; running: boolean; version?: string; desktopExecutable?: string }>;
+      startDocker: () => Promise<{ ready: boolean; error?: string }>;
+
       // Application Version
       getAppVersion: () => Promise<string>;
     }

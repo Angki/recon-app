@@ -321,6 +321,17 @@ export function registerIpcHandlers() {
     return ScopeEnforcer.isUrlInScope(url, scope);
   });
 
+  // Docker Desktop Orchestration & Status
+  ipcMain.handle('docker:getStatus', async () => {
+    const { dockerService } = await import('./services/platform/dockerService');
+    return dockerService.getStatus();
+  });
+
+  ipcMain.handle('docker:start', async () => {
+    const { dockerService } = await import('./services/platform/dockerService');
+    return dockerService.ensureDockerReady();
+  });
+
   // App Version
   ipcMain.handle('app:getVersion', () => {
     try {

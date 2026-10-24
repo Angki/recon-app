@@ -37,6 +37,7 @@ export const CommandHeader: React.FC<CommandHeaderProps> = ({ onOpenToolsHub }) 
       <div className="flex items-center gap-3">
         <button
           onClick={onOpenToolsHub}
+          aria-haspopup="dialog"
           className="flex items-center gap-2 px-3.5 py-1.5 text-xs font-medium rounded-xl bg-[var(--bg-card)] border border-[var(--border-card)] hover:border-[var(--border-glow)] text-[var(--text-primary)] transition-all cursor-pointer shadow-sm hover:shadow"
         >
           <Cpu className="w-4 h-4 text-[var(--accent-primary)]" />
